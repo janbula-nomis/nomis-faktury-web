@@ -1,0 +1,9 @@
+{
+  "name": "nomis-faktury-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Evidence faktur a účtenek pro Nomis Group – Netlify Functions + statický frontend, data v Google Sheets/Disku.",
+  "dependencies": {
+    "googleapis": "^144.0.0"
+  }
+}
