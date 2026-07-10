@@ -1,0 +1,106 @@
+:root {
+  --barva-pozadi: #f5f6f8;
+  --barva-karta: #ffffff;
+  --barva-text: #1f2430;
+  --barva-text-tlumena: #6b7280;
+  --barva-hranice: #e2e5ea;
+  --barva-primarni: #2454ff;
+  --barva-primarni-tmava: #1a3fd6;
+  --barva-uspech: #1a9c6b;
+  --barva-varovani: #b8860b;
+  --barva-chyba: #d0342c;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--barva-pozadi);
+  color: var(--barva-text);
+}
+
+#app { max-width: 900px; margin: 0 auto; padding: 16px; }
+
+.skryto { display: none !important; }
+
+.karta {
+  background: var(--barva-karta);
+  border: 1px solid var(--barva-hranice);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 0 0 12px; }
+p.popis { color: var(--barva-text-tlumena); margin-top: 0; }
+
+label { display: block; font-size: 13px; color: var(--barva-text-tlumena); margin-bottom: 4px; margin-top: 12px; }
+
+input[type="text"], input[type="password"], input[type="number"], select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--barva-hranice);
+  border-radius: 8px;
+  font-size: 16px;
+  background: var(--barva-karta);
+  color: var(--barva-text);
+}
+
+button {
+  font-size: 15px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: var(--barva-primarni);
+  color: white;
+  margin-top: 14px;
+}
+button:hover { background: var(--barva-primarni-tmava); }
+button.sekundarni { background: transparent; color: var(--barva-primarni); border: 1px solid var(--barva-primarni); }
+button.maly { padding: 6px 10px; font-size: 13px; margin-top: 0; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+nav.zalozky { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+nav.zalozky button {
+  background: var(--barva-karta);
+  color: var(--barva-text);
+  border: 1px solid var(--barva-hranice);
+  margin-top: 0;
+}
+nav.zalozky button.aktivni { background: var(--barva-primarni); color: white; border-color: var(--barva-primarni); }
+
+.hlavicka-app { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.hlavicka-app .uzivatel { font-size: 13px; color: var(--barva-text-tlumena); text-align: right; }
+
+.zprava { padding: 10px 12px; border-radius: 8px; font-size: 14px; margin-top: 12px; }
+.zprava.chyba { background: #fdecea; color: var(--barva-chyba); }
+.zprava.uspech { background: #e8f7f0; color: var(--barva-uspech); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--barva-hranice); vertical-align: top; }
+th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
+
+.stav-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.stav-ke-kontrole { background: #fff4de; color: var(--barva-varovani); }
+.stav-schvaleno { background: #e8f7f0; color: var(--barva-uspech); }
+.stav-duplicita { background: #fdecea; color: var(--barva-chyba); }
+
+.mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.polozka-souhrn { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 14px; }
+.polozka-souhrn:last-child { border-bottom: none; }
+
+.nacitani { font-size: 14px; color: var(--barva-text-tlumena); }
+
+input[type="file"] { margin-top: 8px; }
+
+@media (max-width: 480px) {
+  table, thead, tbody, th, td, tr { display: block; }
+  thead { display: none; }
+  tr { border-bottom: 2px solid var(--barva-hranice); padding: 8px 0; }
+  td { border-bottom: none; padding: 4px 0; }
+  td::before { content: attr(data-label) ": "; font-weight: 600; color: var(--barva-text-tlumena); }
+}

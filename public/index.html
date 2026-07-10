@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nomis Faktury</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- PŘIHLÁŠENÍ -->
+  <section id="view-login" class="karta">
+    <h1>Nomis Faktury</h1>
+    <p class="popis">Evidence faktur a účtenek – Nomis Group</p>
+    <label for="pole-pin">PIN</label>
+    <input type="password" id="pole-pin" inputmode="numeric" autocomplete="off" placeholder="Zadejte svůj PIN" />
+    <button id="tlacitko-prihlasit">Přihlásit se</button>
+    <div id="login-zprava"></div>
+  </section>
+
+  <!-- HLAVNÍ APLIKACE -->
+  <section id="view-app" class="skryto">
+    <div class="hlavicka-app">
+      <h1>Nomis Faktury</h1>
+      <div class="uzivatel">
+        <div id="jmeno-uzivatele"></div>
+        <button class="sekundarni maly" id="tlacitko-odhlasit">Odhlásit</button>
+      </div>
+    </div>
+
+    <nav class="zalozky">
+      <button data-zalozka="nahrat" class="aktivni">Nahrát doklad</button>
+      <button data-zalozka="doklady">Doklady</button>
+      <button data-zalozka="prehled">Přehled</button>
+    </nav>
+
+    <!-- NAHRÁT -->
+    <div id="zalozka-nahrat" class="karta">
+      <h2>Nahrát nový doklad</h2>
+      <p class="popis">Vyfoťte nebo vyberte fakturu/účtenku. Fotky se před odesláním automaticky zmenší.</p>
+      <input type="file" id="pole-soubor" accept="image/*,application/pdf" capture="environment" />
+      <button id="tlacitko-nahrat" disabled>Nahrát a zpracovat</button>
+      <div id="nahrat-zprava"></div>
+    </div>
+
+    <!-- DOKLADY -->
+    <div id="zalozka-doklady" class="karta skryto">
+      <h2>Doklady ke kontrole i schválené</h2>
+      <div id="doklady-nacitani" class="nacitani">Načítám…</div>
+      <div style="overflow-x:auto">
+      <table id="tabulka-doklady">
+        <thead>
+          <tr>
+            <th>Stav</th>
+            <th>Dodavatel</th>
+            <th>Datum</th>
+            <th>Částka</th>
+            <th>Firma</th>
+            <th>Kategorie</th>
+            <th>SPZ</th>
+            <th>Soubor</th>
+            <th>Akce</th>
+          </tr>
+        </thead>
+        <tbody id="tabulka-doklady-telo"></tbody>
+      </table>
+      </div>
+    </div>
+
+    <!-- PŘEHLED -->
+    <div id="zalozka-prehled" class="karta skryto">
+      <h2>Přehled nákladů</h2>
+      <div id="prehled-nacitani" class="nacitani">Načítám…</div>
+      <div id="prehled-obsah" class="skryto">
+        <p><strong id="prehled-pocet"></strong></p>
+        <h2>Podle firmy</h2>
+        <div class="mriz-souhrn" id="souhrn-firmy"></div>
+        <h2 style="margin-top:20px">Podle kategorie</h2>
+        <div class="mriz-souhrn" id="souhrn-kategorie"></div>
+        <h2 style="margin-top:20px">Podle měsíce</h2>
+        <div class="mriz-souhrn" id="souhrn-mesic"></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>
