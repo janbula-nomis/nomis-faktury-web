@@ -800,6 +800,10 @@ document.getElementById('tlacitko-nahrat').addEventListener('click', nahratDokla
 document.getElementById('tlacitko-pridat-uzivatele').addEventListener('click', pridatUzivatele);
 document.getElementById('tlacitko-pridat-firmu').addEventListener('click', pridatFirmu);
 document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridatAuto);
+document.getElementById('tlacitko-pripojit-google').addEventListener('click', () => {
+  if (!stav || !stav.token) return;
+  window.open('/.netlify/functions/google-oauth-start?token=' + encodeURIComponent(stav.token), '_blank');
+});
 
 document.querySelectorAll('nav.zalozky button').forEach((btn) => {
   btn.addEventListener('click', () => prepniZalozku(btn.dataset.zalozka));
