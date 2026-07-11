@@ -33,6 +33,9 @@
       <button data-zalozka="nahrat" class="aktivni">Nahrát doklad</button>
       <button data-zalozka="doklady">Doklady</button>
       <button data-zalozka="prehled">Přehled</button>
+      <button data-zalozka="uzivatele" id="nav-uzivatele" class="skryto">Uživatelé</button>
+      <button data-zalozka="firmy" id="nav-firmy" class="skryto">Firmy</button>
+      <button data-zalozka="auta" id="nav-auta" class="skryto">Auta</button>
     </nav>
 
     <!-- NAHRÁT -->
@@ -80,6 +83,85 @@
         <div class="mriz-souhrn" id="souhrn-kategorie"></div>
         <h2 style="margin-top:20px">Podle měsíce</h2>
         <div class="mriz-souhrn" id="souhrn-mesic"></div>
+      </div>
+    </div>
+
+    <!-- ADMIN: UŽIVATELÉ -->
+    <div id="zalozka-uzivatele" class="karta skryto">
+      <h2>Přidat uživatele</h2>
+      <label for="novy-u-jmeno">Jméno</label>
+      <input type="text" id="novy-u-jmeno" placeholder="Jméno a příjmení" />
+      <label for="novy-u-pin">PIN</label>
+      <input type="text" id="novy-u-pin" inputmode="numeric" placeholder="např. 4127" />
+      <label>Firmy</label>
+      <div id="novy-u-firmy" class="firmy-checkboxy"></div>
+      <label for="novy-u-role">Role</label>
+      <select id="novy-u-role">
+        <option value="">Uživatel (vidí jen zvolené firmy)</option>
+        <option value="admin">Admin (vidí a spravuje vše)</option>
+      </select>
+      <button id="tlacitko-pridat-uzivatele">Přidat uživatele</button>
+      <div id="uzivatele-zprava"></div>
+
+      <h2 style="margin-top:24px">Existující uživatelé</h2>
+      <div id="uzivatele-nacitani" class="nacitani">Načítám…</div>
+      <div style="overflow-x:auto">
+      <table id="tabulka-uzivatele">
+        <thead><tr><th>Jméno</th><th>PIN</th><th>Firmy</th><th>Role</th><th>Akce</th></tr></thead>
+        <tbody id="tabulka-uzivatele-telo"></tbody>
+      </table>
+      </div>
+    </div>
+
+    <!-- ADMIN: FIRMY -->
+    <div id="zalozka-firmy" class="karta skryto">
+      <h2>Přidat firmu</h2>
+      <label for="nova-f-nazev">Název</label>
+      <input type="text" id="nova-f-nazev" placeholder="např. NOMIS Example s.r.o." />
+      <label for="nova-f-ico">IČO</label>
+      <input type="text" id="nova-f-ico" />
+      <label for="nova-f-dic">DIČ</label>
+      <input type="text" id="nova-f-dic" />
+      <label for="nova-f-platce">Plátce DPH</label>
+      <select id="nova-f-platce">
+        <option value="NE">Ne</option>
+        <option value="ANO">Ano</option>
+      </select>
+      <button id="tlacitko-pridat-firmu">Přidat firmu</button>
+      <div id="firmy-zprava"></div>
+
+      <h2 style="margin-top:24px">Existující firmy</h2>
+      <p class="popis">Název firmy se z appky nedá měnit (používá se jinde jako identifikátor) – jen IČO/DIČ/plátce DPH.</p>
+      <div id="firmy-nacitani" class="nacitani">Načítám…</div>
+      <div style="overflow-x:auto">
+      <table id="tabulka-firmy">
+        <thead><tr><th>Název</th><th>IČO</th><th>DIČ</th><th>Plátce DPH</th><th>Akce</th></tr></thead>
+        <tbody id="tabulka-firmy-telo"></tbody>
+      </table>
+      </div>
+    </div>
+
+    <!-- ADMIN: AUTA -->
+    <div id="zalozka-auta" class="karta skryto">
+      <h2>Přidat auto</h2>
+      <label for="nove-a-spz">SPZ</label>
+      <input type="text" id="nove-a-spz" placeholder="např. 1AB 2345" />
+      <label for="nove-a-model">Model</label>
+      <input type="text" id="nove-a-model" />
+      <label for="nove-a-firma">Firma</label>
+      <select id="nove-a-firma"></select>
+      <label for="nove-a-ridic">Řidič</label>
+      <input type="text" id="nove-a-ridic" />
+      <button id="tlacitko-pridat-auto">Přidat auto</button>
+      <div id="auta-zprava"></div>
+
+      <h2 style="margin-top:24px">Existující auta</h2>
+      <div id="auta-nacitani" class="nacitani">Načítám…</div>
+      <div style="overflow-x:auto">
+      <table id="tabulka-auta">
+        <thead><tr><th>SPZ</th><th>Model</th><th>Firma</th><th>Řidič</th><th>Akce</th></tr></thead>
+        <tbody id="tabulka-auta-telo"></tbody>
+      </table>
       </div>
     </div>
   </section>

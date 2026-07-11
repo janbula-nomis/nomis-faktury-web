@@ -85,11 +85,17 @@ function zobrazApp() {
   document.getElementById('view-app').classList.remove('skryto');
   document.getElementById('jmeno-uzivatele').textContent =
     stav.jmeno + (stav.role === 'admin' ? ' (admin)' : '');
+
+  const jeAdmin = stav.role === 'admin';
+  ['nav-uzivatele', 'nav-firmy', 'nav-auta'].forEach((id) => {
+    document.getElementById(id).classList.toggle('skryto', !jeAdmin);
+  });
+
   prepniZalozku('nahrat');
 }
 
 function prepniZalozku(nazev) {
-  ['nahrat', 'doklady', 'prehled'].forEach((n) => {
+  ['nahrat', 'doklady', 'prehled', 'uzivatele', 'firmy', 'auta'].forEach((n) => {
     document.getElementById('zalozka-' + n).classList.toggle('skryto', n !== nazev);
   });
   document.querySelectorAll('nav.zalozky button').forEach((btn) => {
@@ -97,6 +103,9 @@ function prepniZalozku(nazev) {
   });
   if (nazev === 'doklady') nactiDoklady();
   if (nazev === 'prehled') nactiPrehled();
+  if (nazev === 'uzivatele') nactiUzivatele();
+  if (nazev === 'firmy') nactiFirmy();
+  if (nazev === 'auta') nactiAuta();
 }
 
 // ---------- NAHRÁVÁNÍ DOKLADU ----------
@@ -341,6 +350,432 @@ function formatCastka(cislo) {
   return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(cislo) + ' Kč';
 }
 
+// ---------- ADMIN: UŽIVATELÉ ----------
+
+async function nactiUzivatele() {
+  const nacitani = document.getElementById('uzivatele-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  try {
+    const data = await zavolejApi('/uzivatele', { method: 'GET' });
+    nacitani.classList.add('skryto');
+    vykresliFirmyCheckboxy('novy-u-firmy', data.firmyDostupne || [], []);
+    vykresliUzivatele(data.uzivatele || []);
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst uživatele: ' + e.message;
+  }
+}
+
+function vykresliFirmyCheckboxy(idKontejneru, firmyDostupne, zaskrtnuteFirmy) {
+  const kontejner = document.getElementById(idKontejneru);
+  kontejner.innerHTML = '';
+
+  firmyDostupne.forEach((nazev) => {
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = nazev;
+    checkbox.checked = zaskrtnuteFirmy.includes(nazev);
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(' ' + nazev));
+    kontejner.appendChild(label);
+  });
+
+  if (firmyDostupne.length === 0) {
+    kontejner.innerHTML = '<span class="nacitani">Nejdřív přidejte alespoň jednu firmu v záložce Firmy.</span>';
+  }
+}
+
+function precistZaskrtnuteFirmy(idKontejneru) {
+  return Array.from(document.querySelectorAll('#' + idKontejneru + ' input[type=checkbox]:checked')).map((c) => c.value);
+}
+
+function vykresliUzivatele(uzivatele) {
+  const telo = document.getElementById('tabulka-uzivatele-telo');
+  telo.innerHTML = '';
+
+  uzivatele.forEach((u) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td data-label="Jméno"></td>' +
+      '<td data-label="PIN"></td>' +
+      '<td data-label="Firmy"></td>' +
+      '<td data-label="Role"></td>' +
+      '<td data-label="Akce"></td>';
+
+    const vstupJmeno = document.createElement('input');
+    vstupJmeno.type = 'text';
+    vstupJmeno.value = u.Jmeno || '';
+    vstupJmeno.style.fontSize = '13px';
+    tr.children[0].appendChild(vstupJmeno);
+
+    const vstupPin = document.createElement('input');
+    vstupPin.type = 'text';
+    vstupPin.value = u.PIN || '';
+    vstupPin.style.fontSize = '13px';
+    vstupPin.style.maxWidth = '90px';
+    tr.children[1].appendChild(vstupPin);
+
+    const existujiciFirmy = String(u.Firmy || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const idFiremKontejneru = 'u-firmy-' + u._row;
+    const divFirmy = document.createElement('div');
+    divFirmy.id = idFiremKontejneru;
+    divFirmy.className = 'firmy-checkboxy';
+    tr.children[2].appendChild(divFirmy);
+
+    const vyberRole = document.createElement('select');
+    vyberRole.innerHTML = '<option value="">Uživatel</option><option value="admin">Admin</option>';
+    vyberRole.value = u.Role === 'admin' ? 'admin' : '';
+    tr.children[3].appendChild(vyberRole);
+
+    const tlacitkoUlozit = document.createElement('button');
+    tlacitkoUlozit.className = 'maly sekundarni';
+    tlacitkoUlozit.textContent = 'Uložit';
+    tlacitkoUlozit.onclick = () => ulozUzivatele(u._row, {
+      Jmeno: vstupJmeno.value.trim(),
+      PIN: vstupPin.value.trim(),
+      Firmy: precistZaskrtnuteFirmy(idFiremKontejneru),
+      Role: vyberRole.value,
+    }, tlacitkoUlozit);
+    tr.children[4].appendChild(tlacitkoUlozit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.style.marginLeft = '6px';
+    tlacitkoSmazat.onclick = () => smazUzivatele(u._row, u.Jmeno, tlacitkoSmazat);
+    tr.children[4].appendChild(tlacitkoSmazat);
+
+    telo.appendChild(tr);
+
+    // Checkboxy pro firmy dokreslíme až po vložení řádku do DOM, ať víme, co zaškrtnout.
+    zavolejApi('/uzivatele', { method: 'GET' }).then((data) => {
+      vykresliFirmyCheckboxy(idFiremKontejneru, data.firmyDostupne || [], existujiciFirmy);
+    }).catch(() => {
+      divFirmy.textContent = String(u.Firmy || '');
+    });
+  });
+
+  if (uzivatele.length === 0) {
+    telo.innerHTML = '<tr><td colspan="5" class="nacitani">Zatím žádní uživatelé.</td></tr>';
+  }
+}
+
+async function pridatUzivatele() {
+  const zprava = document.getElementById('uzivatele-zprava');
+  zprava.innerHTML = '';
+
+  const jmeno = document.getElementById('novy-u-jmeno').value.trim();
+  const pin = document.getElementById('novy-u-pin').value.trim();
+  const firmy = precistZaskrtnuteFirmy('novy-u-firmy');
+  const role = document.getElementById('novy-u-role').value;
+
+  if (!jmeno || !pin) {
+    zprava.innerHTML = '<div class="zprava chyba">Jméno a PIN jsou povinné.</div>';
+    return;
+  }
+
+  try {
+    await zavolejApi('/uzivatele', {
+      method: 'POST',
+      body: JSON.stringify({ Jmeno: jmeno, PIN: pin, Firmy: firmy, Role: role }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Uživatel přidán.</div>';
+    document.getElementById('novy-u-jmeno').value = '';
+    document.getElementById('novy-u-pin').value = '';
+    document.getElementById('novy-u-role').value = '';
+    await nactiUzivatele();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function ulozUzivatele(row, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/uzivatele', { method: 'PATCH', body: JSON.stringify({ row, zmeny }) });
+    await nactiUzivatele();
+  } catch (e) {
+    alert('Nepodařilo se uložit uživatele: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazUzivatele(row, jmeno, tlacitko) {
+  if (!confirm('Opravdu smazat uživatele „' + jmeno + '“?')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/uzivatele?row=' + row, { method: 'DELETE' });
+    await nactiUzivatele();
+  } catch (e) {
+    alert('Nepodařilo se smazat uživatele: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+// ---------- ADMIN: FIRMY ----------
+
+async function nactiFirmy() {
+  const nacitani = document.getElementById('firmy-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  try {
+    const data = await zavolejApi('/firmy', { method: 'GET' });
+    nacitani.classList.add('skryto');
+    vykresliFirmy(data.firmy || []);
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst firmy: ' + e.message;
+  }
+}
+
+function vykresliFirmy(firmy) {
+  const telo = document.getElementById('tabulka-firmy-telo');
+  telo.innerHTML = '';
+
+  firmy.forEach((f) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td data-label="Název"></td>' +
+      '<td data-label="IČO"></td>' +
+      '<td data-label="DIČ"></td>' +
+      '<td data-label="Plátce DPH"></td>' +
+      '<td data-label="Akce"></td>';
+
+    tr.children[0].textContent = f.Nazev || '';
+
+    const vstupIco = document.createElement('input');
+    vstupIco.type = 'text';
+    vstupIco.value = f.ICO || '';
+    vstupIco.style.fontSize = '13px';
+    tr.children[1].appendChild(vstupIco);
+
+    const vstupDic = document.createElement('input');
+    vstupDic.type = 'text';
+    vstupDic.value = f.DIC || '';
+    vstupDic.style.fontSize = '13px';
+    tr.children[2].appendChild(vstupDic);
+
+    const vyberPlatce = document.createElement('select');
+    vyberPlatce.innerHTML = '<option value="NE">Ne</option><option value="ANO">Ano</option>';
+    vyberPlatce.value = f.Platce_DPH === 'ANO' ? 'ANO' : 'NE';
+    tr.children[3].appendChild(vyberPlatce);
+
+    const tlacitkoUlozit = document.createElement('button');
+    tlacitkoUlozit.className = 'maly sekundarni';
+    tlacitkoUlozit.textContent = 'Uložit';
+    tlacitkoUlozit.onclick = () => ulozFirmu(f._row, {
+      ICO: vstupIco.value.trim(),
+      DIC: vstupDic.value.trim(),
+      Platce_DPH: vyberPlatce.value,
+    }, tlacitkoUlozit);
+    tr.children[4].appendChild(tlacitkoUlozit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.style.marginLeft = '6px';
+    tlacitkoSmazat.onclick = () => smazFirmu(f._row, f.Nazev, tlacitkoSmazat);
+    tr.children[4].appendChild(tlacitkoSmazat);
+
+    telo.appendChild(tr);
+  });
+
+  if (firmy.length === 0) {
+    telo.innerHTML = '<tr><td colspan="5" class="nacitani">Zatím žádné firmy.</td></tr>';
+  }
+}
+
+async function pridatFirmu() {
+  const zprava = document.getElementById('firmy-zprava');
+  zprava.innerHTML = '';
+
+  const nazev = document.getElementById('nova-f-nazev').value.trim();
+  if (!nazev) {
+    zprava.innerHTML = '<div class="zprava chyba">Název firmy je povinný.</div>';
+    return;
+  }
+
+  try {
+    await zavolejApi('/firmy', {
+      method: 'POST',
+      body: JSON.stringify({
+        Nazev: nazev,
+        ICO: document.getElementById('nova-f-ico').value.trim(),
+        DIC: document.getElementById('nova-f-dic').value.trim(),
+        Platce_DPH: document.getElementById('nova-f-platce').value,
+      }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Firma přidána.</div>';
+    document.getElementById('nova-f-nazev').value = '';
+    document.getElementById('nova-f-ico').value = '';
+    document.getElementById('nova-f-dic').value = '';
+    await nactiFirmy();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function ulozFirmu(row, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/firmy', { method: 'PATCH', body: JSON.stringify({ row, zmeny }) });
+    await nactiFirmy();
+  } catch (e) {
+    alert('Nepodařilo se uložit firmu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazFirmu(row, nazev, tlacitko) {
+  if (!confirm('Opravdu smazat firmu „' + nazev + '“? Existující doklady/uživatelé s touto firmou zůstanou beze změny, jen ji už nepůjde nově přiřazovat.')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/firmy?row=' + row, { method: 'DELETE' });
+    await nactiFirmy();
+  } catch (e) {
+    alert('Nepodařilo se smazat firmu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+// ---------- ADMIN: AUTA ----------
+
+async function nactiAuta() {
+  const nacitani = document.getElementById('auta-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  try {
+    const data = await zavolejApi('/auta', { method: 'GET' });
+    nacitani.classList.add('skryto');
+    vyplnVyberFirem('nove-a-firma', data.firmyDostupne || []);
+    vykresliAuta(data.auta || [], data.firmyDostupne || []);
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst auta: ' + e.message;
+  }
+}
+
+function vyplnVyberFirem(idSelectu, firmyDostupne) {
+  const select = document.getElementById(idSelectu);
+  const puvodniHodnota = select.value;
+  select.innerHTML = '<option value=""></option>' +
+    firmyDostupne.map((n) => '<option value="' + escapeAttr(n) + '">' + escapeHtml(n) + '</option>').join('');
+  select.value = puvodniHodnota;
+}
+
+function vykresliAuta(auta, firmyDostupne) {
+  const telo = document.getElementById('tabulka-auta-telo');
+  telo.innerHTML = '';
+
+  auta.forEach((a) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td data-label="SPZ"></td>' +
+      '<td data-label="Model"></td>' +
+      '<td data-label="Firma"></td>' +
+      '<td data-label="Řidič"></td>' +
+      '<td data-label="Akce"></td>';
+
+    tr.children[0].textContent = a.SPZ || '';
+
+    const vstupModel = document.createElement('input');
+    vstupModel.type = 'text';
+    vstupModel.value = a.Model || '';
+    vstupModel.style.fontSize = '13px';
+    tr.children[1].appendChild(vstupModel);
+
+    const vyberFirma = document.createElement('select');
+    vyberFirma.innerHTML = '<option value=""></option>' +
+      firmyDostupne.map((n) => '<option value="' + escapeAttr(n) + '">' + escapeHtml(n) + '</option>').join('');
+    vyberFirma.value = a.Firma || '';
+    tr.children[2].appendChild(vyberFirma);
+
+    const vstupRidic = document.createElement('input');
+    vstupRidic.type = 'text';
+    vstupRidic.value = a.Ridic || '';
+    vstupRidic.style.fontSize = '13px';
+    tr.children[3].appendChild(vstupRidic);
+
+    const tlacitkoUlozit = document.createElement('button');
+    tlacitkoUlozit.className = 'maly sekundarni';
+    tlacitkoUlozit.textContent = 'Uložit';
+    tlacitkoUlozit.onclick = () => ulozAuto(a._row, {
+      Model: vstupModel.value.trim(),
+      Firma: vyberFirma.value,
+      Ridic: vstupRidic.value.trim(),
+    }, tlacitkoUlozit);
+    tr.children[4].appendChild(tlacitkoUlozit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.style.marginLeft = '6px';
+    tlacitkoSmazat.onclick = () => smazAuto(a._row, a.SPZ, tlacitkoSmazat);
+    tr.children[4].appendChild(tlacitkoSmazat);
+
+    telo.appendChild(tr);
+  });
+
+  if (auta.length === 0) {
+    telo.innerHTML = '<tr><td colspan="5" class="nacitani">Zatím žádná auta.</td></tr>';
+  }
+}
+
+async function pridatAuto() {
+  const zprava = document.getElementById('auta-zprava');
+  zprava.innerHTML = '';
+
+  const spz = document.getElementById('nove-a-spz').value.trim();
+  if (!spz) {
+    zprava.innerHTML = '<div class="zprava chyba">SPZ je povinná.</div>';
+    return;
+  }
+
+  try {
+    await zavolejApi('/auta', {
+      method: 'POST',
+      body: JSON.stringify({
+        SPZ: spz,
+        Model: document.getElementById('nove-a-model').value.trim(),
+        Firma: document.getElementById('nove-a-firma').value,
+        Ridic: document.getElementById('nove-a-ridic').value.trim(),
+      }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Auto přidáno.</div>';
+    document.getElementById('nove-a-spz').value = '';
+    document.getElementById('nove-a-model').value = '';
+    document.getElementById('nove-a-ridic').value = '';
+    await nactiAuta();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function ulozAuto(row, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/auta', { method: 'PATCH', body: JSON.stringify({ row, zmeny }) });
+    await nactiAuta();
+  } catch (e) {
+    alert('Nepodařilo se uložit auto: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazAuto(row, spz, tlacitko) {
+  if (!confirm('Opravdu smazat auto „' + spz + '“?')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/auta?row=' + row, { method: 'DELETE' });
+    await nactiAuta();
+  } catch (e) {
+    alert('Nepodařilo se smazat auto: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
 // ---------- POMOCNÉ ----------
 
 function escapeHtml(text) {
@@ -362,6 +797,9 @@ document.getElementById('pole-pin').addEventListener('keydown', (e) => {
 document.getElementById('tlacitko-odhlasit').addEventListener('click', odhlasit);
 document.getElementById('pole-soubor').addEventListener('change', (e) => zpracujVybranySoubor(e.target.files[0]));
 document.getElementById('tlacitko-nahrat').addEventListener('click', nahratDoklad);
+document.getElementById('tlacitko-pridat-uzivatele').addEventListener('click', pridatUzivatele);
+document.getElementById('tlacitko-pridat-firmu').addEventListener('click', pridatFirmu);
+document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridatAuto);
 
 document.querySelectorAll('nav.zalozky button').forEach((btn) => {
   btn.addEventListener('click', () => prepniZalozku(btn.dataset.zalozka));

@@ -4,13 +4,22 @@
  * Auta, Doklady, Log a Uzivatele s hlavičkami a ukázkovými daty. Bezpečně
  * chráněná SETUP_SECRET, aby ji nemohl spustit kdokoliv, kdo uhodne URL.
  *
+ * Zároveň ověří/zajistí Inbox složku na Disku (viz lib/driveHelpers.js) -
+ * appka používá scope drive.file, takže potřebuje složku, kterou vytvořila
+ * sama appka, ne ručně založenou uživatelem (jinak by k ní neměla přístup).
+ * Pokud INBOX_FOLDER_ID buď chybí, nebo appka k té složce nemá přístup,
+ * tahle funkce novou Inbox složku sama založí a vrátí její ID v odpovědi -
+ * tu hodnotu je pak potřeba nastavit jako INBOX_FOLDER_ID v Netlify env a
+ * appku znovu nasadit.
+ *
  * Použití: POST na /.netlify/functions/setup s hlavičkou
  *   X-Setup-Secret: <hodnota SETUP_SECRET z Netlify env>
  *
  * Po prvním úspěšném nastavení doporučujeme SETUP_SECRET v Netlify env
  * smazat/změnit, aby funkce nešla znovu spustit omylem.
  */
-const { getSheetsClient } = require('../../lib/google');
+const { getSheetsClient, getDriveClient } = require('../../lib/google');
+const { zajistiInboxSlozku } = require('../../lib/driveHelpers');
 const { json } = require('../../lib/http');
 
 const LISTY = [
@@ -89,7 +98,23 @@ exports.handler = async (event) => {
       }
     }
 
-    return json(200, { ok: true, vysledky });
+    const drive = await getDriveClient();
+    const inbox = await zajistiInboxSlozku(drive, process.env.INBOX_FOLDER_ID);
+    if (inbox.vytvorenaNove) {
+      vysledky.push(
+        'Inbox složka: appka založila novou složku "Nomis Group - Doklady/00_Inbox" ' +
+        '(původní INBOX_FOLDER_ID appka buď nemá nastavené, nebo k němu s aktuálním ' +
+        'OAuth přístupem (drive.file) nemá přístup - to je u ručně založených složek ' +
+        'očekávané, viz poznámka v lib/driveHelpers.js). ' +
+        'DŮLEŽITÉ: nastavte v Netlify proměnnou INBOX_FOLDER_ID na hodnotu "' + inbox.id + '" ' +
+        'a appku znovu nasaďte (redeploy), jinak appka bude i nadál zapisovat do složky, ' +
+        'ke které nemá přístup.'
+      );
+    } else {
+      vysledky.push('Inbox složka: appka má přístup k existující složce "' + inbox.nazev + '" (ID ' + inbox.id + ').');
+    }
+
+    return json(200, { ok: true, vysledky, inboxFolderId: inbox.id, inboxVytvorenaNove: inbox.vytvorenaNove });
   } catch (e) {
     return json(500, { error: e.message });
   }
