@@ -1,11 +1,10 @@
 /**
  * netlify/functions/auta.js
- * Správa vozidel – jen pro roli "admin". List "Auta" v Sheets.
+ * Správa vozidel. List "Auta" v Sheets.
  *
- * GET    -> { auta: [...] }
- * POST   { SPZ, Model, Firma, Ridic } -> nové auto
- * PATCH  { row, zmeny } -> úprava auta
- * DELETE ?row=N -> smaže auto
+ * GET    -> { auta: [...] }  smí kterýkoli přihlášený uživatel (potřeba pro
+ *           výběr SPZ z nabídky v záložce Doklady), POST/PATCH/DELETE jen
+ *           role "admin".
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -20,13 +19,11 @@ exports.handler = async (event) => {
   let uzivatel;
   try {
     uzivatel = requireAuth(event);
-    if (uzivatel.role !== 'admin') {
-      const err = new Error('Tuto akci může provést jen administrátor.');
-      err.statusCode = 403;
-      throw err;
-    }
   } catch (e) {
     return json(e.statusCode || 401, { error: e.message });
+  }
+  if (event.httpMethod !== 'GET' && uzivatel.role !== 'admin') {
+    return json(403, { error: 'Tuto akci může provést jen administrátor.' });
   }
 
   const sheets = await getSheetsClient();

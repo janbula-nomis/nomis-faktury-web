@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v1.5 – 2026-07-13';
+const APP_VERZE = 'v1.6 – 2026-07-13';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -229,6 +229,8 @@ function stavTrida(stavText) {
   return 'stav-ke-kontrole';
 }
 
+let autaProVyberSpz = [];
+
 async function nactiDoklady() {
   const nacitani = document.getElementById('doklady-nacitani');
   const telo = document.getElementById('tabulka-doklady-telo');
@@ -236,12 +238,30 @@ async function nactiDoklady() {
   telo.innerHTML = '';
 
   try {
-    const data = await zavolejApi('/doklady', { method: 'GET' });
+    const [dataDoklady, dataAuta] = await Promise.all([
+      zavolejApi('/doklady', { method: 'GET' }),
+      zavolejApi('/auta', { method: 'GET' }).catch(() => ({ auta: [] })),
+    ]);
+    autaProVyberSpz = dataAuta.auta || [];
     nacitani.classList.add('skryto');
-    vykresliDoklady(data.doklady || []);
+    vykresliDoklady(dataDoklady.doklady || []);
   } catch (e) {
     nacitani.textContent = 'Nepodařilo se načíst doklady: ' + e.message;
   }
+}
+
+function moznostiSpz(vybranaSpz) {
+  const zname = autaProVyberSpz.some((a) => a.SPZ === vybranaSpz);
+  let html = '<option value="">— bez SPZ —</option>';
+  autaProVyberSpz.forEach((a) => {
+    const oznaceno = a.SPZ === vybranaSpz ? ' selected' : '';
+    const popisek = a.SPZ + (a.Model ? ' – ' + a.Model : '');
+    html += '<option value="' + escapeAttr(a.SPZ) + '"' + oznaceno + '>' + escapeHtml(popisek) + '</option>';
+  });
+  if (vybranaSpz && !zname) {
+    html += '<option value="' + escapeAttr(vybranaSpz) + '" selected>' + escapeHtml(vybranaSpz) + ' (není v seznamu Auta)</option>';
+  }
+  return html;
 }
 
 function vykresliDoklady(doklady) {
@@ -279,10 +299,9 @@ function vykresliDoklady(doklady) {
     buneckaKategorie.appendChild(vstupKategorie);
 
     const buneckaSpz = tr.children[6];
-    const vstupSpz = document.createElement('input');
-    vstupSpz.type = 'text';
-    vstupSpz.value = d.SPZ_auta || '';
+    const vstupSpz = document.createElement('select');
     vstupSpz.style.fontSize = '13px';
+    vstupSpz.innerHTML = moznostiSpz(d.SPZ_auta || '');
     buneckaSpz.appendChild(vstupSpz);
 
     const buneckaAkce = tr.children[8];
