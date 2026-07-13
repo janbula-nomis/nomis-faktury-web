@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.0 – 2026-07-13';
+const APP_VERZE = 'v3.1 – 2026-07-13';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -285,6 +285,7 @@ function stavTrida(stavText) {
 }
 
 let autaProVyberSpz = [];
+let firmyProVyberDokladu = [];
 
 async function nactiDoklady() {
   const nacitani = document.getElementById('doklady-nacitani');
@@ -293,11 +294,13 @@ async function nactiDoklady() {
   telo.innerHTML = '';
 
   try {
-    const [dataDoklady, dataAuta] = await Promise.all([
+    const [dataDoklady, dataAuta, dataFirmy] = await Promise.all([
       zavolejApi('/doklady', { method: 'GET' }),
       zavolejApi('/auta', { method: 'GET' }).catch(() => ({ auta: [] })),
+      zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
     ]);
     autaProVyberSpz = dataAuta.auta || [];
+    firmyProVyberDokladu = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
     nacitani.classList.add('skryto');
     vykresliDoklady(dataDoklady.doklady || []);
   } catch (e) {
@@ -315,6 +318,23 @@ function moznostiSpz(vybranaSpz) {
   });
   if (vybranaSpz && !zname) {
     html += '<option value="' + escapeAttr(vybranaSpz) + '" selected>' + escapeHtml(vybranaSpz) + ' (není v seznamu Auta)</option>';
+  }
+  return html;
+}
+
+// Firma se vybírá z číselníku (list Firmy), ne ručním opisem - jinak by
+// se sebemenší překlep (velká/malá písmena, mezera navíc, „&“ vs. „and“...)
+// projevil jako appka nenajde odpovídající doklady při párování bankovního
+// výpisu (banka.js hledá kandidáty přes přesnou shodu názvu firmy).
+function moznostiFirmy(vybranaFirma) {
+  const zname = firmyProVyberDokladu.includes(vybranaFirma);
+  let html = '<option value="">— vyberte firmu —</option>';
+  firmyProVyberDokladu.forEach((nazev) => {
+    const oznaceno = nazev === vybranaFirma ? ' selected' : '';
+    html += '<option value="' + escapeAttr(nazev) + '"' + oznaceno + '>' + escapeHtml(nazev) + '</option>';
+  });
+  if (vybranaFirma && !zname) {
+    html += '<option value="' + escapeAttr(vybranaFirma) + '" selected>' + escapeHtml(vybranaFirma) + ' (není v seznamu Firmy)</option>';
   }
   return html;
 }
@@ -352,36 +372,35 @@ function vykresliDoklady(doklady) {
       '<td data-label="Dodavatel">' + escapeHtml(d.Dodavatel || '') + '</td>' +
       '<td data-label="Datum">' + escapeHtml(d.Datum_dokladu || '') + '</td>' +
       '<td data-label="Částka">' + escapeHtml(String(d.Castka || '')) + ' ' + escapeHtml(d.Mena || '') + '</td>' +
-      '<td data-label="Firma"></td>' +
-      '<td data-label="Kategorie"></td>' +
-      '<td data-label="Středisko"></td>' +
-      '<td data-label="SPZ"></td>' +
+      '<td data-label="Firma" class="td-vyber-siroky"></td>' +
+      '<td data-label="Kategorie" class="td-vyber-siroky"></td>' +
+      '<td data-label="Středisko" class="td-vyber-siroky"></td>' +
+      '<td data-label="SPZ" class="td-vyber-siroky"></td>' +
       '<td data-label="Soubor">' + (d.Zdrojovy_soubor_URL ? '<a href="' + escapeAttr(d.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>' : '') + '</td>' +
       '<td data-label="Akce"></td>';
 
     const buneckaFirma = tr.children[4];
-    const vstupFirma = document.createElement('input');
-    vstupFirma.type = 'text';
-    vstupFirma.value = d.Firma_potvrzena || d.Firma_AI_odhad || '';
-    vstupFirma.style.fontSize = '13px';
+    const vstupFirma = document.createElement('select');
+    vstupFirma.className = 'vyber-doklad';
+    vstupFirma.innerHTML = moznostiFirmy(d.Firma_potvrzena || d.Firma_AI_odhad || '');
     buneckaFirma.appendChild(vstupFirma);
 
     const buneckaKategorie = tr.children[5];
     const vstupKategorie = document.createElement('input');
     vstupKategorie.type = 'text';
     vstupKategorie.value = d.Kategorie || '';
-    vstupKategorie.style.fontSize = '13px';
+    vstupKategorie.className = 'vyber-doklad';
     buneckaKategorie.appendChild(vstupKategorie);
 
     const buneckaStredisko = tr.children[6];
     const vstupStredisko = document.createElement('select');
-    vstupStredisko.style.fontSize = '13px';
+    vstupStredisko.className = 'vyber-doklad';
     vstupStredisko.innerHTML = moznostiStrediska(d.Stredisko || '');
     buneckaStredisko.appendChild(vstupStredisko);
 
     const buneckaSpz = tr.children[7];
     const vstupSpz = document.createElement('select');
-    vstupSpz.style.fontSize = '13px';
+    vstupSpz.className = 'vyber-doklad';
     vstupSpz.innerHTML = moznostiSpz(d.SPZ_auta || '');
     buneckaSpz.appendChild(vstupSpz);
 

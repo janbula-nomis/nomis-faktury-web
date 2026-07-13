@@ -95,6 +95,16 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 #tabulka-doklady-telo tr.radek-stav-schvaleno { background: #f1faf6; border-left: 3px solid var(--barva-uspech); }
 #tabulka-doklady-telo tr.radek-stav-duplicita { background: #fdf1f0; border-left: 3px solid var(--barva-chyba); }
 
+/* Sloupce Firma/Kategorie/Středisko/SPZ v Dokladech mají výběrová pole
+   (select, resp. text u Kategorie) - bez téhle min-width appka nechá
+   sloupec zúžit na výchozí šířku prvku a delší název firmy (např. "NOMIS
+   Investment") se pak v zavřeném <select> nedal celý přečíst. Tabulka je
+   zabalená v kontejneru s overflow-x:auto (viz index.html), takže širší
+   tabulka na malém displeji jen dostane vodorovný posuvník, nic se
+   neláme. */
+#tabulka-doklady-telo .td-vyber-siroky { min-width: 150px; }
+#tabulka-doklady-telo .vyber-doklad { font-size: 12px; padding: 6px 8px; }
+
 .mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .polozka-souhrn { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 14px; }
 .polozka-souhrn:last-child { border-bottom: none; }
