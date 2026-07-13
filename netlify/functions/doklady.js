@@ -4,14 +4,19 @@
  * PATCH (Bearer token) { id, zmeny } -> úprava/schválení konkrétního dokladu
  *   (zmeny je objekt s podmnožinou sloupců k přepsání, typicky
  *    Firma_potvrzena, Kategorie, SPZ_auta, Stav, ...)
+ * DELETE ?id=X (Bearer token) -> smazání dokladu; kdokoli s přístupem k dokladu
+ *   (ne jen admin) - viz maPristupKDokladu. Zároveň appka "odpojí" případné
+ *   navázané bankovní pohyby (Bankovni_pohyby.Doklad_ID == id), ať nezůstane
+ *   pohyb odkazující na smazaný doklad - vrátí je do stavu "Nespárováno".
  *
  * Přístup: role "admin" vidí vše, ostatní jen doklady, kde Firma_potvrzena
  * (nebo pokud ještě není potvrzená, Firma_AI_odhad) je v jejich seznamu firem.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
-const { readSheetObjects, updateRow } = require('../../lib/sheetsHelpers');
+const { readSheetObjects, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
+const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { json } = require('../../lib/http');
 
 function maPristupKDokladu(uzivatel, doklad) {
@@ -63,6 +68,48 @@ exports.handler = async (event) => {
         doklad._row,
         aktualizovany
       );
+
+      return json(200, { ok: true });
+    } catch (e) {
+      return json(500, { error: e.message });
+    }
+  }
+
+  if (event.httpMethod === 'DELETE') {
+    try {
+      const id = (event.queryStringParameters || {}).id;
+      if (!id) return json(400, { error: 'Chybí ID dokladu.' });
+
+      const { rows } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Doklady');
+      const doklad = rows.find((r) => r.ID === id);
+      if (!doklad) return json(404, { error: 'Doklad nenalezen.' });
+      if (!maPristupKDokladu(uzivatel, doklad)) {
+        return json(403, { error: 'Nemáte přístup k tomuto dokladu.' });
+      }
+
+      await deleteRow(sheets, process.env.SPREADSHEET_ID, 'Doklady', doklad._row);
+
+      // Cascade: bankovní pohyby napárované na smazaný doklad appka vrátí
+      // do stavu "Nespárováno", ať v Bankovních výpisech nezůstane pohyb
+      // odkazující na doklad, který už neexistuje.
+      try {
+        const { rows: pohyby } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Bankovni_pohyby');
+        const napojenePohyby = pohyby.filter((p) => p.Doklad_ID === id);
+        for (const pohyb of napojenePohyby) {
+          const aktualizovany = Object.assign({}, pohyb, { Doklad_ID: '', Stav_parovani: 'Nespárováno' });
+          await updateRow(
+            sheets,
+            process.env.SPREADSHEET_ID,
+            'Bankovni_pohyby',
+            BANKOVNI_HEADERS,
+            pohyb._row,
+            aktualizovany
+          );
+        }
+      } catch (e) {
+        // List Bankovni_pohyby nemusí existovat (appka bez zapnuté Banky) -
+        // smazání dokladu appka nemá kvůli tomu shodit.
+      }
 
       return json(200, { ok: true });
     } catch (e) {

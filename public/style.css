@@ -111,6 +111,11 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 
 .nacitani { font-size: 14px; color: var(--barva-text-tlumena); }
 
+/* Poznámka appky u dokladu (např. vysvětlení, že firma/kategorie/středisko
+   byly doplněny podle historie stejného dodavatele) - drobný, tlumený text
+   pod jménem dodavatele, ať to nepůsobí jako chybové hlášení. */
+.poznamka-dokladu { font-size: 11px; color: var(--barva-text-tlumena); margin-top: 4px; font-weight: normal; }
+
 input[type="file"] { margin-top: 8px; }
 
 @media (max-width: 480px) {

@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.1 – 2026-07-13';
+const APP_VERZE = 'v3.3 – 2026-07-13';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -369,15 +369,49 @@ function vykresliDoklady(doklady) {
 
     tr.innerHTML =
       '<td data-label="Stav"><span class="stav-chip ' + stavTrida(d.Stav) + '">' + escapeHtml(d.Stav || '') + '</span></td>' +
-      '<td data-label="Dodavatel">' + escapeHtml(d.Dodavatel || '') + '</td>' +
-      '<td data-label="Datum">' + escapeHtml(d.Datum_dokladu || '') + '</td>' +
-      '<td data-label="Částka">' + escapeHtml(String(d.Castka || '')) + ' ' + escapeHtml(d.Mena || '') + '</td>' +
+      '<td data-label="Dodavatel" class="td-vyber-siroky"></td>' +
+      '<td data-label="Datum" class="td-vyber-siroky"></td>' +
+      '<td data-label="Částka" class="td-vyber-siroky"></td>' +
       '<td data-label="Firma" class="td-vyber-siroky"></td>' +
       '<td data-label="Kategorie" class="td-vyber-siroky"></td>' +
       '<td data-label="Středisko" class="td-vyber-siroky"></td>' +
       '<td data-label="SPZ" class="td-vyber-siroky"></td>' +
       '<td data-label="Soubor">' + (d.Zdrojovy_soubor_URL ? '<a href="' + escapeAttr(d.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>' : '') + '</td>' +
       '<td data-label="Akce"></td>';
+
+    const buneckaDodavatel = tr.children[1];
+    const vstupDodavatel = document.createElement('input');
+    vstupDodavatel.type = 'text';
+    vstupDodavatel.value = d.Dodavatel || '';
+    vstupDodavatel.className = 'vyber-doklad';
+    buneckaDodavatel.appendChild(vstupDodavatel);
+    if (d.Poznamka) {
+      const poznamkaDiv = document.createElement('div');
+      poznamkaDiv.className = 'poznamka-dokladu';
+      poznamkaDiv.textContent = 'ⓘ ' + d.Poznamka;
+      buneckaDodavatel.appendChild(poznamkaDiv);
+    }
+
+    const buneckaDatum = tr.children[2];
+    const vstupDatum = document.createElement('input');
+    vstupDatum.type = 'date';
+    vstupDatum.value = d.Datum_dokladu || '';
+    vstupDatum.className = 'vyber-doklad';
+    buneckaDatum.appendChild(vstupDatum);
+
+    const buneckaCastka = tr.children[3];
+    const vstupCastka = document.createElement('input');
+    vstupCastka.type = 'number';
+    vstupCastka.step = '0.01';
+    vstupCastka.value = d.Castka || '';
+    vstupCastka.className = 'vyber-doklad';
+    vstupCastka.style.marginBottom = '4px';
+    const vstupMena = document.createElement('input');
+    vstupMena.type = 'text';
+    vstupMena.value = d.Mena || '';
+    vstupMena.className = 'vyber-doklad';
+    buneckaCastka.appendChild(vstupCastka);
+    buneckaCastka.appendChild(vstupMena);
 
     const buneckaFirma = tr.children[4];
     const vstupFirma = document.createElement('select');
@@ -404,16 +438,24 @@ function vykresliDoklady(doklady) {
     vstupSpz.innerHTML = moznostiSpz(d.SPZ_auta || '');
     buneckaSpz.appendChild(vstupSpz);
 
+    function ziskejZmeny() {
+      return {
+        Dodavatel: vstupDodavatel.value.trim(),
+        Datum_dokladu: vstupDatum.value,
+        Castka: vstupCastka.value,
+        Mena: vstupMena.value.trim(),
+        Firma_potvrzena: vstupFirma.value.trim(),
+        Kategorie: vstupKategorie.value.trim(),
+        Stredisko: vstupStredisko.value.trim(),
+        SPZ_auta: vstupSpz.value.trim(),
+      };
+    }
+
     const buneckaAkce = tr.children[9];
     const tlacitkoUlozit = document.createElement('button');
     tlacitkoUlozit.className = 'maly sekundarni';
     tlacitkoUlozit.textContent = 'Uložit';
-    tlacitkoUlozit.onclick = () => ulozZmenu(d.ID, {
-      Firma_potvrzena: vstupFirma.value.trim(),
-      Kategorie: vstupKategorie.value.trim(),
-      Stredisko: vstupStredisko.value.trim(),
-      SPZ_auta: vstupSpz.value.trim(),
-    }, tlacitkoUlozit);
+    tlacitkoUlozit.onclick = () => ulozZmenu(d.ID, ziskejZmeny(), tlacitkoUlozit);
     buneckaAkce.appendChild(tlacitkoUlozit);
 
     if (d.Stav !== 'Schváleno') {
@@ -421,15 +463,20 @@ function vykresliDoklady(doklady) {
       tlacitkoSchvalit.className = 'maly';
       tlacitkoSchvalit.textContent = 'Schválit';
       tlacitkoSchvalit.style.marginLeft = '6px';
-      tlacitkoSchvalit.onclick = () => ulozZmenu(d.ID, {
-        Firma_potvrzena: vstupFirma.value.trim(),
-        Kategorie: vstupKategorie.value.trim(),
-        Stredisko: vstupStredisko.value.trim(),
-        SPZ_auta: vstupSpz.value.trim(),
-        Stav: 'Schváleno',
-      }, tlacitkoSchvalit);
+      tlacitkoSchvalit.onclick = () => ulozZmenu(
+        d.ID,
+        Object.assign(ziskejZmeny(), { Stav: 'Schváleno' }),
+        tlacitkoSchvalit
+      );
       buneckaAkce.appendChild(tlacitkoSchvalit);
     }
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.style.marginLeft = '6px';
+    tlacitkoSmazat.onclick = () => smazDoklad(d.ID, d.Dodavatel, tlacitkoSmazat);
+    buneckaAkce.appendChild(tlacitkoSmazat);
 
     telo.appendChild(tr);
   });
@@ -446,6 +493,18 @@ async function ulozZmenu(id, zmeny, tlacitko) {
     await nactiDoklady();
   } catch (e) {
     alert('Nepodařilo se uložit změnu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazDoklad(id, dodavatel, tlacitko) {
+  if (!confirm('Opravdu smazat doklad „' + (dodavatel || '(bez dodavatele)') + '“? Tuhle akci nejde vrátit zpět.')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/doklady?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    await nactiDoklady();
+  } catch (e) {
+    alert('Nepodařilo se smazat doklad: ' + e.message);
     tlacitko.disabled = false;
   }
 }

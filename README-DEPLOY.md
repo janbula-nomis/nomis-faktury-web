@@ -312,6 +312,61 @@ Od verze v3.0 appka přidává:
 - Zaškrtávátko „Zobrazit jen chybějící doklady“ v Bankovních výpisech je
   teď kompaktní ikona 🔎 místo textového checkboxu (najetím myší/podržením
   na ikoně se zobrazí popisek).
+- **Firma u Dokladů se od v3.1 vybírá z rozbalovacího menu** (číselník
+  Firmy), ne ručním psaním – jinak by sebemenší překlep způsobil, že appka
+  doklad nenajde jako kandidáta při párování bankovního výpisu (to hledá
+  přesnou shodu názvu firmy). Sloupce Firma/Kategorie/Středisko/SPZ mají
+  taky větší minimální šířku, ať se plný název firmy vejde do zavřeného
+  výběru.
+
+## 11. Automatické doplňování podle historie dodavatele (od v3.2)
+
+Appka teď u nového dokladu kromě AI odhadu (Gemini) zkusí i „naučenou“
+shodu podle dodavatele:
+
+1. Gemini nově navíc odhadne i **středisko** (Auta/Nemovitosti), ne jen
+   firmu/kategorii/SPZ jako dřív.
+2. Appka se podívá, jestli už dřív **ručně potvrdila** (tedy ne jen AI
+   odhadla) doklad od stejného dodavatele – přednostně podle IČO, jinak
+   podle normalizovaného názvu (tolerantní na velikost písmen a s.r.o./a.s.
+   přípony). Pokud najde shodu, rovnou převezme firmu/kategorii/středisko
+   z toho dřívějšího potvrzeného dokladu (u víc historických dokladů
+   vyhrává většina, při remíze novější), místo aby spoléhala jen na
+   čerstvý AI odhad.
+3. Appka výslovně bere v potaz jen **potvrzené** doklady (pole
+   Firma_potvrzena vyplněné) – ne holé AI odhady, ať se neučí z vlastních
+   chyb, ale ze skutečných rozhodnutí uživatele.
+4. Nový doklad tak může mít firmu/kategorii/středisko rovnou předvyplněné
+   – appka to ale nikdy sama neschvaluje (stav zůstává „Ke kontrole“) a do
+   pole Poznámka appka napíše, že šlo o doplnění podle historie, ať je
+   jasné, že stojí za to to zkontrolovat. Tahle poznámka se zobrazí přímo
+   pod jménem dodavatele v záložce Doklady.
+
+Bez potřeby nové sheet/sloupce – funguje na stávajících datech, nic
+nevyžaduje znovu spustit `setup`.
+
+## 12. Smazání a rozšířená editace dokladů (od v3.3)
+
+V záložce Doklady jde teď u každého dokladu přímo v tabulce upravit i
+**Dodavatel, Datum, Částka a Měna** (dřív šlo měnit jen Firma/Kategorie/
+Středisko/SPZ) – tlačítko „Uložit“ pošle všechny hodnoty najednou stejným
+PATCH endpointem jako dřív, žádná nová sheet/sloupec není potřeba.
+
+Nově přibylo i tlačítko **„Smazat“**:
+
+1. Appka se nejdřív zeptá na potvrzení (jméno dodavatele v dotazu), ať se
+   doklad nesmaže omylem jedním kliknutím.
+2. Smazat může **kdokoli, kdo má k dokladu přístup** – tedy stejné pravidlo
+   jako pro úpravu/schválení (`maPristupKDokladu`), **není to jen pro
+   admina**. Jde o vědomé rozhodnutí, aby si běžní uživatelé mohli sami
+   opravit vlastní omyl (např. nahráli špatný soubor), bez čekání na
+   administrátora.
+3. Pokud byl smazaný doklad napárovaný na nějaký bankovní pohyb v záložce
+   Bankovní výpisy, appka ten pohyb automaticky vrátí do stavu
+   „Nespárováno“ (vyprázdní odkaz na smazaný doklad), ať tam nezůstane
+   pohyb odkazující na neexistující doklad.
+
+Bez potřeby nové sheet/sloupce ani znovu spustit `setup`.
 
 ## Poznámky k bezpečnosti a omezením
 

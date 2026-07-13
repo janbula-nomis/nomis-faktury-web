@@ -17,6 +17,7 @@ const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { readSheetObjects, appendRow } = require('../../lib/sheetsHelpers');
 const { extrahujDataZDokladu } = require('../../lib/gemini');
 const { isMoznaDuplicita } = require('../../lib/duplicity');
+const { najdiHistorickouShodu } = require('../../lib/dokladyHistorie');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { json } = require('../../lib/http');
 
@@ -67,6 +68,13 @@ exports.handler = async (event) => {
     );
     const duplicita = isMoznaDuplicita(existujiciDoklady, extrakce);
 
+    // "Učení ze zkušenosti": pokud appka u stejného dodavatele (podle IČO,
+    // jinak podle normalizovaného názvu) najde dřív RUČNĚ potvrzené doklady,
+    // rovnou převezme jejich firmu/kategorii/středisko místo čerstvého AI
+    // odhadu - viz lib/dokladyHistorie.js pro zdůvodnění, proč jen z
+    // potvrzených dokladů, ne z holých AI odhadů.
+    const historickaShoda = najdiHistorickouShodu(existujiciDoklady, extrakce.dodavatel, extrakce.ico_dodavatele);
+
     const radek = {
       ID: crypto.randomUUID(),
       Datum_zpracovani: new Date().toISOString(),
@@ -83,12 +91,17 @@ exports.handler = async (event) => {
       DPH: extrakce.dph || '',
       Variabilni_symbol: extrakce.variabilni_symbol || '',
       Firma_AI_odhad: extrakce.firma_odhad || '',
-      Firma_potvrzena: '',
-      Kategorie: extrakce.kategorie || '',
-      Stredisko: '',
+      Firma_potvrzena: (historickaShoda && historickaShoda.firma) || '',
+      Kategorie: (historickaShoda && historickaShoda.kategorie) || extrakce.kategorie || '',
+      Stredisko: (historickaShoda && historickaShoda.stredisko) || extrakce.stredisko_odhad || '',
       SPZ_auta: extrakce.spz_auta || '',
       Stav: duplicita ? 'Možná duplicita' : 'Ke kontrole',
-      Poznamka: extrakce.poznamka_ai || '',
+      Poznamka:
+        extrakce.poznamka_ai ||
+        (historickaShoda
+          ? 'Firma/kategorie/středisko doplněny podle ' + historickaShoda.pocetShod +
+            ' dřívějšího potvrzeného dokladu od stejného dodavatele - zkontrolujte.'
+          : ''),
       Nahral_uzivatel: uzivatel.jmeno || '',
     };
 
