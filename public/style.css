@@ -89,6 +89,12 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .stav-schvaleno { background: #e8f7f0; color: var(--barva-uspech); }
 .stav-duplicita { background: #fdecea; color: var(--barva-chyba); }
 
+/* Probarvení celých řádků v Dokladech podle stavu (viditelné i bez
+   otevírání řádku, konzistentní s barvami .stav-chip výše). */
+#tabulka-doklady-telo tr.radek-stav-ke-kontrole { background: #fff9ec; border-left: 3px solid var(--barva-varovani); }
+#tabulka-doklady-telo tr.radek-stav-schvaleno { background: #f1faf6; border-left: 3px solid var(--barva-uspech); }
+#tabulka-doklady-telo tr.radek-stav-duplicita { background: #fdf1f0; border-left: 3px solid var(--barva-chyba); }
+
 .mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .polozka-souhrn { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 14px; }
 .polozka-souhrn:last-child { border-bottom: none; }
@@ -112,19 +118,105 @@ input[type="file"] { margin-top: 8px; }
 
 .banka-radek { border: 1px solid var(--barva-hranice); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
 .banka-radek-hlava { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; flex-wrap: wrap; }
-.banka-radek-hlava:hover { background: #fafbfc; }
+.banka-radek-hlava:hover { filter: brightness(0.97); }
 .banka-radek-hlava .castka { font-weight: 600; margin-left: auto; }
 .banka-radek-hlava .castka.prijem { color: var(--barva-uspech); }
 .banka-radek-hlava .castka.vydaj { color: var(--barva-text); }
-.banka-radek-detail { padding: 12px; border-top: 1px solid var(--barva-hranice); background: #fafbfc; display: none; }
+.banka-radek-detail { padding: 12px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
 .banka-radek.rozbaleno .banka-radek-detail { display: block; }
 .banka-radek.rozbaleno .banka-sipka { transform: rotate(90deg); }
 .banka-sipka { display: inline-block; transition: transform 0.15s; }
-.badge-chybi { background: #fdecea; color: var(--barva-chyba); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
-.badge-navrzeno { background: #fff4de; color: var(--barva-varovani); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
-.badge-potvrzeno { background: #e8f7f0; color: var(--barva-uspech); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
-.badge-bezdokladu { background: #eef0f4; color: var(--barva-text-tlumena); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+
+/* Probarvení celého řádku (hlavička i po rozbalení) podle stavu spárování.
+   Navrženo je záměrně modré (odlišné od ostatních třech), aby v seznamu
+   hned vynikly platby čekající na potvrzení/zamítnutí návrhu. */
+.banka-radek.stav-radek-chybi { background: #fdecea; }
+.banka-radek.stav-radek-navrzeno { background: #e8f0fe; }
+.banka-radek.stav-radek-potvrzeno { background: #e8f7f0; }
+.banka-radek.stav-radek-bezdokladu { background: #eef0f4; }
+
+.badge-chybi { background: #f7d9d5; color: var(--barva-chyba); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-navrzeno { background: #d7e3fc; color: var(--barva-primarni-tmava); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-potvrzeno { background: #d3efe0; color: var(--barva-uspech); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-bezdokladu { background: #dde1e8; color: var(--barva-text-tlumena); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
 .banka-radek-detail .radek-akci { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .banka-radek-detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13px; margin: 0; }
 .banka-radek-detail dt { color: var(--barva-text-tlumena); }
 .banka-radek-detail dd { margin: 0; }
+
+.banka-souhrn-radek { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.banka-souhrn-radek #banka-souhrn { margin-top: 0; }
+
+/* Probarvení řádků ve Vydaných fakturách podle stavu (uhrazeno/neuhrazeno/
+   po splatnosti) - stejná logika jako Doklady a Bankovní výpisy výše. */
+#tabulka-vf-telo tr.stav-radek-vf-uhrazeno { background: #f1faf6; border-left: 3px solid var(--barva-uspech); }
+#tabulka-vf-telo tr.stav-radek-vf-neuhrazeno { background: #fff9ec; border-left: 3px solid var(--barva-varovani); }
+#tabulka-vf-telo tr.stav-radek-vf-posplatnosti { background: #fdf1f0; border-left: 3px solid var(--barva-chyba); }
+
+/* Kompaktní přepínače jako ikony (den/noc, filtr chybějících dokladů) -
+   místo textového checkboxu/tlačítka jen malá kulatá ikona. Stav "zapnuto"
+   (aria-pressed="true") se odliší jemným zvýrazněným pozadím. */
+.prepinac-ikona {
+  margin-top: 0;
+  padding: 6px 10px;
+  font-size: 16px;
+  line-height: 1;
+  background: var(--barva-karta);
+  border: 1px solid var(--barva-hranice);
+  color: var(--barva-text);
+  border-radius: 999px;
+}
+.prepinac-ikona:hover { background: var(--barva-pozadi); }
+.prepinac-ikona[aria-pressed="true"] { background: var(--barva-primarni); border-color: var(--barva-primarni); }
+.hlavicka-app .uzivatel { display: flex; align-items: center; gap: 10px; }
+
+/* Skládací panely (Nastavení, Vydané faktury) - kompaktnější než samostatné
+   záložky, výchozí stav zavřený kromě těch s atributem "open" v HTML. */
+.panel-skladaci {
+  border: 1px solid var(--barva-hranice);
+  border-radius: 8px;
+  padding: 0 16px 4px;
+  margin-bottom: 12px;
+}
+.panel-skladaci summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-weight: 600;
+  list-style: none;
+}
+.panel-skladaci summary::-webkit-details-marker { display: none; }
+.panel-skladaci summary::before { content: '▶'; display: inline-block; margin-right: 8px; font-size: 11px; transition: transform 0.15s; }
+.panel-skladaci[open] summary::before { transform: rotate(90deg); }
+.panel-skladaci h3 { font-size: 14px; margin: 16px 0 10px; }
+
+/* ---------- TMAVÝ REŽIM ---------- */
+:root[data-motiv="tmavy"] {
+  --barva-pozadi: #14161c;
+  --barva-karta: #1d2028;
+  --barva-text: #e7e9ee;
+  --barva-text-tlumena: #9aa1ae;
+  --barva-hranice: #333844;
+  --barva-primarni: #5b86ff;
+  --barva-primarni-tmava: #7d9dff;
+  --barva-uspech: #35c98d;
+  --barva-varovani: #e0ac3a;
+  --barva-chyba: #f16a62;
+}
+:root[data-motiv="tmavy"] .zprava.chyba,
+:root[data-motiv="tmavy"] .badge-chybi,
+:root[data-motiv="tmavy"] #tabulka-doklady-telo tr.radek-stav-duplicita,
+:root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-posplatnosti,
+:root[data-motiv="tmavy"] .banka-radek.stav-radek-chybi { background: #3a2222; color: var(--barva-chyba); }
+:root[data-motiv="tmavy"] .zprava.uspech,
+:root[data-motiv="tmavy"] .badge-potvrzeno,
+:root[data-motiv="tmavy"] #tabulka-doklady-telo tr.radek-stav-schvaleno,
+:root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-uhrazeno,
+:root[data-motiv="tmavy"] .banka-radek.stav-radek-potvrzeno { background: #1c3a2e; color: var(--barva-uspech); }
+:root[data-motiv="tmavy"] .badge-navrzeno,
+:root[data-motiv="tmavy"] .banka-radek.stav-radek-navrzeno { background: #22314f; color: var(--barva-primarni-tmava); }
+:root[data-motiv="tmavy"] .stav-ke-kontrole,
+:root[data-motiv="tmavy"] #tabulka-doklady-telo tr.radek-stav-ke-kontrole,
+:root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-neuhrazeno { background: #3a3220; color: var(--barva-varovani); }
+:root[data-motiv="tmavy"] .badge-bezdokladu,
+:root[data-motiv="tmavy"] .banka-radek.stav-radek-bezdokladu { background: #2a2e38; color: var(--barva-text-tlumena); }
+:root[data-motiv="tmavy"] input[type="date"] { color-scheme: dark; }

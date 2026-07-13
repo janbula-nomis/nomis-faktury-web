@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v2.4 – 2026-07-13';
+const APP_VERZE = 'v3.0 – 2026-07-13';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -34,6 +34,44 @@ function ulozStav(novyStav) {
 function jePrihlasen() {
   return !!(stav && stav.token);
 }
+
+// ---------- SVĚTLÝ/TMAVÝ REŽIM ----------
+
+const MOTIV_KLIC = 'nomisFakturyMotiv';
+
+function nactiMotiv() {
+  try {
+    return localStorage.getItem(MOTIV_KLIC) || 'svetly';
+  } catch (e) {
+    return 'svetly';
+  }
+}
+
+function aplikujMotiv(motiv) {
+  document.documentElement.setAttribute('data-motiv', motiv);
+  const tlacitko = document.getElementById('tlacitko-motiv');
+  if (tlacitko) {
+    tlacitko.textContent = motiv === 'tmavy' ? '☀️' : '🌙';
+    tlacitko.setAttribute('aria-pressed', motiv === 'tmavy' ? 'true' : 'false');
+  }
+}
+
+function prepniMotiv() {
+  const aktualni = document.documentElement.getAttribute('data-motiv') === 'tmavy' ? 'tmavy' : 'svetly';
+  const novy = aktualni === 'tmavy' ? 'svetly' : 'tmavy';
+  try {
+    localStorage.setItem(MOTIV_KLIC, novy);
+  } catch (e) {
+    // localStorage nedostupné (např. soukromý režim) - motiv se prostě
+    // příště po obnovení stránky nezapamatuje, appka jinak funguje dál.
+  }
+  aplikujMotiv(novy);
+}
+
+// Aplikováno hned při načtení skriptu (script tag je až na konci <body>,
+// takže tlačítko #tlacitko-motiv už v DOM existuje) - ať appka co nejdřív
+// vypadá podle uloženého motivu, ne jen na krátký okamžik ve světlém.
+aplikujMotiv(nactiMotiv());
 
 async function zavolejApi(cesta, moznosti) {
   const opts = moznosti || {};
@@ -113,16 +151,14 @@ function zobrazApp() {
 
   const jeAdmin = stav.role === 'admin';
   const jeUcetniNeboAdmin = stav.role === 'admin' || stav.role === 'ucetni';
-  ['nav-uzivatele', 'nav-firmy', 'nav-auta'].forEach((id) => {
-    document.getElementById(id).classList.toggle('skryto', !jeAdmin);
-  });
+  document.getElementById('nav-nastaveni').classList.toggle('skryto', !jeAdmin);
   document.getElementById('nav-banka').classList.toggle('skryto', !jeUcetniNeboAdmin);
 
   prepniZalozku('nahrat');
 }
 
 function prepniZalozku(nazev) {
-  ['nahrat', 'doklady', 'prehled', 'banka', 'uzivatele', 'firmy', 'auta'].forEach((n) => {
+  ['nahrat', 'doklady', 'prehled', 'vydane-faktury', 'banka', 'nastaveni'].forEach((n) => {
     document.getElementById('zalozka-' + n).classList.toggle('skryto', n !== nazev);
   });
   document.querySelectorAll('nav.zalozky button').forEach((btn) => {
@@ -130,10 +166,13 @@ function prepniZalozku(nazev) {
   });
   if (nazev === 'doklady') nactiDoklady();
   if (nazev === 'prehled') nactiPrehled();
+  if (nazev === 'vydane-faktury') inicializujZalozkuVydaneFaktury();
   if (nazev === 'banka') inicializujZalozkuBanka();
-  if (nazev === 'uzivatele') nactiUzivatele();
-  if (nazev === 'firmy') nactiFirmy();
-  if (nazev === 'auta') nactiAuta();
+  if (nazev === 'nastaveni') {
+    nactiUzivatele();
+    nactiFirmy();
+    nactiAuta();
+  }
 }
 
 // ---------- NAHRÁVÁNÍ DOKLADU ----------
@@ -280,6 +319,24 @@ function moznostiSpz(vybranaSpz) {
   return html;
 }
 
+// Číselník Středisko - zatím pevně dvě hodnoty (auta vs. nemovitosti), viz
+// zadání appky. Kdyby bylo v budoucnu potřeba víc středisek nebo aby si je
+// admin spravoval sám, stačí tenhle seznam nahradit načtením z Sheets
+// (stejně jako Firmy/Auta).
+const MOZNOSTI_STREDISKA = ['Auta', 'Nemovitosti'];
+
+function moznostiStrediska(vybrane) {
+  let html = '<option value="">— bez střediska —</option>';
+  MOZNOSTI_STREDISKA.forEach((s) => {
+    const oznaceno = s === vybrane ? ' selected' : '';
+    html += '<option value="' + escapeAttr(s) + '"' + oznaceno + '>' + escapeHtml(s) + '</option>';
+  });
+  if (vybrane && !MOZNOSTI_STREDISKA.includes(vybrane)) {
+    html += '<option value="' + escapeAttr(vybrane) + '" selected>' + escapeHtml(vybrane) + '</option>';
+  }
+  return html;
+}
+
 function vykresliDoklady(doklady) {
   const telo = document.getElementById('tabulka-doklady-telo');
   telo.innerHTML = '';
@@ -288,6 +345,7 @@ function vykresliDoklady(doklady) {
 
   serazene.forEach((d) => {
     const tr = document.createElement('tr');
+    tr.className = 'radek-' + stavTrida(d.Stav);
 
     tr.innerHTML =
       '<td data-label="Stav"><span class="stav-chip ' + stavTrida(d.Stav) + '">' + escapeHtml(d.Stav || '') + '</span></td>' +
@@ -296,6 +354,7 @@ function vykresliDoklady(doklady) {
       '<td data-label="Částka">' + escapeHtml(String(d.Castka || '')) + ' ' + escapeHtml(d.Mena || '') + '</td>' +
       '<td data-label="Firma"></td>' +
       '<td data-label="Kategorie"></td>' +
+      '<td data-label="Středisko"></td>' +
       '<td data-label="SPZ"></td>' +
       '<td data-label="Soubor">' + (d.Zdrojovy_soubor_URL ? '<a href="' + escapeAttr(d.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>' : '') + '</td>' +
       '<td data-label="Akce"></td>';
@@ -314,19 +373,26 @@ function vykresliDoklady(doklady) {
     vstupKategorie.style.fontSize = '13px';
     buneckaKategorie.appendChild(vstupKategorie);
 
-    const buneckaSpz = tr.children[6];
+    const buneckaStredisko = tr.children[6];
+    const vstupStredisko = document.createElement('select');
+    vstupStredisko.style.fontSize = '13px';
+    vstupStredisko.innerHTML = moznostiStrediska(d.Stredisko || '');
+    buneckaStredisko.appendChild(vstupStredisko);
+
+    const buneckaSpz = tr.children[7];
     const vstupSpz = document.createElement('select');
     vstupSpz.style.fontSize = '13px';
     vstupSpz.innerHTML = moznostiSpz(d.SPZ_auta || '');
     buneckaSpz.appendChild(vstupSpz);
 
-    const buneckaAkce = tr.children[8];
+    const buneckaAkce = tr.children[9];
     const tlacitkoUlozit = document.createElement('button');
     tlacitkoUlozit.className = 'maly sekundarni';
     tlacitkoUlozit.textContent = 'Uložit';
     tlacitkoUlozit.onclick = () => ulozZmenu(d.ID, {
       Firma_potvrzena: vstupFirma.value.trim(),
       Kategorie: vstupKategorie.value.trim(),
+      Stredisko: vstupStredisko.value.trim(),
       SPZ_auta: vstupSpz.value.trim(),
     }, tlacitkoUlozit);
     buneckaAkce.appendChild(tlacitkoUlozit);
@@ -339,6 +405,7 @@ function vykresliDoklady(doklady) {
       tlacitkoSchvalit.onclick = () => ulozZmenu(d.ID, {
         Firma_potvrzena: vstupFirma.value.trim(),
         Kategorie: vstupKategorie.value.trim(),
+        Stredisko: vstupStredisko.value.trim(),
         SPZ_auta: vstupSpz.value.trim(),
         Stav: 'Schváleno',
       }, tlacitkoSchvalit);
@@ -349,7 +416,7 @@ function vykresliDoklady(doklady) {
   });
 
   if (serazene.length === 0) {
-    telo.innerHTML = '<tr><td colspan="9" class="nacitani">Zatím žádné doklady.</td></tr>';
+    telo.innerHTML = '<tr><td colspan="10" class="nacitani">Zatím žádné doklady.</td></tr>';
   }
 }
 
@@ -406,6 +473,167 @@ function vykresliSouhrn(idKontejneru, souhrn) {
 
 function formatCastka(cislo) {
   return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(cislo) + ' Kč';
+}
+
+// ---------- VYDANÉ FAKTURY ----------
+// Evidence faktur, které firmy skupiny Nomis Group vystavují odběratelům -
+// samostatná záložka, oddělená od Dokladů (to jsou přijaté faktury/účtenky).
+
+let vfFirmySeznam = [];
+let vfFakturySeznam = [];
+
+async function inicializujZalozkuVydaneFaktury() {
+  if (vfFirmySeznam.length === 0) {
+    try {
+      const data = await zavolejApi('/firmy', { method: 'GET' });
+      vfFirmySeznam = (data.firmy || []).map((f) => f.Nazev).filter(Boolean);
+    } catch (e) {
+      document.getElementById('vf-nacitani').textContent = 'Nepodařilo se načíst seznam firem: ' + e.message;
+      return;
+    }
+    const moznosti = vfFirmySeznam.map((n) => '<option value="' + escapeAttr(n) + '">' + escapeHtml(n) + '</option>').join('');
+    document.getElementById('vf-firma').innerHTML = moznosti;
+    document.getElementById('vf-filtr-firma').innerHTML = '<option value="">Všechny firmy</option>' + moznosti;
+  }
+
+  await nactiVydaneFaktury();
+}
+
+async function nactiVydaneFaktury() {
+  const nacitani = document.getElementById('vf-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  try {
+    const data = await zavolejApi('/vydaneFaktury', { method: 'GET' });
+    vfFakturySeznam = data.faktury || [];
+    nacitani.classList.add('skryto');
+    vykresliVydaneFaktury();
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst vydané faktury: ' + e.message;
+  }
+}
+
+// Faktura je "po splatnosti" jen odvozeně (podle dnešního data), ne jako
+// samostatně uložený stav - appka to nepřepočítává na pozadí, jen při
+// vykreslení seznamu.
+function vfJePoSplatnosti(f) {
+  if (f.Stav !== 'Neuhrazeno' || !f.Datum_splatnosti) return false;
+  return f.Datum_splatnosti < new Date().toISOString().slice(0, 10);
+}
+
+function vfStavRadekTrida(f) {
+  if (f.Stav === 'Uhrazeno') return 'stav-radek-vf-uhrazeno';
+  if (vfJePoSplatnosti(f)) return 'stav-radek-vf-posplatnosti';
+  return 'stav-radek-vf-neuhrazeno';
+}
+
+function vfStavText(f) {
+  if (f.Stav === 'Uhrazeno') return 'Uhrazeno';
+  if (vfJePoSplatnosti(f)) return 'Po splatnosti';
+  return 'Neuhrazeno';
+}
+
+function vykresliVydaneFaktury() {
+  const telo = document.getElementById('tabulka-vf-telo');
+  const souhrn = document.getElementById('vf-souhrn');
+  const filtrFirma = document.getElementById('vf-filtr-firma').value;
+  telo.innerHTML = '';
+
+  const filtrovane = vfFakturySeznam.filter((f) => !filtrFirma || f.Firma === filtrFirma);
+
+  const uhrazeno = filtrovane.filter((f) => f.Stav === 'Uhrazeno').length;
+  const poSplatnosti = filtrovane.filter((f) => vfJePoSplatnosti(f)).length;
+  const neuhrazeno = filtrovane.length - uhrazeno - poSplatnosti;
+  const soucetNeuhrazeno = filtrovane
+    .filter((f) => f.Stav !== 'Uhrazeno')
+    .reduce((soucet, f) => soucet + (Number(f.Castka) || 0), 0);
+  souhrn.textContent =
+    uhrazeno + ' uhrazeno, ' + neuhrazeno + ' neuhrazeno, ' + poSplatnosti + ' po splatnosti ' +
+    '(nezaplaceno celkem ' + formatCastka(soucetNeuhrazeno) + ')';
+
+  const serazene = filtrovane.slice().sort((a, b) => (b.Datum_vystaveni || '').localeCompare(a.Datum_vystaveni || ''));
+
+  serazene.forEach((f) => {
+    const tr = document.createElement('tr');
+    tr.className = vfStavRadekTrida(f);
+    tr.innerHTML =
+      '<td data-label="Firma">' + escapeHtml(f.Firma || '') + '</td>' +
+      '<td data-label="Číslo">' + escapeHtml(f.Cislo_faktury || '') + '</td>' +
+      '<td data-label="Zákazník">' + escapeHtml(f.Zakaznik || '') + '</td>' +
+      '<td data-label="Vystaveno">' + escapeHtml(f.Datum_vystaveni || '') + '</td>' +
+      '<td data-label="Splatnost">' + escapeHtml(f.Datum_splatnosti || '') + '</td>' +
+      '<td data-label="Částka">' + formatCastka(Number(f.Castka) || 0) + '</td>' +
+      '<td data-label="Stav">' + escapeHtml(vfStavText(f)) + '</td>' +
+      '<td data-label="Akce"></td>';
+
+    const buneckaAkce = tr.children[7];
+    const tlacitko = document.createElement('button');
+    tlacitko.className = 'maly sekundarni';
+    if (f.Stav === 'Uhrazeno') {
+      tlacitko.textContent = 'Zrušit uhrazení';
+      tlacitko.onclick = () => ulozZmenuVydaneFaktury(f.ID, { Stav: 'Neuhrazeno', Datum_uhrady: '' }, tlacitko);
+    } else {
+      tlacitko.textContent = 'Označit uhrazeno';
+      tlacitko.onclick = () => ulozZmenuVydaneFaktury(
+        f.ID,
+        { Stav: 'Uhrazeno', Datum_uhrady: new Date().toISOString().slice(0, 10) },
+        tlacitko
+      );
+    }
+    buneckaAkce.appendChild(tlacitko);
+
+    telo.appendChild(tr);
+  });
+
+  if (serazene.length === 0) {
+    telo.innerHTML = '<tr><td colspan="8" class="nacitani">Zatím žádné vydané faktury.</td></tr>';
+  }
+}
+
+async function ulozZmenuVydaneFaktury(id, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/vydaneFaktury', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
+    await nactiVydaneFaktury();
+  } catch (e) {
+    alert('Nepodařilo se uložit změnu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function pridatVydanouFakturu() {
+  const zprava = document.getElementById('vf-zprava');
+  const tlacitko = document.getElementById('tlacitko-pridat-fakturu');
+  zprava.innerHTML = '';
+  tlacitko.disabled = true;
+
+  try {
+    await zavolejApi('/vydaneFaktury', {
+      method: 'POST',
+      body: JSON.stringify({
+        Firma: document.getElementById('vf-firma').value,
+        Cislo_faktury: document.getElementById('vf-cislo').value.trim(),
+        Zakaznik: document.getElementById('vf-zakaznik').value.trim(),
+        ICO_zakaznika: document.getElementById('vf-ico').value.trim(),
+        Datum_vystaveni: document.getElementById('vf-vystaveni').value,
+        Datum_splatnosti: document.getElementById('vf-splatnost').value,
+        Castka: document.getElementById('vf-castka').value,
+        Mena: document.getElementById('vf-mena').value.trim() || 'CZK',
+        Poznamka: document.getElementById('vf-poznamka').value.trim(),
+      }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Faktura přidána.</div>';
+    ['vf-cislo', 'vf-zakaznik', 'vf-ico', 'vf-vystaveni', 'vf-splatnost', 'vf-castka', 'vf-poznamka'].forEach((id) => {
+      document.getElementById(id).value = '';
+    });
+    document.getElementById('vf-mena').value = 'CZK';
+    await nactiVydaneFaktury();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  } finally {
+    tlacitko.disabled = false;
+  }
 }
 
 // ---------- BANKOVNÍ VÝPISY ----------
@@ -477,6 +705,15 @@ function bankaStavBadge(stav) {
   return '<span class="badge-chybi">Chybí doklad</span>';
 }
 
+// Třída pro probarvení celého řádku podle stavu spárování - stejné čtyři
+// stavy jako bankaStavBadge, jen jako modifikátor na .banka-radek.
+function bankaStavRadekTrida(stav) {
+  if (stav === 'Potvrzeno') return 'stav-radek-potvrzeno';
+  if (stav === 'Navrženo') return 'stav-radek-navrzeno';
+  if (stav === 'Bez dokladu') return 'stav-radek-bezdokladu';
+  return 'stav-radek-chybi';
+}
+
 function vykresliBankovniPohyby() {
   const kontejner = document.getElementById('banka-tabulka');
   const souhrn = document.getElementById('banka-souhrn');
@@ -490,7 +727,7 @@ function vykresliBankovniPohyby() {
     potvrzeno + ' potvrzeno, ' + navrzeno + ' navrženo, ' + chybi + ' chybí, ' + bezDokladu +
     ' bez dokladu (celkem ' + bankaPohybySeznam.length + ')';
 
-  const jenChybejici = document.getElementById('banka-jen-chybejici').checked;
+  const jenChybejici = document.getElementById('banka-jen-chybejici').getAttribute('aria-pressed') === 'true';
   const serazene = bankaPohybySeznam
     .filter((p) => !jenChybejici || p.Stav_parovani === 'Nespárováno' || p.Stav_parovani === 'Navrženo')
     .slice()
@@ -509,7 +746,7 @@ function vykresliBankovniPohyby() {
 
 function vytvorRadekBanka(p) {
   const radek = document.createElement('div');
-  radek.className = 'banka-radek';
+  radek.className = 'banka-radek ' + bankaStavRadekTrida(p.Stav_parovani);
 
   const hlava = document.createElement('div');
   hlava.className = 'banka-radek-hlava';
@@ -1194,7 +1431,14 @@ document.getElementById('tlacitko-pripojit-google').addEventListener('click', ()
 document.getElementById('banka-vyber-firmy').addEventListener('change', nactiBankovniPohyby);
 document.getElementById('tlacitko-nahrat-vypis').addEventListener('click', () => document.getElementById('pole-vypis').click());
 document.getElementById('pole-vypis').addEventListener('change', (e) => nahratVypis(e.target.files[0]));
-document.getElementById('banka-jen-chybejici').addEventListener('change', vykresliBankovniPohyby);
+document.getElementById('banka-jen-chybejici').addEventListener('click', (e) => {
+  const zapnuto = e.target.getAttribute('aria-pressed') === 'true';
+  e.target.setAttribute('aria-pressed', String(!zapnuto));
+  vykresliBankovniPohyby();
+});
+document.getElementById('tlacitko-pridat-fakturu').addEventListener('click', pridatVydanouFakturu);
+document.getElementById('vf-filtr-firma').addEventListener('change', vykresliVydaneFaktury);
+document.getElementById('tlacitko-motiv').addEventListener('click', prepniMotiv);
 
 document.querySelectorAll('nav.zalozky button').forEach((btn) => {
   btn.addEventListener('click', () => prepniZalozku(btn.dataset.zalozka));

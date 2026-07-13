@@ -28,6 +28,7 @@
     <div class="hlavicka-app">
       <h1>Nomis Faktury</h1>
       <div class="uzivatel">
+        <button class="prepinac-ikona" id="tlacitko-motiv" type="button" title="Přepnout světlý/tmavý režim" aria-pressed="false">🌙</button>
         <div id="jmeno-uzivatele"></div>
         <button class="sekundarni maly" id="tlacitko-odhlasit">Odhlásit</button>
       </div>
@@ -37,10 +38,9 @@
       <button data-zalozka="nahrat" class="aktivni">Nahrát doklad</button>
       <button data-zalozka="doklady">Doklady</button>
       <button data-zalozka="prehled">Přehled</button>
+      <button data-zalozka="vydane-faktury">Vydané faktury</button>
       <button data-zalozka="banka" id="nav-banka" class="skryto">Bankovní výpisy</button>
-      <button data-zalozka="uzivatele" id="nav-uzivatele" class="skryto">Uživatelé</button>
-      <button data-zalozka="firmy" id="nav-firmy" class="skryto">Firmy</button>
-      <button data-zalozka="auta" id="nav-auta" class="skryto">Auta</button>
+      <button data-zalozka="nastaveni" id="nav-nastaveni" class="skryto">Nastavení</button>
     </nav>
 
     <!-- NAHRÁT -->
@@ -72,6 +72,7 @@
             <th>Částka</th>
             <th>Firma</th>
             <th>Kategorie</th>
+            <th>Středisko</th>
             <th>SPZ</th>
             <th>Soubor</th>
             <th>Akce</th>
@@ -97,6 +98,62 @@
       </div>
     </div>
 
+    <!-- VYDANÉ FAKTURY -->
+    <div id="zalozka-vydane-faktury" class="karta skryto">
+      <h2>Vydané faktury</h2>
+      <p class="popis">Evidence faktur, které firmy skupiny Nomis Group vystavují svým odběratelům
+        (samostatně od Dokladů, což jsou přijaté faktury a účtenky).</p>
+
+      <details class="panel-skladaci" open>
+        <summary>Přidat vydanou fakturu</summary>
+        <label for="vf-firma">Firma (vystavuje)</label>
+        <select id="vf-firma"></select>
+        <label for="vf-cislo">Číslo faktury</label>
+        <input type="text" id="vf-cislo" placeholder="např. 2026-014" />
+        <label for="vf-zakaznik">Zákazník</label>
+        <input type="text" id="vf-zakaznik" placeholder="Jméno / název odběratele" />
+        <label for="vf-ico">IČO zákazníka</label>
+        <input type="text" id="vf-ico" />
+        <label for="vf-vystaveni">Datum vystavení</label>
+        <input type="date" id="vf-vystaveni" />
+        <label for="vf-splatnost">Datum splatnosti</label>
+        <input type="date" id="vf-splatnost" />
+        <label for="vf-castka">Částka</label>
+        <input type="number" id="vf-castka" step="0.01" />
+        <label for="vf-mena">Měna</label>
+        <input type="text" id="vf-mena" value="CZK" />
+        <label for="vf-poznamka">Poznámka</label>
+        <input type="text" id="vf-poznamka" />
+        <button id="tlacitko-pridat-fakturu">Přidat fakturu</button>
+        <div id="vf-zprava"></div>
+      </details>
+
+      <label for="vf-filtr-firma" style="margin-top:16px">Filtrovat podle firmy</label>
+      <select id="vf-filtr-firma">
+        <option value="">Všechny firmy</option>
+      </select>
+      <div id="vf-souhrn" class="popis" style="margin-top:8px"></div>
+
+      <div id="vf-nacitani" class="nacitani" style="margin-top:12px">Načítám…</div>
+      <div style="overflow-x:auto">
+      <table id="tabulka-vf">
+        <thead>
+          <tr>
+            <th>Firma</th>
+            <th>Číslo</th>
+            <th>Zákazník</th>
+            <th>Vystaveno</th>
+            <th>Splatnost</th>
+            <th>Částka</th>
+            <th>Stav</th>
+            <th>Akce</th>
+          </tr>
+        </thead>
+        <tbody id="tabulka-vf-telo"></tbody>
+      </table>
+      </div>
+    </div>
+
     <!-- BANKOVNÍ VÝPISY -->
     <div id="zalozka-banka" class="karta skryto">
       <h2>Bankovní výpisy</h2>
@@ -112,105 +169,110 @@
       </div>
       <div id="banka-import-zprava"></div>
 
-      <div id="banka-souhrn" class="popis" style="margin-top:16px"></div>
-      <label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin-top:8px">
-        <input type="checkbox" id="banka-jen-chybejici" style="width:auto" />
-        Zobrazit jen chybějící doklady
-      </label>
+      <div class="banka-souhrn-radek" style="margin-top:16px">
+        <div id="banka-souhrn" class="popis"></div>
+        <button type="button" id="banka-jen-chybejici" class="prepinac-ikona" title="Zobrazit jen chybějící/navržené doklady" aria-pressed="false">🔎</button>
+      </div>
 
       <div id="banka-nacitani" class="nacitani" style="margin-top:12px">Vyberte firmu…</div>
       <div id="banka-tabulka"></div>
     </div>
 
-    <!-- ADMIN: UŽIVATELÉ -->
-    <div id="zalozka-uzivatele" class="karta skryto">
-      <div style="border:1px solid #ddd;border-radius:6px;padding:12px;margin-bottom:20px">
-        <h2 style="margin-top:0">Google účet appky</h2>
+    <!-- NASTAVENÍ -->
+    <div id="zalozka-nastaveni" class="karta skryto">
+      <h2>Nastavení</h2>
+      <p class="popis">Administrace appky – uživatelé, firmy, auta a napojení na Google. Vidí jen role admin.</p>
+
+      <details class="panel-skladaci">
+        <summary>Google účet appky</summary>
         <p class="popis">Appka běží jako neověřená Google aplikace, takže jí přístup k Disku a
           Sheets přibližně jednou za týden vyprší. Klikněte na tlačítko níže, přihlaste se Google
           účtem appky a na další stránce zkopírujte nový kód do Netlify (podle zobrazeného návodu).</p>
         <button id="tlacitko-pripojit-google" class="sekundarni">Připojit Google účet znovu</button>
-      </div>
+      </details>
 
-      <h2>Přidat uživatele</h2>
-      <label for="novy-u-jmeno">Jméno</label>
-      <input type="text" id="novy-u-jmeno" placeholder="Jméno a příjmení" />
-      <label for="novy-u-pin">PIN</label>
-      <input type="text" id="novy-u-pin" inputmode="numeric" placeholder="např. 4127" />
-      <label>Firmy</label>
-      <div id="novy-u-firmy" class="firmy-checkboxy"></div>
-      <label for="novy-u-role">Role</label>
-      <select id="novy-u-role">
-        <option value="">Uživatel (vidí jen zvolené firmy)</option>
-        <option value="ucetni">Účetní (vidí doklady a bankovní výpisy všech firem, ne administraci)</option>
-        <option value="admin">Admin (vidí a spravuje vše)</option>
-      </select>
-      <button id="tlacitko-pridat-uzivatele">Přidat uživatele</button>
-      <div id="uzivatele-zprava"></div>
+      <details class="panel-skladaci">
+        <summary>Uživatelé</summary>
+        <h3>Přidat uživatele</h3>
+        <label for="novy-u-jmeno">Jméno</label>
+        <input type="text" id="novy-u-jmeno" placeholder="Jméno a příjmení" />
+        <label for="novy-u-pin">PIN</label>
+        <input type="text" id="novy-u-pin" inputmode="numeric" placeholder="např. 4127" />
+        <label>Firmy</label>
+        <div id="novy-u-firmy" class="firmy-checkboxy"></div>
+        <label for="novy-u-role">Role</label>
+        <select id="novy-u-role">
+          <option value="">Uživatel (vidí jen zvolené firmy)</option>
+          <option value="ucetni">Účetní (vidí doklady a bankovní výpisy všech firem, ne administraci)</option>
+          <option value="admin">Admin (vidí a spravuje vše)</option>
+        </select>
+        <button id="tlacitko-pridat-uzivatele">Přidat uživatele</button>
+        <div id="uzivatele-zprava"></div>
 
-      <h2 style="margin-top:24px">Existující uživatelé</h2>
-      <div id="uzivatele-nacitani" class="nacitani">Načítám…</div>
-      <div style="overflow-x:auto">
-      <table id="tabulka-uzivatele">
-        <thead><tr><th>Jméno</th><th>PIN</th><th>Firmy</th><th>Role</th><th>Akce</th></tr></thead>
-        <tbody id="tabulka-uzivatele-telo"></tbody>
-      </table>
-      </div>
-    </div>
+        <h3 style="margin-top:24px">Existující uživatelé</h3>
+        <div id="uzivatele-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-uzivatele">
+          <thead><tr><th>Jméno</th><th>PIN</th><th>Firmy</th><th>Role</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-uzivatele-telo"></tbody>
+        </table>
+        </div>
+      </details>
 
-    <!-- ADMIN: FIRMY -->
-    <div id="zalozka-firmy" class="karta skryto">
-      <h2>Přidat firmu</h2>
-      <label for="nova-f-nazev">Název</label>
-      <input type="text" id="nova-f-nazev" placeholder="např. NOMIS Example s.r.o." />
-      <label for="nova-f-ico">IČO</label>
-      <input type="text" id="nova-f-ico" />
-      <label for="nova-f-dic">DIČ</label>
-      <input type="text" id="nova-f-dic" />
-      <label for="nova-f-platce">Plátce DPH</label>
-      <select id="nova-f-platce">
-        <option value="NE">Ne</option>
-        <option value="ANO">Ano</option>
-      </select>
-      <label for="nova-f-ucet">Bankovní účet</label>
-      <input type="text" id="nova-f-ucet" placeholder="např. 11002722/0800 (nepovinné, appka ho umí doplnit sama při prvním importu výpisu)" />
-      <button id="tlacitko-pridat-firmu">Přidat firmu</button>
-      <div id="firmy-zprava"></div>
+      <details class="panel-skladaci">
+        <summary>Firmy</summary>
+        <h3>Přidat firmu</h3>
+        <label for="nova-f-nazev">Název</label>
+        <input type="text" id="nova-f-nazev" placeholder="např. NOMIS Example s.r.o." />
+        <label for="nova-f-ico">IČO</label>
+        <input type="text" id="nova-f-ico" />
+        <label for="nova-f-dic">DIČ</label>
+        <input type="text" id="nova-f-dic" />
+        <label for="nova-f-platce">Plátce DPH</label>
+        <select id="nova-f-platce">
+          <option value="NE">Ne</option>
+          <option value="ANO">Ano</option>
+        </select>
+        <label for="nova-f-ucet">Bankovní účet</label>
+        <input type="text" id="nova-f-ucet" placeholder="např. 11002722/0800 (nepovinné, appka ho umí doplnit sama při prvním importu výpisu)" />
+        <button id="tlacitko-pridat-firmu">Přidat firmu</button>
+        <div id="firmy-zprava"></div>
 
-      <h2 style="margin-top:24px">Existující firmy</h2>
-      <p class="popis">Název firmy se z appky nedá měnit (používá se jinde jako identifikátor) – jen ostatní pole.
-        Bankovní účet appka používá k varování, pokud by se v záložce Bankovní výpisy nahrál výpis k jiné firmě.</p>
-      <div id="firmy-nacitani" class="nacitani">Načítám…</div>
-      <div style="overflow-x:auto">
-      <table id="tabulka-firmy">
-        <thead><tr><th>Název</th><th>IČO</th><th>DIČ</th><th>Plátce DPH</th><th>Bankovní účet</th><th>Akce</th></tr></thead>
-        <tbody id="tabulka-firmy-telo"></tbody>
-      </table>
-      </div>
-    </div>
+        <h3 style="margin-top:24px">Existující firmy</h3>
+        <p class="popis">Název firmy se z appky nedá měnit (používá se jinde jako identifikátor) – jen ostatní pole.
+          Bankovní účet appka používá k varování, pokud by se v záložce Bankovní výpisy nahrál výpis k jiné firmě.</p>
+        <div id="firmy-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-firmy">
+          <thead><tr><th>Název</th><th>IČO</th><th>DIČ</th><th>Plátce DPH</th><th>Bankovní účet</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-firmy-telo"></tbody>
+        </table>
+        </div>
+      </details>
 
-    <!-- ADMIN: AUTA -->
-    <div id="zalozka-auta" class="karta skryto">
-      <h2>Přidat auto</h2>
-      <label for="nove-a-spz">SPZ</label>
-      <input type="text" id="nove-a-spz" placeholder="např. 1AB 2345" />
-      <label for="nove-a-model">Model</label>
-      <input type="text" id="nove-a-model" />
-      <label for="nove-a-firma">Firma</label>
-      <select id="nove-a-firma"></select>
-      <label for="nove-a-ridic">Řidič</label>
-      <input type="text" id="nove-a-ridic" />
-      <button id="tlacitko-pridat-auto">Přidat auto</button>
-      <div id="auta-zprava"></div>
+      <details class="panel-skladaci">
+        <summary>Auta</summary>
+        <h3>Přidat auto</h3>
+        <label for="nove-a-spz">SPZ</label>
+        <input type="text" id="nove-a-spz" placeholder="např. 1AB 2345" />
+        <label for="nove-a-model">Model</label>
+        <input type="text" id="nove-a-model" />
+        <label for="nove-a-firma">Firma</label>
+        <select id="nove-a-firma"></select>
+        <label for="nove-a-ridic">Řidič</label>
+        <input type="text" id="nove-a-ridic" />
+        <button id="tlacitko-pridat-auto">Přidat auto</button>
+        <div id="auta-zprava"></div>
 
-      <h2 style="margin-top:24px">Existující auta</h2>
-      <div id="auta-nacitani" class="nacitani">Načítám…</div>
-      <div style="overflow-x:auto">
-      <table id="tabulka-auta">
-        <thead><tr><th>SPZ</th><th>Model</th><th>Firma</th><th>Řidič</th><th>Akce</th></tr></thead>
-        <tbody id="tabulka-auta-telo"></tbody>
-      </table>
-      </div>
+        <h3 style="margin-top:24px">Existující auta</h3>
+        <div id="auta-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-auta">
+          <thead><tr><th>SPZ</th><th>Model</th><th>Firma</th><th>Řidič</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-auta-telo"></tbody>
+        </table>
+        </div>
+      </details>
     </div>
   </section>
 

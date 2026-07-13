@@ -1,7 +1,8 @@
 /**
  * netlify/functions/setup.js
  * Administrátorská funkce: vytvoří (pokud chybí) listy Firmy, Auta,
- * Doklady, Bankovni_pohyby, Log a Uzivatele s hlavičkami a ukázkovými daty.
+ * Doklady, Bankovni_pohyby, Vydane_faktury, Log a Uzivatele s hlavičkami
+ * a ukázkovými daty.
  * Bezpečně chráněná SETUP_SECRET, aby ji nemohl spustit kdokoliv, kdo
  * uhodne URL. Je bezpečné funkci spustit opakovaně i po aktualizaci appky -
  * u listů, které už existují a mají data, jen doplní případné chybějící
@@ -24,6 +25,7 @@
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { zajistiInboxSlozku } = require('../../lib/driveHelpers');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
+const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
 const { json } = require('../../lib/http');
 
 const LISTY = [
@@ -43,11 +45,12 @@ const LISTY = [
       'ID', 'Datum_zpracovani', 'Typ', 'Zdrojovy_soubor_URL', 'Zdrojovy_soubor_ID',
       'Dodavatel', 'ICO_dodavatele', 'Odberatel_text', 'Datum_dokladu', 'Cislo_dokladu',
       'Castka', 'Mena', 'DPH', 'Variabilni_symbol', 'Firma_AI_odhad', 'Firma_potvrzena',
-      'Kategorie', 'SPZ_auta', 'Stav', 'Poznamka', 'Nahral_uzivatel',
+      'Kategorie', 'Stredisko', 'SPZ_auta', 'Stav', 'Poznamka', 'Nahral_uzivatel',
     ],
     ukazka: [],
   },
   { nazev: 'Bankovni_pohyby', hlavicky: BANKOVNI_HEADERS, ukazka: [] },
+  { nazev: 'Vydane_faktury', hlavicky: VYDANE_FAKTURY_HEADERS, ukazka: [] },
   { nazev: 'Log', hlavicky: ['Cas', 'Uzivatel', 'Akce', 'Doklad_ID', 'Detail'], ukazka: [] },
   {
     nazev: 'Uzivatele',

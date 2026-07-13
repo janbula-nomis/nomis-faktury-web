@@ -85,6 +85,7 @@ exports.handler = async (event) => {
       Firma_AI_odhad: extrakce.firma_odhad || '',
       Firma_potvrzena: '',
       Kategorie: extrakce.kategorie || '',
+      Stredisko: '',
       SPZ_auta: extrakce.spz_auta || '',
       Stav: duplicita ? 'Možná duplicita' : 'Ke kontrole',
       Poznamka: extrakce.poznamka_ai || '',

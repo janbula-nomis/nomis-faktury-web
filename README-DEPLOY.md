@@ -261,7 +261,7 @@ Appka umí naimportovat výpis transakcí exportovaný z **George Business**
 transakcí → Exportovat → JSON – appka na to formát CSV ani Excel
 nepoužívá, JSON appce dává spolehlivější strukturovaná data). Přístup
 k téhle záložce mají jen role **admin** a **účetní** (novou roli přidáte
-v záložce Uživatelé).
+v Nastavení → Uživatelé).
 
 1. Přihlaste se jako admin nebo účetní a jděte do záložky **„Bankovní
    výpisy“**.
@@ -285,6 +285,33 @@ Appka si při prvním importu k firmě sama zapamatuje číslo bankovního účt
 z výpisu (pole „Bankovní účet“ v záložce Firmy) – při každém dalším
 importu pak zkontroluje, že vybraná firma odpovídá účtu ve výpisu, a pokud
 ne, upozorní vás dřív, než by se výpis omylem přiřadil ke špatné firmě.
+
+## 10. Vydané faktury, středisko, Nastavení a tmavý režim
+
+Od verze v3.0 appka přidává:
+
+- **Vydané faktury** – nová samostatná záložka (ne součást Dokladů) pro
+  evidenci faktur, které firmy skupiny Nomis Group vystavují odběratelům:
+  zákazník, číslo faktury, částka, datum vystavení/splatnosti a stav
+  uhrazeno/neuhrazeno. Appka sama dopočítá „Po splatnosti“ podle dnešního
+  data u neuhrazených faktur po splatnosti – to se nikam neukládá, jen se
+  tak zobrazí. Vyžaduje nový list **Vydane_faktury** v Sheetu – po nasazení
+  proto znovu spusťte `setup` funkci (viz krok 6), appka list sama založí.
+- **Středisko** – nový číselník u Dokladů s pevnou volbou „Auta“ nebo
+  „Nemovitosti“, aby šlo náklady třídit i podle střediska, ne jen podle
+  kategorie a firmy. Vyžaduje nový sloupec `Stredisko` v listu Doklady –
+  opět stačí znovu spustit `setup`, appka sloupec doplní na konec, nic
+  nesmaže.
+- **Nastavení** – záložky Uživatelé, Firmy, Auta a napojení na Google se
+  přesunuly z hlavního menu do jedné souhrnné záložky „Nastavení“
+  (rozbalovací sekce), ať je hlavní menu přehlednější. Vidí ji jen role
+  admin, stejně jako dřív. Bankovní výpisy zůstávají v hlavním menu, tam
+  k nim potřebuje rychlý přístup i účetní.
+- **Tmavý režim** – ikona 🌙/☀️ v hlavičce appky (vedle jména uživatele)
+  přepíná světlý/tmavý motiv, appka si volbu pamatuje v prohlížeči.
+- Zaškrtávátko „Zobrazit jen chybějící doklady“ v Bankovních výpisech je
+  teď kompaktní ikona 🔎 místo textového checkboxu (najetím myší/podržením
+  na ikoně se zobrazí popisek).
 
 ## Poznámky k bezpečnosti a omezením
 
