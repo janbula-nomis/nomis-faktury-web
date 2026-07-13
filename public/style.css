@@ -106,3 +106,25 @@ input[type="file"] { margin-top: 8px; }
 }
 
 .patka-verze { text-align: center; font-size: 12px; color: var(--barva-text-tlumena); padding: 16px 0 8px; }
+
+.tlacitka-nahrani { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.tlacitka-nahrani button { margin-top: 0; flex: 1; min-width: 140px; }
+
+.banka-radek { border: 1px solid var(--barva-hranice); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+.banka-radek-hlava { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; flex-wrap: wrap; }
+.banka-radek-hlava:hover { background: #fafbfc; }
+.banka-radek-hlava .castka { font-weight: 600; margin-left: auto; }
+.banka-radek-hlava .castka.prijem { color: var(--barva-uspech); }
+.banka-radek-hlava .castka.vydaj { color: var(--barva-text); }
+.banka-radek-detail { padding: 12px; border-top: 1px solid var(--barva-hranice); background: #fafbfc; display: none; }
+.banka-radek.rozbaleno .banka-radek-detail { display: block; }
+.banka-radek.rozbaleno .banka-sipka { transform: rotate(90deg); }
+.banka-sipka { display: inline-block; transition: transform 0.15s; }
+.badge-chybi { background: #fdecea; color: var(--barva-chyba); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-navrzeno { background: #fff4de; color: var(--barva-varovani); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-potvrzeno { background: #e8f7f0; color: var(--barva-uspech); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-bezdokladu { background: #eef0f4; color: var(--barva-text-tlumena); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.banka-radek-detail .radek-akci { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.banka-radek-detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13px; margin: 0; }
+.banka-radek-detail dt { color: var(--barva-text-tlumena); }
+.banka-radek-detail dd { margin: 0; }

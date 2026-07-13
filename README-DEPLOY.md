@@ -205,6 +205,15 @@ odhadu, ke které firmě doklad patří).
 Po dokončení doporučujeme v Netlify smazat/změnit `SETUP_SECRET`, ať setup
 funkci nejde znovu spustit omylem.
 
+**Pozn. k aktualizacím appky:** funkci `setup` je bezpečné (a u větších
+aktualizací appky nutné) spustit i opakovaně na appce, která už běží a má
+data – nikdy nic nemaže ani nepřepisuje, jen u listů, které ještě
+neexistují, je založí, a u listů, kterým v aktualizaci přibyl nový sloupec
+(např. `Bankovni_ucet` u Firmy, nebo celý nový list `Bankovni_pohyby` pro
+bankovní výpisy), ten sloupec/list doplní na konec. Pokud jste
+`SETUP_SECRET` po prvním nasazení smazali, budete ho muset před
+opakovaným spuštěním v Netlify dočasně znovu nastavit.
+
 ## 7. Vyzkoušení
 
 1. Otevřete `https://VAŠE-DOMÉNA.netlify.app`.
@@ -244,6 +253,38 @@ pak nemusíte otevírat vůbec, jen tuhle appku a Netlify. Předpokladem je,
 že jste v kroku 2.4 přidali obě „Authorized redirect URIs“ (Playground
 i appčinu vlastní adresu) – jinak tlačítko skončí chybou
 `redirect_uri_mismatch`.
+
+## 9. Bankovní výpisy (párování plateb s doklady)
+
+Appka umí naimportovat výpis transakcí exportovaný z **George Business**
+(Česká spořitelna) ve formátu **JSON** (v George Business: Historie
+transakcí → Exportovat → JSON – appka na to formát CSV ani Excel
+nepoužívá, JSON appce dává spolehlivější strukturovaná data). Přístup
+k téhle záložce mají jen role **admin** a **účetní** (novou roli přidáte
+v záložce Uživatelé).
+
+1. Přihlaste se jako admin nebo účetní a jděte do záložky **„Bankovní
+   výpisy“**.
+2. Nahoře vyberte firmu, ke které výpis patří – appka vždy pracuje jen
+   s jednou firmou najednou, ať se výpisy různých firem nesmíchají.
+3. Klikněte **„Nahrát výpis (JSON)“** a vyberte exportovaný soubor.
+4. Appka pohyby naimportuje, poplatky a příchozí platby rovnou označí
+   „Bez dokladu“ (u příjmů appka doklad nevyžaduje – appka eviduje jen
+   výdajové doklady/účtenky) a u zbylých výdajů zkusí najít odpovídající
+   doklad podle částky, variabilního symbolu, data a jména dodavatele. Při
+   opakovaném nahrání stejného (třeba průběžně rostoucího celoročního)
+   výpisu appka už jednou naimportované pohyby pozná a přeskočí, jen
+   doplní nové.
+5. U řádků se stavem „Navrženo“ shodu buď potvrďte, nebo zamítněte. U
+   řádků „Chybí doklad“ doklad buď přiřaďte z existujících, nebo rovnou
+   nahrajte nový (appka ho stejně jako v záložce „Nahrát doklad“ vytěží
+   přes Gemini a rovnou propojí s daným pohybem), nebo řádek označte „Bez
+   dokladu“ (mzdy, nájem, přesuny mezi vlastními firmami apod.).
+
+Appka si při prvním importu k firmě sama zapamatuje číslo bankovního účtu
+z výpisu (pole „Bankovní účet“ v záložce Firmy) – při každém dalším
+importu pak zkontroluje, že vybraná firma odpovídá účtu ve výpisu, a pokud
+ne, upozorní vás dřív, než by se výpis omylem přiřadil ke špatné firmě.
 
 ## Poznámky k bezpečnosti a omezením
 

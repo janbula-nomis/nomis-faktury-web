@@ -1,24 +1,31 @@
 /**
  * netlify/functions/firmy.js
- * Správa firem – jen pro roli "admin". List "Firmy" v Sheets.
+ * Správa firem. List "Firmy" v Sheets.
  *
- * GET    -> { firmy: [...] }
- * POST   { Nazev, ICO, DIC, Platce_DPH } -> nová firma
+ * GET    -> { firmy: [...] }  smí kterýkoli přihlášený uživatel (potřeba
+ *           např. pro výběr firmy v záložce Bankovní výpisy),
+ *           POST/PATCH/DELETE jen role "admin".
+ * POST   { Nazev, ICO, DIC, Platce_DPH, Bankovni_ucet } -> nová firma
  * PATCH  { row, zmeny } -> úprava firmy (Nazev se z bezpečnostních důvodů
- *          nemění přes appku - viz poznámka níže, jen ICO/DIC/Platce_DPH)
+ *          nemění přes appku - viz poznámka níže, jen ostatní pole)
  * DELETE ?row=N -> smaže firmu
  *
  * Pozn.: Název firmy je použitý jako "klíč" i jinde (Doklady.Firma_potvrzena,
  * Uzivatele.Firmy) - appka to nijak automaticky nepřejmenovává na jiných
  * místech. Proto editace názvu existující firmy touhle cestou není povolená
  * (jen při vytvoření nové firmy) - zabraňuje to nechtěnému rozjetí vazeb.
+ *
+ * Pozn. k Bankovni_ucet: číslo účtu (tvar "prefix-cislo/kod" nebo jen
+ * "cislo/kod") slouží k tomu, aby appka při importu bankovního výpisu
+ * (viz netlify/functions/banka.js) mohla upozornit, pokud si uživatel
+ * vybral firmu, která neodpovídá účtu ve skutečném výpisu.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects, appendRow, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const { json } = require('../../lib/http');
 
-const FIRMY_HEADERS = ['Nazev', 'ICO', 'DIC', 'Platce_DPH'];
+const FIRMY_HEADERS = ['Nazev', 'ICO', 'DIC', 'Platce_DPH', 'Bankovni_ucet'];
 
 function normalizujPlatceDph(hodnota) {
   return hodnota === 'ANO' ? 'ANO' : 'NE';
@@ -30,13 +37,11 @@ exports.handler = async (event) => {
   let uzivatel;
   try {
     uzivatel = requireAuth(event);
-    if (uzivatel.role !== 'admin') {
-      const err = new Error('Tuto akci může provést jen administrátor.');
-      err.statusCode = 403;
-      throw err;
-    }
   } catch (e) {
     return json(e.statusCode || 401, { error: e.message });
+  }
+  if (event.httpMethod !== 'GET' && uzivatel.role !== 'admin') {
+    return json(403, { error: 'Tuto akci může provést jen administrátor.' });
   }
 
   const sheets = await getSheetsClient();
@@ -63,6 +68,7 @@ exports.handler = async (event) => {
         ICO: String(telo.ICO || '').trim(),
         DIC: String(telo.DIC || '').trim(),
         Platce_DPH: normalizujPlatceDph(telo.Platce_DPH),
+        Bankovni_ucet: String(telo.Bankovni_ucet || '').trim(),
       });
 
       return json(200, { ok: true });
@@ -78,6 +84,7 @@ exports.handler = async (event) => {
       if (zmeny.Platce_DPH !== undefined) zmeny.Platce_DPH = normalizujPlatceDph(zmeny.Platce_DPH);
       if (zmeny.ICO !== undefined) zmeny.ICO = String(zmeny.ICO).trim();
       if (zmeny.DIC !== undefined) zmeny.DIC = String(zmeny.DIC).trim();
+      if (zmeny.Bankovni_ucet !== undefined) zmeny.Bankovni_ucet = String(zmeny.Bankovni_ucet).trim();
 
       const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Firmy');
       const soucasny = rows.find((f) => f._row === row);

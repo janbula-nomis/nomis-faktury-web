@@ -19,8 +19,10 @@ function normalizujFirmy(hodnota) {
   return String(hodnota || '').trim();
 }
 
+const PLATNE_ROLE = ['admin', 'ucetni'];
+
 function normalizujRoli(hodnota) {
-  return hodnota === 'admin' ? 'admin' : '';
+  return PLATNE_ROLE.includes(hodnota) ? hodnota : '';
 }
 
 exports.handler = async (event) => {

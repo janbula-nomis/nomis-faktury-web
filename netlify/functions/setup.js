@@ -1,8 +1,11 @@
 /**
  * netlify/functions/setup.js
- * Jednorázová administrátorská funkce: vytvoří (pokud chybí) listy Firmy,
- * Auta, Doklady, Log a Uzivatele s hlavičkami a ukázkovými daty. Bezpečně
- * chráněná SETUP_SECRET, aby ji nemohl spustit kdokoliv, kdo uhodne URL.
+ * Administrátorská funkce: vytvoří (pokud chybí) listy Firmy, Auta,
+ * Doklady, Bankovni_pohyby, Log a Uzivatele s hlavičkami a ukázkovými daty.
+ * Bezpečně chráněná SETUP_SECRET, aby ji nemohl spustit kdokoliv, kdo
+ * uhodne URL. Je bezpečné funkci spustit opakovaně i po aktualizaci appky -
+ * u listů, které už existují a mají data, jen doplní případné chybějící
+ * sloupce na konec (nikdy nic nemaže/nepřepisuje).
  *
  * Zároveň ověří/zajistí Inbox složku na Disku (viz lib/driveHelpers.js) -
  * appka používá scope drive.file, takže potřebuje složku, kterou vytvořila
@@ -20,16 +23,17 @@
  */
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { zajistiInboxSlozku } = require('../../lib/driveHelpers');
+const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { json } = require('../../lib/http');
 
 const LISTY = [
   {
     nazev: 'Firmy',
-    hlavicky: ['Nazev', 'ICO', 'DIC', 'Platce_DPH'],
+    hlavicky: ['Nazev', 'ICO', 'DIC', 'Platce_DPH', 'Bankovni_ucet'],
     ukazka: [
-      ['NOMIS Investment', '', '', 'ANO'],
-      ['NOMIS & Homes', '', '', 'NE'],
-      ['NOMIS CZ', '', '', 'NE'],
+      ['NOMIS Investment', '', '', 'ANO', ''],
+      ['NOMIS & Homes', '', '', 'NE', ''],
+      ['NOMIS CZ', '', '', 'NE', ''],
     ],
   },
   { nazev: 'Auta', hlavicky: ['SPZ', 'Model', 'Firma', 'Ridic'], ukazka: [] },
@@ -43,6 +47,7 @@ const LISTY = [
     ],
     ukazka: [],
   },
+  { nazev: 'Bankovni_pohyby', hlavicky: BANKOVNI_HEADERS, ukazka: [] },
   { nazev: 'Log', hlavicky: ['Cas', 'Uzivatel', 'Akce', 'Doklad_ID', 'Detail'], ukazka: [] },
   {
     nazev: 'Uzivatele',
@@ -95,6 +100,28 @@ exports.handler = async (event) => {
           requestBody: { values: hodnoty },
         });
         vysledky.push(list.nazev + ': doplněny hlavičky' + (list.ukazka.length ? ' a ukázková data' : ''));
+      } else {
+        // List už existuje a má data - appka jen doplní případné NOVÉ sloupce
+        // na konec hlavičkového řádku (např. po aktualizaci appky přibude
+        // sloupec), nikdy nic nemaže ani nepřejmenovává, ať se nerozbijí
+        // existující data ani vazby na ně.
+        const hlavickyRadek = await sheets.spreadsheets.values.get({
+          spreadsheetId,
+          range: list.nazev + '!1:1',
+        });
+        const stavajiciHlavicky = (hlavickyRadek.data.values && hlavickyRadek.data.values[0]) || [];
+        const chybejiciHlavicky = list.hlavicky.filter((h) => !stavajiciHlavicky.includes(h));
+
+        if (chybejiciHlavicky.length > 0) {
+          const noveHlavicky = stavajiciHlavicky.concat(chybejiciHlavicky);
+          await sheets.spreadsheets.values.update({
+            spreadsheetId,
+            range: list.nazev + '!A1',
+            valueInputOption: 'USER_ENTERED',
+            requestBody: { values: [noveHlavicky] },
+          });
+          vysledky.push(list.nazev + ': doplněny chybějící sloupce (' + chybejiciHlavicky.join(', ') + ')');
+        }
       }
     }
 

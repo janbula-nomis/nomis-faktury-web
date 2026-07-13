@@ -37,6 +37,7 @@
       <button data-zalozka="nahrat" class="aktivni">Nahrát doklad</button>
       <button data-zalozka="doklady">Doklady</button>
       <button data-zalozka="prehled">Přehled</button>
+      <button data-zalozka="banka" id="nav-banka" class="skryto">Bankovní výpisy</button>
       <button data-zalozka="uzivatele" id="nav-uzivatele" class="skryto">Uživatelé</button>
       <button data-zalozka="firmy" id="nav-firmy" class="skryto">Firmy</button>
       <button data-zalozka="auta" id="nav-auta" class="skryto">Auta</button>
@@ -46,7 +47,13 @@
     <div id="zalozka-nahrat" class="karta">
       <h2>Nahrát nový doklad</h2>
       <p class="popis">Vyfoťte nebo vyberte fakturu/účtenku. Fotky se před odesláním automaticky zmenší.</p>
-      <input type="file" id="pole-soubor" accept="image/*,application/pdf" capture="environment" />
+      <div class="tlacitka-nahrani">
+        <button id="tlacitko-vyfotit" type="button" class="sekundarni">📷 Vyfotit</button>
+        <button id="tlacitko-vybrat-soubor" type="button" class="sekundarni">📁 Nahrát soubor</button>
+      </div>
+      <input type="file" id="pole-foto" accept="image/*" capture="environment" class="skryto" />
+      <input type="file" id="pole-soubor" accept="image/*,application/pdf" class="skryto" />
+      <div id="vybrany-soubor-info" class="popis"></div>
       <button id="tlacitko-nahrat" disabled>Nahrát a zpracovat</button>
       <div id="nahrat-zprava"></div>
     </div>
@@ -90,6 +97,31 @@
       </div>
     </div>
 
+    <!-- BANKOVNÍ VÝPISY -->
+    <div id="zalozka-banka" class="karta skryto">
+      <h2>Bankovní výpisy</h2>
+      <p class="popis">Nahrajte export z George Business (JSON) a přiřaďte platby k dokladům. Appka vždy pracuje
+        jen s jednou firmou najednou, ať se výpisy různých firem nesmíchají.</p>
+
+      <label for="banka-vyber-firmy">Firma</label>
+      <select id="banka-vyber-firmy"></select>
+
+      <div class="tlacitka-nahrani" style="margin-top:12px">
+        <button id="tlacitko-nahrat-vypis" type="button">Nahrát výpis (JSON)</button>
+        <input type="file" id="pole-vypis" accept="application/json,.json" class="skryto" />
+      </div>
+      <div id="banka-import-zprava"></div>
+
+      <div id="banka-souhrn" class="popis" style="margin-top:16px"></div>
+      <label style="display:flex;align-items:center;gap:6px;font-weight:normal;margin-top:8px">
+        <input type="checkbox" id="banka-jen-chybejici" style="width:auto" />
+        Zobrazit jen chybějící doklady
+      </label>
+
+      <div id="banka-nacitani" class="nacitani" style="margin-top:12px">Vyberte firmu…</div>
+      <div id="banka-tabulka"></div>
+    </div>
+
     <!-- ADMIN: UŽIVATELÉ -->
     <div id="zalozka-uzivatele" class="karta skryto">
       <div style="border:1px solid #ddd;border-radius:6px;padding:12px;margin-bottom:20px">
@@ -110,6 +142,7 @@
       <label for="novy-u-role">Role</label>
       <select id="novy-u-role">
         <option value="">Uživatel (vidí jen zvolené firmy)</option>
+        <option value="ucetni">Účetní (vidí doklady a bankovní výpisy všech firem, ne administraci)</option>
         <option value="admin">Admin (vidí a spravuje vše)</option>
       </select>
       <button id="tlacitko-pridat-uzivatele">Přidat uživatele</button>
@@ -139,15 +172,18 @@
         <option value="NE">Ne</option>
         <option value="ANO">Ano</option>
       </select>
+      <label for="nova-f-ucet">Bankovní účet</label>
+      <input type="text" id="nova-f-ucet" placeholder="např. 11002722/0800 (nepovinné, appka ho umí doplnit sama při prvním importu výpisu)" />
       <button id="tlacitko-pridat-firmu">Přidat firmu</button>
       <div id="firmy-zprava"></div>
 
       <h2 style="margin-top:24px">Existující firmy</h2>
-      <p class="popis">Název firmy se z appky nedá měnit (používá se jinde jako identifikátor) – jen IČO/DIČ/plátce DPH.</p>
+      <p class="popis">Název firmy se z appky nedá měnit (používá se jinde jako identifikátor) – jen ostatní pole.
+        Bankovní účet appka používá k varování, pokud by se v záložce Bankovní výpisy nahrál výpis k jiné firmě.</p>
       <div id="firmy-nacitani" class="nacitani">Načítám…</div>
       <div style="overflow-x:auto">
       <table id="tabulka-firmy">
-        <thead><tr><th>Název</th><th>IČO</th><th>DIČ</th><th>Plátce DPH</th><th>Akce</th></tr></thead>
+        <thead><tr><th>Název</th><th>IČO</th><th>DIČ</th><th>Plátce DPH</th><th>Bankovní účet</th><th>Akce</th></tr></thead>
         <tbody id="tabulka-firmy-telo"></tbody>
       </table>
       </div>
