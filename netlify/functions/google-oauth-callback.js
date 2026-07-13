@@ -54,8 +54,8 @@ exports.handler = async (event) => {
     );
   }
 
-  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const clientId = (process.env.GOOGLE_OAUTH_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
   const host = (event.headers || {}).host;
   const redirectUri = 'https://' + host + '/.netlify/functions/google-oauth-callback';
 

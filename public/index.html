@@ -13,6 +13,10 @@
   <section id="view-login" class="karta">
     <h1>Nomis Faktury</h1>
     <p class="popis">Evidence faktur a účtenek – Nomis Group</p>
+    <label for="vyber-jmeno">Jméno</label>
+    <select id="vyber-jmeno">
+      <option value="">Načítám seznam uživatelů…</option>
+    </select>
     <label for="pole-pin">PIN</label>
     <input type="password" id="pole-pin" inputmode="numeric" autocomplete="off" placeholder="Zadejte svůj PIN" />
     <button id="tlacitko-prihlasit">Přihlásit se</button>
@@ -173,6 +177,8 @@
       </div>
     </div>
   </section>
+
+  <footer class="patka-verze">Verze appky: <span id="verze-cislo"></span></footer>
 
 </div>
 <script src="app.js"></script>

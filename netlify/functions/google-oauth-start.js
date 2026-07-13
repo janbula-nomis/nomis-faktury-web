@@ -39,8 +39,8 @@ exports.handler = async (event) => {
     return { statusCode: 403, body: 'Tuto akci může provést jen administrátor appky.' };
   }
 
-  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const clientId = (process.env.GOOGLE_OAUTH_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
   if (!clientId || !clientSecret) {
     return { statusCode: 500, body: 'Chybí GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET v Netlify env proměnných.' };
   }

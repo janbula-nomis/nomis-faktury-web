@@ -5,6 +5,10 @@
  * stránky) - běžný přístup pro reálně nasazenou webovou appku.
  */
 
+// Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
+// se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
+const APP_VERZE = 'v1.5 – 2026-07-13';
+
 const STAV_KLIC = 'nomisFakturyStav';
 
 let stav = nactiStav();
@@ -48,18 +52,36 @@ async function zavolejApi(cesta, moznosti) {
 
 // ---------- PŘIHLÁŠENÍ ----------
 
+async function nactiJmenaProPrihlaseni() {
+  const vyber = document.getElementById('vyber-jmeno');
+  try {
+    const data = await zavolejApi('/login', { method: 'GET' });
+    const jmena = (data && data.jmena) || [];
+    vyber.innerHTML =
+      '<option value="">Vyberte jméno…</option>' +
+      jmena.map((j) => '<option value="' + escapeAttr(j) + '">' + escapeHtml(j) + '</option>').join('');
+  } catch (e) {
+    vyber.innerHTML = '<option value="">Nepodařilo se načíst seznam uživatelů</option>';
+  }
+}
+
 async function prihlasit() {
+  const jmeno = document.getElementById('vyber-jmeno').value;
   const pin = document.getElementById('pole-pin').value.trim();
   const zprava = document.getElementById('login-zprava');
   zprava.innerHTML = '';
 
+  if (!jmeno) {
+    zprava.innerHTML = '<div class="zprava chyba">Vyberte své jméno.</div>';
+    return;
+  }
   if (!pin) {
     zprava.innerHTML = '<div class="zprava chyba">Zadejte PIN.</div>';
     return;
   }
 
   try {
-    const data = await zavolejApi('/login', { method: 'POST', body: JSON.stringify({ pin }) });
+    const data = await zavolejApi('/login', { method: 'POST', body: JSON.stringify({ jmeno, pin }) });
     ulozStav({ token: data.token, jmeno: data.jmeno, firmy: data.firmy, role: data.role });
     document.getElementById('pole-pin').value = '';
     zobrazApp();
@@ -71,6 +93,7 @@ async function prihlasit() {
 function odhlasit() {
   ulozStav(null);
   zobrazLogin();
+  nactiJmenaProPrihlaseni();
 }
 
 // ---------- PŘEPÍNÁNÍ POHLEDŮ ----------
@@ -809,8 +832,11 @@ document.querySelectorAll('nav.zalozky button').forEach((btn) => {
   btn.addEventListener('click', () => prepniZalozku(btn.dataset.zalozka));
 });
 
+document.getElementById('verze-cislo').textContent = APP_VERZE;
+
 if (jePrihlasen()) {
   zobrazApp();
 } else {
   zobrazLogin();
+  nactiJmenaProPrihlaseni();
 }

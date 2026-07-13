@@ -104,3 +104,5 @@ input[type="file"] { margin-top: 8px; }
   td { border-bottom: none; padding: 4px 0; }
   td::before { content: attr(data-label) ": "; font-weight: 600; color: var(--barva-text-tlumena); }
 }
+
+.patka-verze { text-align: center; font-size: 12px; color: var(--barva-text-tlumena); padding: 16px 0 8px; }
