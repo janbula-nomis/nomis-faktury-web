@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.3 – 2026-07-13';
+const APP_VERZE = 'v3.4 – 2026-07-15';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -550,7 +550,12 @@ function vykresliSouhrn(idKontejneru, souhrn) {
 }
 
 function formatCastka(cislo) {
-  return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(cislo) + ' Kč';
+  const cisloBezpecne = Number(cislo);
+  // Obrana proti neplatné/chybějící hodnotě (např. starší vadný řádek v Sheets) -
+  // appka radši ukáže jasné "—", ať je vidět, že něco nesedí a je potřeba to
+  // zkontrolovat ručně, než matoucí "NaN Kč".
+  if (!Number.isFinite(cisloBezpecne)) return '— Kč (neplatná částka)';
+  return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(cisloBezpecne) + ' Kč';
 }
 
 // ---------- VYDANÉ FAKTURY ----------

@@ -368,6 +368,32 @@ Nově přibylo i tlačítko **„Smazat“**:
 
 Bez potřeby nové sheet/sloupce ani znovu spustit `setup`.
 
+## 13. Oprava „NaN Kč“ u bankovních pohybů (od v3.4)
+
+V Bankovních výpisech se u jednoho pohybu mohla objevit **„NaN Kč“** místo
+částky – docházelo k tomu, když George export obsahoval položku s
+neúplným/neočekávaným polem částky (např. chybějící `precision`), na což
+appka nebyla dost obranná a výpočet částky mohl vrátit neplatné číslo
+(`NaN`/`Infinity`), které se pak takhle uložilo a zobrazilo.
+
+Oprava ve dvou vrstvách:
+
+1. `lib/bankHelpers.js` (`castkaZHaleru`) – appka teď hlídá, že výsledek
+   výpočtu je vždy konečné číslo; pokud by vyšlo něco neplatného, uloží se
+   0 místo NaN/Infinity.
+2. `public/app.js` (`formatCastka`) – appka teď i při zobrazení hlídá
+   neplatnou hodnotu a místo matoucí „NaN Kč“ ukáže zřetelné „— Kč
+   (neplatná částka)“, ať je na první pohled vidět, že tenhle konkrétní
+   řádek stojí za ruční kontrolu.
+
+**Existující už uloženou „NaN“ hodnotu appka sama zpětně neopraví** (u
+staršího řádku, který vznikl před touhle opravou) – tu je potřeba doplnit
+ručně přímo v Google Sheets, v listu `Bankovni_pohyby`, sloupec `Castka`
+u dotčeného řádku (částku dohledáte v bankovním výpisu/historii účtu).
+Nové importy už touhle chybou netrpí.
+
+Bez potřeby nové sheet/sloupce ani znovu spustit `setup`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
