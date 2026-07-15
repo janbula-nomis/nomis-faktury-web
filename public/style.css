@@ -113,6 +113,7 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .stav-ke-kontrole { background: #fff4de; color: var(--barva-varovani); }
 .stav-schvaleno { background: #e8f7f0; color: var(--barva-uspech); }
 .stav-duplicita { background: #fdecea; color: var(--barva-chyba); }
+.stav-zpracovava { background: #eaf0ff; color: var(--barva-primarni); }
 
 /* Přepínač sekcí (od v3.7) - Doklady: Ke schválení / Schválené. Jde o
    výběr JEDNOHO ze dvou pohledů na stejná data (ne dvě nezávislá
@@ -146,6 +147,7 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .doklad-radek.radek-stav-ke-kontrole { background: #fff9ec; border-left: 3px solid var(--barva-varovani); }
 .doklad-radek.radek-stav-schvaleno { background: #f1faf6; border-left: 3px solid var(--barva-uspech); }
 .doklad-radek.radek-stav-duplicita { background: #fdf1f0; border-left: 3px solid var(--barva-chyba); }
+.doklad-radek.radek-stav-zpracovava { background: #f0f3ff; border-left: 3px solid var(--barva-primarni); }
 
 .mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .polozka-souhrn { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 13px; }
@@ -271,6 +273,8 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-uhrazeno,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-potvrzeno { background: #1c3a2e; color: var(--barva-uspech); }
 :root[data-motiv="tmavy"] .badge-navrzeno,
+:root[data-motiv="tmavy"] .stav-zpracovava,
+:root[data-motiv="tmavy"] .doklad-radek.radek-stav-zpracovava,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-navrzeno { background: #22314f; color: var(--barva-primarni-tmava); }
 :root[data-motiv="tmavy"] .stav-ke-kontrole,
 :root[data-motiv="tmavy"] .doklad-radek.radek-stav-ke-kontrole,

@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.8 – 2026-07-15';
+const APP_VERZE = 'v3.9 – 2026-07-15';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -79,7 +79,14 @@ async function zavolejApi(cesta, moznosti) {
   if (stav && stav.token) hlavicky['Authorization'] = 'Bearer ' + stav.token;
   if (opts.body && !hlavicky['Content-Type']) hlavicky['Content-Type'] = 'application/json';
 
-  const odpoved = await fetch('/api' + cesta, Object.assign({}, opts, { headers: hlavicky }));
+  // cache: 'no-store' - appka na některých zařízeních/sítích (typicky
+  // mobilní prohlížeč nebo síť s cachovací proxy) uměla i po F5 ukázat
+  // starou odpověď z GETu (např. doklad schválený na jiném zařízení pořád
+  // vypadal jako neschválený), protože fetch bez tohohle nastavení nechá
+  // na prohlížeči, jestli si GET odpověď odněkud z cache vezme, místo aby
+  // se pokaždé zeptal serveru. Data appky se mění kdykoli, takže appka
+  // API nikdy nesmí brát z cache.
+  const odpoved = await fetch('/api' + cesta, Object.assign({ cache: 'no-store' }, opts, { headers: hlavicky }));
   const data = await odpoved.json().catch(() => ({}));
 
   if (!odpoved.ok) {
@@ -250,16 +257,25 @@ function zmensiObrazek(soubor, maxRozmer, kvalita) {
   });
 }
 
+// Nahrání dokladu je od v3.9 rozdělené na dvě fáze (viz netlify/functions/
+// upload.js a upload-dokoncit.js pro podrobné zdůvodnění): fáze 1 jen
+// bezpečně uloží soubor na Drive (rychlé, riziko timeoutu minimální), fáze
+// 2 dělá pomalejší AI extrakci. Když fáze 2 selže (typicky Gemini dočasně
+// přetížené), soubor NENÍ ztracený - doklad zůstává v Doklady se stavem
+// "Zpracovává se" a jde ho tam kdykoli dokončit tlačítkem "Dokončit
+// zpracování" (viz dokoncitZpracovaniDokladu níž), bez nutnosti cokoliv
+// nahrávat znovu.
 async function nahratDoklad() {
   const zprava = document.getElementById('nahrat-zprava');
   const tlacitko = document.getElementById('tlacitko-nahrat');
   if (!vybranySoubor) return;
 
   tlacitko.disabled = true;
-  zprava.innerHTML = '<div class="zprava">Nahrávám a zpracovávám (může trvat několik vteřin)…</div>';
+  zprava.innerHTML = '<div class="zprava">Nahrávám soubor…</div>';
 
+  let doklad;
   try {
-    await zavolejApi('/upload', {
+    const odpoved = await zavolejApi('/upload', {
       method: 'POST',
       body: JSON.stringify({
         filename: vybranySoubor.nazev,
@@ -267,15 +283,55 @@ async function nahratDoklad() {
         dataBase64: vybranySoubor.data,
       }),
     });
-    zprava.innerHTML = '<div class="zprava uspech">Doklad byl nahrán a zpracován. Zkontrolujte ho v záložce Doklady.</div>';
-    document.getElementById('pole-soubor').value = '';
-    document.getElementById('pole-foto').value = '';
-    document.getElementById('vybrany-soubor-info').textContent = '';
-    vybranySoubor = null;
+    doklad = odpoved.doklad;
   } catch (e) {
-    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+    zprava.innerHTML = '<div class="zprava chyba">Soubor se nepodařilo nahrát: ' + escapeHtml(e.message) + '</div>';
+    tlacitko.disabled = !vybranySoubor;
+    return;
+  }
+
+  // Soubor je bezpečně uložený - vyčistíme výběr souboru hned, appka ho
+  // dál nepotřebuje (fáze 2 si soubor stáhne z Drive sama).
+  document.getElementById('pole-soubor').value = '';
+  document.getElementById('pole-foto').value = '';
+  document.getElementById('vybrany-soubor-info').textContent = '';
+  vybranySoubor = null;
+  tlacitko.disabled = true;
+
+  zprava.innerHTML = '<div class="zprava">Soubor nahrán, appka na pozadí čte údaje pomocí AI (může trvat několik vteřin)…</div>';
+  try {
+    await zavolejApi('/upload-dokoncit', { method: 'POST', body: JSON.stringify({ id: doklad.ID }) });
+    zprava.innerHTML = '<div class="zprava uspech">Doklad byl nahrán a zpracován. Zkontrolujte ho v záložce Doklady.</div>';
+  } catch (e) {
+    zprava.innerHTML =
+      '<div class="zprava info">Soubor byl bezpečně nahrán, ale zpracování údajů pomocí AI se teď nepovedlo ' +
+      '(' + escapeHtml(e.message) + '). Nic jste neztratili - doklad najdete v záložce Doklady se stavem ' +
+      '„Zpracovává se“ a zpracování jde odtud kdykoli zopakovat tlačítkem „Dokončit zpracování“, ' +
+      'bez nutnosti cokoliv nahrávat znovu.</div>';
   } finally {
     tlacitko.disabled = !vybranySoubor;
+  }
+}
+
+async function dokoncitZpracovaniDokladu(id, tlacitko) {
+  tlacitko.disabled = true;
+  const puvodniText = tlacitko.textContent;
+  tlacitko.textContent = 'Zpracovávám…';
+  try {
+    const odpoved = await zavolejApi('/upload-dokoncit', { method: 'POST', body: JSON.stringify({ id }) });
+    const idx = dokladySeznamAktualni.findIndex((d) => d.ID === id);
+    if (idx !== -1) {
+      Object.assign(dokladySeznamAktualni[idx], odpoved.doklad);
+    }
+    vykresliDoklady(dokladySeznamAktualni);
+    zobrazZpravuDoklady('Zpracování dokladu dokončeno.');
+  } catch (e) {
+    alert(
+      'Zpracování se zatím nepovedlo (' + e.message + '). Soubor zůstává bezpečně uložený, zkuste to prosím ' +
+      'za chvíli znovu.'
+    );
+    tlacitko.disabled = false;
+    tlacitko.textContent = puvodniText;
   }
 }
 
@@ -284,6 +340,7 @@ async function nahratDoklad() {
 function stavTrida(stavText) {
   if (stavText === 'Schváleno') return 'stav-schvaleno';
   if (stavText === 'Možná duplicita') return 'stav-duplicita';
+  if (stavText === 'Zpracovává se') return 'stav-zpracovava';
   return 'stav-ke-kontrole';
 }
 
@@ -445,9 +502,11 @@ function vytvorRadekDoklad(d) {
   hlava.innerHTML =
     '<span class="doklad-sipka">▶</span>' +
     '<span class="stav-chip ' + stavTrida(d.Stav) + '">' + escapeHtml(d.Stav || '') + '</span>' +
-    '<span class="dodavatel">' + escapeHtml(d.Dodavatel || '(bez dodavatele)') + '</span>' +
+    '<span class="dodavatel">' +
+      escapeHtml(d.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (d.Dodavatel || '(bez dodavatele)')) +
+    '</span>' +
     '<span>' + escapeHtml(d.Datum_dokladu || '') + '</span>' +
-    '<span class="castka">' + formatCastka(d.Castka) + '</span>';
+    '<span class="castka">' + (d.Stav === 'Zpracovává se' ? '' : formatCastka(d.Castka)) + '</span>';
 
   const detail = document.createElement('div');
   detail.className = 'doklad-radek-detail';
@@ -467,6 +526,42 @@ function vytvorRadekDoklad(d) {
 
 function vytvorDetailDoklad(d) {
   const wrap = document.createElement('div');
+
+  // Doklad ve fázi 1 (soubor uložený, AI zpracování ještě neproběhlo/se
+  // nepovedlo) - místo editace prázdných polí appka rovnou nabídne
+  // dokončení zpracování (viz dokoncitZpracovaniDokladu výš).
+  if (d.Stav === 'Zpracovává se') {
+    const info = document.createElement('div');
+    info.className = 'zprava info';
+    info.textContent =
+      'Soubor je bezpečně uložený, AI zpracování údajů ještě neproběhlo (nebo se dřív nepovedlo kvůli ' +
+      'dočasnému přetížení). Dokončete ho tlačítkem níž - nic nemusíte nahrávat znovu.';
+    wrap.appendChild(info);
+
+    const akce = document.createElement('div');
+    akce.className = 'radek-akci';
+    const tlacitkoDokoncit = document.createElement('button');
+    tlacitkoDokoncit.className = 'maly';
+    tlacitkoDokoncit.textContent = 'Dokončit zpracování';
+    tlacitkoDokoncit.onclick = () => dokoncitZpracovaniDokladu(d.ID, tlacitkoDokoncit);
+    akce.appendChild(tlacitkoDokoncit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.onclick = () => smazDoklad(d.ID, d.Dodavatel, tlacitkoSmazat);
+    akce.appendChild(tlacitkoSmazat);
+    wrap.appendChild(akce);
+
+    if (d.Zdrojovy_soubor_URL) {
+      const souborDiv = document.createElement('div');
+      souborDiv.style.marginTop = '12px';
+      souborDiv.innerHTML = 'Soubor: <a href="' + escapeAttr(d.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>';
+      wrap.appendChild(souborDiv);
+    }
+
+    return wrap;
+  }
 
   const labelDodavatel = document.createElement('label');
   labelDodavatel.textContent = 'Dodavatel';
@@ -787,6 +882,10 @@ function vykresliPrehledExport() {
   const stredisko = document.getElementById('export-stredisko').value;
 
   const filtrovane = exportDataDoklady.filter((d) => {
+    // Doklady čekající na dokončení AI zpracování (od v3.9) ještě nemají
+    // žádné údaje - appka je z přehledu pro účetní vynechává, ať tam
+    // nestraší řádek "(bez firmy)" s nulovou částkou.
+    if (d.Stav === 'Zpracovává se') return false;
     const firmaDokladu = d.Firma_potvrzena || d.Firma_AI_odhad || '';
     if (firma && firmaDokladu !== firma) return false;
     if (stredisko && (d.Stredisko || '') !== stredisko) return false;

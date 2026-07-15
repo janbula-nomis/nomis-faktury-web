@@ -34,7 +34,12 @@ exports.handler = async (event) => {
     const souhrnPodleKategorie = {};
     const souhrnPodleMesice = {};
 
+    // Doklady čekající na dokončení AI zpracování (viz upload.js/
+    // upload-dokoncit.js od v3.9) ještě nemají žádné údaje k součtu -
+    // appka je do souhrnů nezahrnuje, ať se v Přehledu neobjeví matoucí
+    // řádek "(nepřiřazeno): 0 Kč".
     viditelne.forEach((r) => {
+      if (r.Stav === 'Zpracovává se') return;
       const firma = r.Firma_potvrzena || r.Firma_AI_odhad || '(nepřiřazeno)';
       const kategorie = r.Kategorie || '(bez kategorie)';
       const mesic = String(r.Datum_dokladu || '').slice(0, 7) || '(bez data)';

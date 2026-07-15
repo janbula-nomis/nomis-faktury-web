@@ -634,6 +634,84 @@ hlavička s místem na logo, pole SPZ zmizelo z detailu dokladu, filtry
 Exportu se naplní a přehled podle firem se správně přepočítá) i plnou
 regresí existujících testů (beze změny, protože jde o frontend).
 
+## 21. Oprava: na jiném zařízení nebylo vidět schválení dokladu ani po F5 (v3.8.1)
+
+Jan nahlásil, že po schválení dokladu na jednom zařízení se ta samá
+změna neobjevila na jiném zařízení – a to ani po obyčejném obnovení
+stránky (F5). Skutečná data v Google Sheets byla v pořádku (appka je
+zapsala správně), problém byl v tom, že appka API odpovědi (`GET
+/api/doklady` a další) vůbec neoznačovala jako „nikdy necachovat“:
+
+- Backend (`lib/http.js`, sdílená funkce `json()` pro všechny Netlify
+  Functions) nepřidávala žádnou `Cache-Control` hlavičku, takže bylo čistě
+  na prohlížeči/síti, jestli si odpověď z GETu někde po cestě uloží a
+  příště vrátí tu starou – běžné obyčejné F5 totiž porovná jen hlavní
+  HTML stránku se serverem, ale dílčí požadavky (včetně API volání přes
+  `fetch`) může prohlížeč klidně vzít z vlastní mezipaměti, pokud mu v tom
+  nic explicitně nezabrání. Na některých zařízeních/sítích (typicky
+  mobilní prohlížeč nebo síť s cachovací proxy) se tak mohlo stát, že GET
+  vrátil starší verzi dat, i když na serveru už byla čerstvá.
+- Frontend (`public/app.js`, `zavolejApi()`) navíc při volání `fetch()`
+  nezadával žádné `cache` chování, takže nechal na prohlížeči výchozí
+  (nespolehlivé) rozhodnutí.
+
+**Oprava**: `lib/http.js` teď u každé API odpovědi posílá
+`Cache-Control: no-store, no-cache, must-revalidate` a `Pragma:
+no-cache`, a `zavolejApi()` v `public/app.js` volá `fetch()` s `cache:
+'no-store'` – appka tak na všech zařízeních vždy vynutí čerstvý dotaz na
+server, nikdy neukáže starou uloženou odpověď. Beze změny zůstává datový
+model i žádný z endpointů nemění chování, jde jen o hlavičky/chování
+requestu – ověřeno plnou regresí 14 backendových testů (beze změny
+výstupu) i existujícími Playwright UI testy. Po nasazení téhle verze
+doporučujeme na všech zařízeních appku jednou tvrdě obnovit (na počítači
+Ctrl/Cmd+Shift+R, na mobilu appku v prohlížeči zavřít a znovu otevřít),
+ať se jistě načte tahle opravená verze místo případně už uložené staré.
+
+## 22. Odolnější nahrávání dokladu proti chybě 504 (v3.9)
+
+Jan nahlásil, že se mu při nahrávání dokladu přes „Nahrát soubor“ objevila
+chyba „Chyba serveru (504)“. Šlo o stejný mechanismus, který už appka dřív
+zmiňovala v sekci Řešení problémů (Gemini dočasně přetížené / appka narazí
+na časový limit Netlify funkce nebo brány před ní) – souborem/cestou
+nahrání (foto vs. soubor) to nesouviselo, obě cesty sdílí stejné zpracování
+na klientovi i na serveru.
+
+Skutečný problém byl v tom, že appka do v3.8.1 dělala VŠECHNO v jednom
+synchronním volání: nahrání na Drive, přečtení Firmy, AI extrakci (až 3
+modely), kontrolu duplicity, dohledání historie a zápis do listu Doklady.
+Pokud bylo Gemini jen mírně pomalejší, celková doba klidně přesáhla časový
+limit a appka skončila neprůhledným 504 – a to i když se soubor mezitím
+v pořádku nahrál na Drive; uživatel to ale nepoznal a musel by fotku/soubor
+nahrávat celou znovu.
+
+**Oprava**: nahrání dokladu je od téhle verze rozdělené na dvě fáze:
+
+1. `netlify/functions/upload.js` – rychlá fáze: nahraje soubor na Drive a
+   rovnou zapíše řádek do Doklady se stavem **„Zpracovává se“** (zatím bez
+   vytažených údajů). Riziko timeoutu na tomhle kroku je minimální (jde jen
+   o jedno volání Drive API), takže appka skoro vždy stihne odpovědět
+   rychle a soubor je bezpečně uložený.
+2. `netlify/functions/upload-dokoncit.js` – pomalejší fáze: appka si soubor
+   stáhne zpátky z Drive, zavolá Gemini extrakci, zkontroluje duplicitu a
+   dohledá historii, pak řádek přepíše na výsledný stav („Ke kontrole“
+   nebo „Možná duplicita“). Frontend (`public/app.js`, `nahratDoklad()`)
+   tenhle krok zavolá hned po úspěšné fázi 1.
+
+Když fáze 2 selže (typicky Gemini dočasně přetížené), appka **nic
+neztrácí** – doklad zůstává viditelný v záložce Doklady se stavem
+„Zpracovává se“ a appka tam rovnou nabídne tlačítko „Dokončit zpracování“,
+kterým jde zpracování kdykoli zopakovat bez nutnosti cokoliv nahrávat
+znovu (appka si soubor pokaždé stáhne z Drive sama). Frontend navíc po
+neúspěšné fázi 2 hned po nahrání ukáže klidnou informační hlášku
+(„soubor byl bezpečně nahrán, zpracování se nepovedlo, zkuste to prosím
+znovu“) místo strašidelné červené chyby.
+
+Ověřeno rozšířeným backendovým testem (fáze 1 uspěje → fáze 2 selže →
+placeholder zůstává beze změny → opakovaná fáze 2 uspěje, včetně scénáře
+s historickou shodou) a novým Playwright UI testem (placeholder doklad je
+zřetelně odlišený, tlačítko „Dokončit zpracování“ funguje) – žádná
+z existujících 17 backendových sad ani UI testů se nerozbila.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
@@ -703,7 +781,11 @@ regresí existujících testů (beze změny, protože jde o frontend).
   dobu jen prodlužuje a riskuje neprůhledný timeout (504) místo jasné
   chyby (503). Pokud přesto appka po vyzkoušení všech tří modelů skončí
   chybou, jde o skutečně širší dočasné přetížení/výpadek na straně Google
-  – zkuste to prosím za pár minut znovu.
+  – zkuste to prosím za pár minut znovu. Od v3.9 (viz sekce 22 výš) se
+  tahle chyba už netýká samotného nahrání souboru (to appka udělá rychle
+  a odděleně) – pokud se objeví, doklad zůstane v záložce Doklady se
+  stavem „Zpracovává se“ a appka tam nabídne tlačítko „Dokončit
+  zpracování“ k opakování bez nutnosti cokoliv nahrávat znovu.
 - **Klíč z AI Studia začíná na `AQ.` místo `AIzaSy...`** – to je v pořádku,
   Google od poloviny 2026 postupně vydává nový formát klíčů („Authentication
   Key“). Appka ho posílá přes hlavičku `x-goog-api-key`, což by mělo fungovat

@@ -1,9 +1,28 @@
 /**
  * netlify/functions/upload.js
  * POST (Bearer token) { filename, mimeType, dataBase64 }
- * -> nahraje soubor do Drive složky Inbox, zavolá AI extrakci (Gemini),
- *    zkontroluje duplicity a zapíše nový řádek do listu Doklady se stavem
- *    "Ke kontrole" (nebo "Možná duplicita").
+ * -> Fáze 1 (rychlá): nahraje soubor do Drive složky Inbox a rovnou zapíše
+ *    nový řádek do listu Doklady se stavem "Zpracovává se" (zatím bez
+ *    vytažených údajů). Vrací se hned, jakmile je soubor bezpečně uložený.
+ *
+ * Fáze 2 (pomalá - AI extrakce, kontrola duplicity) běží v samostatné funkci
+ * netlify/functions/upload-dokoncit.js, kterou frontend zavolá hned po
+ * úspěšné fázi 1 (viz public/app.js, nahratDoklad()).
+ *
+ * Pozn. proč je to rozdělené na dvě volání (od v3.9): dřív appka dělala
+ * všechno (upload na Drive + čtení Firmy + AI extrakce přes až 3 modely +
+ * kontrola duplicity + historie + zápis) v jednom synchronním volání -
+ * pokud bylo Gemini pomalejší (i jen mírně přetížené), celková doba klidně
+ * přesáhla časový limit Netlify funkce/brány a appka místo jasné chyby
+ * skončila neprůhledným "Chyba serveru (504)" - a to i když se soubor
+ * mezitím v pořádku nahrál na Drive, uživatel to ale nepoznal a musel by
+ * fotku/soubor nahrávat celou znovu. Rozdělením na dvě fáze appka:
+ *   1) rychle a bezpečně uloží soubor (riziko timeoutu na tomhle kroku je
+ *      minimální - jde jen o jedno volání Drive API),
+ *   2) až pak zkouší pomalejší AI extrakci - když se to nepovede (Gemini
+ *      přetížené), doklad zůstává viditelný v Doklady se stavem
+ *      "Zpracovává se" a appka nabídne tlačítko "Dokončit zpracování" pro
+ *      opakování bez nutnosti cokoliv nahrávat znovu.
  *
  * Pozn. k velikosti souboru: Netlify Functions mají limit cca 6 MB na
  * tělo požadavku. Base64 přidává ~33 % navíc, takže originální soubor by
@@ -14,10 +33,7 @@ const { Readable } = require('stream');
 const crypto = require('crypto');
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
-const { readSheetObjects, appendRow } = require('../../lib/sheetsHelpers');
-const { extrahujDataZDokladu } = require('../../lib/gemini');
-const { isMoznaDuplicita } = require('../../lib/duplicity');
-const { najdiHistorickouShodu } = require('../../lib/dokladyHistorie');
+const { appendRow } = require('../../lib/sheetsHelpers');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { json } = require('../../lib/http');
 
@@ -58,50 +74,28 @@ exports.handler = async (event) => {
     });
 
     const sheets = await getSheetsClient();
-    const { rows: firmy } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Firmy');
-    const extrakce = await extrahujDataZDokladu(buffer, mimeType, firmy);
-
-    const { rows: existujiciDoklady } = await readSheetObjects(
-      sheets,
-      process.env.SPREADSHEET_ID,
-      'Doklady'
-    );
-    const duplicita = isMoznaDuplicita(existujiciDoklady, extrakce);
-
-    // "Učení ze zkušenosti": pokud appka u stejného dodavatele (podle IČO,
-    // jinak podle normalizovaného názvu) najde dřív RUČNĚ potvrzené doklady,
-    // rovnou převezme jejich firmu/kategorii/středisko místo čerstvého AI
-    // odhadu - viz lib/dokladyHistorie.js pro zdůvodnění, proč jen z
-    // potvrzených dokladů, ne z holých AI odhadů.
-    const historickaShoda = najdiHistorickouShodu(existujiciDoklady, extrakce.dodavatel, extrakce.ico_dodavatele);
-
     const radek = {
       ID: crypto.randomUUID(),
       Datum_zpracovani: new Date().toISOString(),
-      Typ: extrakce.typ || '',
+      Typ: '',
       Zdrojovy_soubor_URL: nahranySoubor.data.webViewLink || '',
       Zdrojovy_soubor_ID: nahranySoubor.data.id,
-      Dodavatel: extrakce.dodavatel || '',
-      ICO_dodavatele: extrakce.ico_dodavatele || '',
-      Odberatel_text: extrakce.odberatel_text || '',
-      Datum_dokladu: extrakce.datum_dokladu || '',
-      Cislo_dokladu: extrakce.cislo_dokladu || '',
-      Castka: extrakce.castka || '',
-      Mena: extrakce.mena || '',
-      DPH: extrakce.dph || '',
-      Variabilni_symbol: extrakce.variabilni_symbol || '',
-      Firma_AI_odhad: extrakce.firma_odhad || '',
-      Firma_potvrzena: (historickaShoda && historickaShoda.firma) || '',
-      Kategorie: (historickaShoda && historickaShoda.kategorie) || extrakce.kategorie || '',
-      Stredisko: (historickaShoda && historickaShoda.stredisko) || extrakce.stredisko_odhad || '',
-      SPZ_auta: extrakce.spz_auta || '',
-      Stav: duplicita ? 'Možná duplicita' : 'Ke kontrole',
-      Poznamka:
-        extrakce.poznamka_ai ||
-        (historickaShoda
-          ? 'Firma/kategorie/středisko doplněny podle ' + historickaShoda.pocetShod +
-            ' dřívějšího potvrzeného dokladu od stejného dodavatele - zkontrolujte.'
-          : ''),
+      Dodavatel: '',
+      ICO_dodavatele: '',
+      Odberatel_text: '',
+      Datum_dokladu: '',
+      Cislo_dokladu: '',
+      Castka: '',
+      Mena: '',
+      DPH: '',
+      Variabilni_symbol: '',
+      Firma_AI_odhad: '',
+      Firma_potvrzena: '',
+      Kategorie: '',
+      Stredisko: '',
+      SPZ_auta: '',
+      Stav: 'Zpracovává se',
+      Poznamka: '',
       Nahral_uzivatel: uzivatel.jmeno || '',
     };
 
