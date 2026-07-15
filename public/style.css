@@ -89,21 +89,38 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .stav-schvaleno { background: #e8f7f0; color: var(--barva-uspech); }
 .stav-duplicita { background: #fdecea; color: var(--barva-chyba); }
 
-/* Probarvení celých řádků v Dokladech podle stavu (viditelné i bez
-   otevírání řádku, konzistentní s barvami .stav-chip výše). */
-#tabulka-doklady-telo tr.radek-stav-ke-kontrole { background: #fff9ec; border-left: 3px solid var(--barva-varovani); }
-#tabulka-doklady-telo tr.radek-stav-schvaleno { background: #f1faf6; border-left: 3px solid var(--barva-uspech); }
-#tabulka-doklady-telo tr.radek-stav-duplicita { background: #fdf1f0; border-left: 3px solid var(--barva-chyba); }
+/* Přepínač sekcí (od v3.7) - Doklady: Ke schválení / Schválené. Jde o
+   výběr JEDNOHO ze dvou pohledů na stejná data (ne dvě nezávislá
+   tlačítka), proto vzhled segmentovaného přepínače, ne obyčejná tlačítka
+   vedle sebe. */
+.prepinac-sekce { display: flex; margin: 12px 0; border: 1px solid var(--barva-hranice); border-radius: 8px; overflow: hidden; width: fit-content; }
+.prepinac-sekce-tlacitko { margin-top: 0; border: none; border-radius: 0; background: var(--barva-karta); color: var(--barva-text); padding: 8px 14px; font-size: 13px; }
+.prepinac-sekce-tlacitko + .prepinac-sekce-tlacitko { border-left: 1px solid var(--barva-hranice); }
+.prepinac-sekce-tlacitko.aktivni { background: var(--barva-primarni); color: #fff; font-weight: 600; }
 
-/* Sloupce Firma/Kategorie/Středisko/SPZ v Dokladech mají výběrová pole
-   (select, resp. text u Kategorie) - bez téhle min-width appka nechá
-   sloupec zúžit na výchozí šířku prvku a delší název firmy (např. "NOMIS
-   Investment") se pak v zavřeném <select> nedal celý přečíst. Tabulka je
-   zabalená v kontejneru s overflow-x:auto (viz index.html), takže širší
-   tabulka na malém displeji jen dostane vodorovný posuvník, nic se
-   neláme. */
-#tabulka-doklady-telo .td-vyber-siroky { min-width: 150px; }
-#tabulka-doklady-telo .vyber-doklad { font-size: 12px; padding: 6px 8px; }
+/* Doklady jako skládací řádky (od v3.7, stejný vzor jako Bankovní výpisy
+   výš, .banka-radek) - dřív appka měla Doklady jako širokou tabulku
+   s 11 sloupci, která se na užším okně/tabletu (nad breakpoint 480px pro
+   mobilní karty) musela vodorovně posouvat. Sbaleně appka teď ukazuje jen
+   Stav/Dodavatel/Datum/Částka (vejde se na jakoukoli šířku bez
+   posuvníku), rozkliknutím řádku se otevře zbytek polí k úpravě. */
+.doklad-radek { border: 1px solid var(--barva-hranice); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+.doklad-radek-hlava { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; flex-wrap: wrap; }
+.doklad-radek-hlava:hover { filter: brightness(0.97); }
+.doklad-radek-hlava .dodavatel { font-weight: 600; }
+.doklad-radek-hlava .castka { font-weight: 600; margin-left: auto; }
+.doklad-radek-detail { padding: 12px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
+.doklad-radek.rozbaleno .doklad-radek-detail { display: block; }
+.doklad-radek.rozbaleno .doklad-sipka { transform: rotate(90deg); }
+.doklad-sipka { display: inline-block; transition: transform 0.15s; }
+.doklad-radek-detail label:first-child { margin-top: 0; }
+.doklad-radek-detail .radek-akci { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+/* Probarvení celého skládacího řádku podle stavu (konzistentní s barvami
+   .stav-chip výše). */
+.doklad-radek.radek-stav-ke-kontrole { background: #fff9ec; border-left: 3px solid var(--barva-varovani); }
+.doklad-radek.radek-stav-schvaleno { background: #f1faf6; border-left: 3px solid var(--barva-uspech); }
+.doklad-radek.radek-stav-duplicita { background: #fdf1f0; border-left: 3px solid var(--barva-chyba); }
 
 .mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .polozka-souhrn { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 14px; }
@@ -219,19 +236,20 @@ input[type="file"] { margin-top: 8px; }
 }
 :root[data-motiv="tmavy"] .zprava.chyba,
 :root[data-motiv="tmavy"] .badge-chybi,
-:root[data-motiv="tmavy"] #tabulka-doklady-telo tr.radek-stav-duplicita,
+:root[data-motiv="tmavy"] .doklad-radek.radek-stav-duplicita,
 :root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-posplatnosti,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-chybi { background: #3a2222; color: var(--barva-chyba); }
 :root[data-motiv="tmavy"] .zprava.uspech,
 :root[data-motiv="tmavy"] .badge-potvrzeno,
-:root[data-motiv="tmavy"] #tabulka-doklady-telo tr.radek-stav-schvaleno,
+:root[data-motiv="tmavy"] .doklad-radek.radek-stav-schvaleno,
 :root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-uhrazeno,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-potvrzeno { background: #1c3a2e; color: var(--barva-uspech); }
 :root[data-motiv="tmavy"] .badge-navrzeno,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-navrzeno { background: #22314f; color: var(--barva-primarni-tmava); }
 :root[data-motiv="tmavy"] .stav-ke-kontrole,
-:root[data-motiv="tmavy"] #tabulka-doklady-telo tr.radek-stav-ke-kontrole,
+:root[data-motiv="tmavy"] .doklad-radek.radek-stav-ke-kontrole,
 :root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-neuhrazeno { background: #3a3220; color: var(--barva-varovani); }
 :root[data-motiv="tmavy"] .badge-bezdokladu,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-bezdokladu { background: #2a2e38; color: var(--barva-text-tlumena); }
+:root[data-motiv="tmavy"] .prepinac-sekce-tlacitko.aktivni { color: #14161c; }
 :root[data-motiv="tmavy"] input[type="date"] { color-scheme: dark; }

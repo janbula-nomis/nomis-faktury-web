@@ -528,6 +528,43 @@ list Ucty, doplní sloupec `Cislo_uctu_vlastni` do Bankovni_pohyby –
 bezpečné, nic nemaže) a doplnit Janovy skutečné účty (pokud appka je
 sama nezaložila při prvním importu) přes Nastavení → Účty.
 
+## 18. Doklady jako skládací řádky + rozdělení Ke schválení/Schválené (od v3.7)
+
+Reakce na dva problémy z ostrého provozu:
+
+1. **Schválené doklady zůstávaly promíchané s čekajícími** – appka dřív
+   měla Doklady jako jeden společný seznam, takže po kliknutí na „Schválit“
+   doklad jen změnil barvu řádku, ale zůstal na místě mezi nevyřízenými.
+   Teď je záložka Doklady rozdělená na dvě samostatné sekce přepínačem
+   nahoře: **„Ke schválení“** (stavy Ke kontrole + Možná duplicita) a
+   **„Schválené“** (historie). Kliknutím na „Schválit“ doklad okamžitě
+   zmizí z „Ke schválení“ a objeví se v „Schválené“ – přechod je teď vidět
+   jako skutečná změna, ne jen barevná změna štítku ve stejném seznamu.
+   Obě záložky v popisku ukazují aktuální počet, např. „Ke schválení (3)“.
+2. **Tabulka Dokladů byla na užším okně/tabletu nutné vodorovně
+   posouvat** – dřív to byla jedna široká tabulka s 11 sloupci (Stav,
+   Dodavatel, Datum, Částka, Firma, Kategorie, Středisko, SPZ, Mimo účet,
+   Soubor, Akce), zabalená jen v `overflow-x:auto` – i na běžném
+   nezvětšeném okně notebooku nebo na tabletu tak appka nutila
+   k vodorovnému scrollování (mobilní karty se spustily až pod 480px
+   šířky). Doklady jsou teď skládací řádky (stejný vzor, jaký appka od
+   v2.0 používá u Bankovních výpisů) – sbaleně vidíte jen Stav/Dodavatel/
+   Datum/Částku (vejde se na jakoukoli šířku obrazovky bez posouvání),
+   rozkliknutím řádku se otevřou zbylá pole (Firma, Kategorie, Středisko,
+   SPZ, Mimo účet, poznámka, odkaz na soubor) i tlačítka Uložit/Schválit/
+   Smazat.
+
+Beze změny zůstává: sloupce v Sheets (`lib/dokladySchema.js`), backend
+endpoint `doklady.js`, ukládání/schvalování/mazání – jde čistě o změnu
+zobrazení na frontendu (`public/app.js`, `public/index.html`,
+`public/style.css`). Není potřeba znovu spouštět `/api/setup`.
+
+Ověřeno automatizovaným testem v headless Chromu (Playwright) – ověřeny
+počty v obou záložkách, že sekce „Ke schválení“ ukazuje jen nevyřízené
+doklady, že rozkliknutí řádku zobrazí editovatelná pole, že kliknutí na
+„Schválit“ přesune doklad do „Schválené“, a že obsah nepřeteče přes šířku
+okna při 700px i 360px (typická šířka telefonu).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

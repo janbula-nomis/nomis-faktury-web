@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.6 – 2026-07-15';
+const APP_VERZE = 'v3.7 – 2026-07-15';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -288,11 +288,20 @@ function stavTrida(stavText) {
 let autaProVyberSpz = [];
 let firmyProVyberDokladu = [];
 
+// Doklady jsou rozdělené na dvě sekce (od v3.7) - "Ke schválení" (Ke
+// kontrole + Možná duplicita) a "Schválené" (historie) - ať schválené
+// doklady nezůstávají promíchané mezi čekajícími. dokladySeznamAktualni
+// drží poslední načtená data, ať přepínání sekcí nemusí pokaždé znovu
+// volat API.
+let dokladySeznamAktualni = [];
+let dokladySekce = 'keSchvaleni';
+
 async function nactiDoklady() {
   const nacitani = document.getElementById('doklady-nacitani');
-  const telo = document.getElementById('tabulka-doklady-telo');
+  const kontejner = document.getElementById('doklady-seznam');
+  nacitani.classList.remove('skryto');
   nacitani.textContent = 'Načítám…';
-  telo.innerHTML = '';
+  kontejner.innerHTML = '';
 
   try {
     const [dataDoklady, dataAuta, dataFirmy] = await Promise.all([
@@ -307,6 +316,14 @@ async function nactiDoklady() {
   } catch (e) {
     nacitani.textContent = 'Nepodařilo se načíst doklady: ' + e.message;
   }
+}
+
+function prepniDokladySekci(sekce) {
+  dokladySekce = sekce;
+  document.querySelectorAll('.prepinac-sekce-tlacitko').forEach((btn) => {
+    btn.classList.toggle('aktivni', btn.dataset.sekce === sekce);
+  });
+  vykresliDoklady(dokladySeznamAktualni);
 }
 
 function moznostiSpz(vybranaSpz) {
@@ -408,149 +425,201 @@ function moznostiStrediska(vybrane) {
 }
 
 function vykresliDoklady(doklady) {
-  const telo = document.getElementById('tabulka-doklady-telo');
-  telo.innerHTML = '';
+  dokladySeznamAktualni = doklady;
+  const kontejner = document.getElementById('doklady-seznam');
 
-  const serazene = doklady.slice().sort((a, b) => (b.Datum_zpracovani || '').localeCompare(a.Datum_zpracovani || ''));
+  const keSchvaleniPocet = doklady.filter((d) => d.Stav !== 'Schváleno').length;
+  const schvalenePocet = doklady.filter((d) => d.Stav === 'Schváleno').length;
+  document.getElementById('dokl-sekce-ke-schvaleni').textContent = 'Ke schválení (' + keSchvaleniPocet + ')';
+  document.getElementById('dokl-sekce-schvalene').textContent = 'Schválené (' + schvalenePocet + ')';
 
-  serazene.forEach((d) => {
-    const tr = document.createElement('tr');
-    tr.className = 'radek-' + stavTrida(d.Stav);
+  const filtrovane = doklady.filter((d) =>
+    dokladySekce === 'schvalene' ? d.Stav === 'Schváleno' : d.Stav !== 'Schváleno'
+  );
+  const serazene = filtrovane.slice().sort((a, b) => (b.Datum_zpracovani || '').localeCompare(a.Datum_zpracovani || ''));
 
-    tr.innerHTML =
-      '<td data-label="Stav"><span class="stav-chip ' + stavTrida(d.Stav) + '">' + escapeHtml(d.Stav || '') + '</span></td>' +
-      '<td data-label="Dodavatel" class="td-vyber-siroky"></td>' +
-      '<td data-label="Datum" class="td-vyber-siroky"></td>' +
-      '<td data-label="Částka" class="td-vyber-siroky"></td>' +
-      '<td data-label="Firma" class="td-vyber-siroky"></td>' +
-      '<td data-label="Kategorie" class="td-vyber-siroky"></td>' +
-      '<td data-label="Středisko" class="td-vyber-siroky"></td>' +
-      '<td data-label="SPZ" class="td-vyber-siroky"></td>' +
-      '<td data-label="Mimo účet" class="td-vyber-siroky" style="text-align:center"></td>' +
-      '<td data-label="Soubor">' + (d.Zdrojovy_soubor_URL ? '<a href="' + escapeAttr(d.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>' : '') + '</td>' +
-      '<td data-label="Akce"></td>';
-
-    const buneckaDodavatel = tr.children[1];
-    const vstupDodavatel = document.createElement('input');
-    vstupDodavatel.type = 'text';
-    vstupDodavatel.value = d.Dodavatel || '';
-    vstupDodavatel.className = 'vyber-doklad';
-    buneckaDodavatel.appendChild(vstupDodavatel);
-    if (d.Poznamka) {
-      const poznamkaDiv = document.createElement('div');
-      poznamkaDiv.className = 'poznamka-dokladu';
-      poznamkaDiv.textContent = 'ⓘ ' + d.Poznamka;
-      buneckaDodavatel.appendChild(poznamkaDiv);
-    }
-
-    const buneckaDatum = tr.children[2];
-    const vstupDatum = document.createElement('input');
-    vstupDatum.type = 'date';
-    vstupDatum.value = d.Datum_dokladu || '';
-    vstupDatum.className = 'vyber-doklad';
-    buneckaDatum.appendChild(vstupDatum);
-
-    const buneckaCastka = tr.children[3];
-    const vstupCastka = document.createElement('input');
-    vstupCastka.type = 'number';
-    vstupCastka.step = '0.01';
-    // <input type="number"> vyžaduje tečku jako oddělovač desetin - kdyby
-    // Sheets vrátilo českou čárku (viz parsujCastkuZListu výše), input by
-    // hodnotu tiše nepřijal a zobrazil by se prázdný. Proto normalizace přes
-    // parsujCastkuZListu, ne přímo d.Castka.
-    vstupCastka.value = d.Castka !== undefined && d.Castka !== '' ? parsujCastkuZListu(d.Castka) : '';
-    vstupCastka.className = 'vyber-doklad';
-    vstupCastka.style.marginBottom = '4px';
-    const vstupMena = document.createElement('input');
-    vstupMena.type = 'text';
-    vstupMena.value = d.Mena || '';
-    vstupMena.className = 'vyber-doklad';
-    buneckaCastka.appendChild(vstupCastka);
-    buneckaCastka.appendChild(vstupMena);
-
-    const buneckaFirma = tr.children[4];
-    const vstupFirma = document.createElement('select');
-    vstupFirma.className = 'vyber-doklad';
-    vstupFirma.innerHTML = moznostiFirmy(d.Firma_potvrzena || d.Firma_AI_odhad || '');
-    buneckaFirma.appendChild(vstupFirma);
-
-    const buneckaKategorie = tr.children[5];
-    const vstupKategorie = document.createElement('input');
-    vstupKategorie.type = 'text';
-    vstupKategorie.value = d.Kategorie || '';
-    vstupKategorie.className = 'vyber-doklad';
-    buneckaKategorie.appendChild(vstupKategorie);
-
-    const buneckaStredisko = tr.children[6];
-    const vstupStredisko = document.createElement('select');
-    vstupStredisko.className = 'vyber-doklad';
-    vstupStredisko.innerHTML = moznostiStrediska(d.Stredisko || '');
-    buneckaStredisko.appendChild(vstupStredisko);
-
-    const buneckaSpz = tr.children[7];
-    const vstupSpz = document.createElement('select');
-    vstupSpz.className = 'vyber-doklad';
-    vstupSpz.innerHTML = moznostiSpz(d.SPZ_auta || '');
-    buneckaSpz.appendChild(vstupSpz);
-
-    // Doklad zaplacený hotově nebo soukromou kartou nikdy nebude mít
-    // protějšek v Bankovních výpisech (tam appka páruje jen odchozí platby
-    // z firemního účtu) - tenhle příznak to u dokladu rovnou zviditelní,
-    // ať účetní ví, že na bankovní pohyb u něj nemá čekat.
-    const buneckaMimoUcet = tr.children[8];
-    const vstupMimoUcet = document.createElement('input');
-    vstupMimoUcet.type = 'checkbox';
-    vstupMimoUcet.checked = String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO';
-    vstupMimoUcet.title = 'Hrazeno hotově nebo soukromou kartou (nečekat na spárování s bankovním výpisem)';
-    buneckaMimoUcet.appendChild(vstupMimoUcet);
-
-    function ziskejZmeny() {
-      return {
-        Dodavatel: vstupDodavatel.value.trim(),
-        Datum_dokladu: vstupDatum.value,
-        Castka: vstupCastka.value,
-        Mena: vstupMena.value.trim(),
-        Firma_potvrzena: vstupFirma.value.trim(),
-        Kategorie: vstupKategorie.value.trim(),
-        Stredisko: vstupStredisko.value.trim(),
-        SPZ_auta: vstupSpz.value.trim(),
-        Hrazeno_mimo_ucet: vstupMimoUcet.checked ? 'ANO' : '',
-      };
-    }
-
-    const buneckaAkce = tr.children[10];
-    const tlacitkoUlozit = document.createElement('button');
-    tlacitkoUlozit.className = 'maly sekundarni';
-    tlacitkoUlozit.textContent = 'Uložit';
-    tlacitkoUlozit.onclick = () => ulozZmenu(d.ID, ziskejZmeny(), tlacitkoUlozit);
-    buneckaAkce.appendChild(tlacitkoUlozit);
-
-    if (d.Stav !== 'Schváleno') {
-      const tlacitkoSchvalit = document.createElement('button');
-      tlacitkoSchvalit.className = 'maly';
-      tlacitkoSchvalit.textContent = 'Schválit';
-      tlacitkoSchvalit.style.marginLeft = '6px';
-      tlacitkoSchvalit.onclick = () => ulozZmenu(
-        d.ID,
-        Object.assign(ziskejZmeny(), { Stav: 'Schváleno' }),
-        tlacitkoSchvalit
-      );
-      buneckaAkce.appendChild(tlacitkoSchvalit);
-    }
-
-    const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
-    tlacitkoSmazat.textContent = 'Smazat';
-    tlacitkoSmazat.style.marginLeft = '6px';
-    tlacitkoSmazat.onclick = () => smazDoklad(d.ID, d.Dodavatel, tlacitkoSmazat);
-    buneckaAkce.appendChild(tlacitkoSmazat);
-
-    telo.appendChild(tr);
-  });
+  kontejner.innerHTML = '';
+  serazene.forEach((d) => kontejner.appendChild(vytvorRadekDoklad(d)));
 
   if (serazene.length === 0) {
-    telo.innerHTML = '<tr><td colspan="11" class="nacitani">Zatím žádné doklady.</td></tr>';
+    kontejner.innerHTML = '<div class="nacitani">' +
+      (dokladySekce === 'schvalene' ? 'Zatím žádné schválené doklady.' : 'Nic ke schválení.') +
+      '</div>';
   }
+}
+
+// Skládací řádek Dokladu (od v3.7, stejný vzor jako vytvorRadekBanka níž) -
+// sbaleně jen základní info, rozkliknutím se otevřou editovatelná pole
+// (viz vytvorDetailDoklad).
+function vytvorRadekDoklad(d) {
+  const radek = document.createElement('div');
+  radek.className = 'doklad-radek radek-' + stavTrida(d.Stav);
+
+  const hlava = document.createElement('div');
+  hlava.className = 'doklad-radek-hlava';
+  hlava.innerHTML =
+    '<span class="doklad-sipka">▶</span>' +
+    '<span class="stav-chip ' + stavTrida(d.Stav) + '">' + escapeHtml(d.Stav || '') + '</span>' +
+    '<span class="dodavatel">' + escapeHtml(d.Dodavatel || '(bez dodavatele)') + '</span>' +
+    '<span>' + escapeHtml(d.Datum_dokladu || '') + '</span>' +
+    '<span class="castka">' + formatCastka(d.Castka) + '</span>';
+
+  const detail = document.createElement('div');
+  detail.className = 'doklad-radek-detail';
+
+  hlava.addEventListener('click', () => {
+    radek.classList.toggle('rozbaleno');
+    if (radek.classList.contains('rozbaleno') && !radek.dataset.naplneno) {
+      radek.dataset.naplneno = '1';
+      detail.appendChild(vytvorDetailDoklad(d));
+    }
+  });
+
+  radek.appendChild(hlava);
+  radek.appendChild(detail);
+  return radek;
+}
+
+function vytvorDetailDoklad(d) {
+  const wrap = document.createElement('div');
+
+  const labelDodavatel = document.createElement('label');
+  labelDodavatel.textContent = 'Dodavatel';
+  const vstupDodavatel = document.createElement('input');
+  vstupDodavatel.type = 'text';
+  vstupDodavatel.value = d.Dodavatel || '';
+  wrap.appendChild(labelDodavatel);
+  wrap.appendChild(vstupDodavatel);
+  if (d.Poznamka) {
+    const poznamkaDiv = document.createElement('div');
+    poznamkaDiv.className = 'poznamka-dokladu';
+    poznamkaDiv.textContent = 'ⓘ ' + d.Poznamka;
+    wrap.appendChild(poznamkaDiv);
+  }
+
+  const labelDatum = document.createElement('label');
+  labelDatum.textContent = 'Datum dokladu';
+  const vstupDatum = document.createElement('input');
+  vstupDatum.type = 'date';
+  vstupDatum.value = d.Datum_dokladu || '';
+  wrap.appendChild(labelDatum);
+  wrap.appendChild(vstupDatum);
+
+  const labelCastka = document.createElement('label');
+  labelCastka.textContent = 'Částka a měna';
+  const vstupCastka = document.createElement('input');
+  vstupCastka.type = 'number';
+  vstupCastka.step = '0.01';
+  // <input type="number"> vyžaduje tečku jako oddělovač desetin - kdyby
+  // Sheets vrátilo českou čárku (viz parsujCastkuZListu výše), input by
+  // hodnotu tiše nepřijal a zobrazil by se prázdný. Proto normalizace přes
+  // parsujCastkuZListu, ne přímo d.Castka.
+  vstupCastka.value = d.Castka !== undefined && d.Castka !== '' ? parsujCastkuZListu(d.Castka) : '';
+  vstupCastka.style.marginBottom = '6px';
+  const vstupMena = document.createElement('input');
+  vstupMena.type = 'text';
+  vstupMena.value = d.Mena || '';
+  vstupMena.style.maxWidth = '90px';
+  wrap.appendChild(labelCastka);
+  wrap.appendChild(vstupCastka);
+  wrap.appendChild(vstupMena);
+
+  const labelFirma = document.createElement('label');
+  labelFirma.textContent = 'Firma';
+  const vstupFirma = document.createElement('select');
+  vstupFirma.innerHTML = moznostiFirmy(d.Firma_potvrzena || d.Firma_AI_odhad || '');
+  wrap.appendChild(labelFirma);
+  wrap.appendChild(vstupFirma);
+
+  const labelKategorie = document.createElement('label');
+  labelKategorie.textContent = 'Kategorie';
+  const vstupKategorie = document.createElement('input');
+  vstupKategorie.type = 'text';
+  vstupKategorie.value = d.Kategorie || '';
+  wrap.appendChild(labelKategorie);
+  wrap.appendChild(vstupKategorie);
+
+  const labelStredisko = document.createElement('label');
+  labelStredisko.textContent = 'Středisko';
+  const vstupStredisko = document.createElement('select');
+  vstupStredisko.innerHTML = moznostiStrediska(d.Stredisko || '');
+  wrap.appendChild(labelStredisko);
+  wrap.appendChild(vstupStredisko);
+
+  const labelSpz = document.createElement('label');
+  labelSpz.textContent = 'SPZ';
+  const vstupSpz = document.createElement('select');
+  vstupSpz.innerHTML = moznostiSpz(d.SPZ_auta || '');
+  wrap.appendChild(labelSpz);
+  wrap.appendChild(vstupSpz);
+
+  // Doklad zaplacený hotově nebo soukromou kartou nikdy nebude mít
+  // protějšek v Bankovních výpisech (tam appka páruje jen odchozí platby
+  // z firemního účtu) - tenhle příznak to u dokladu rovnou zviditelní,
+  // ať účetní ví, že na bankovní pohyb u něj nemá čekat.
+  const labelMimoUcet = document.createElement('label');
+  labelMimoUcet.style.display = 'flex';
+  labelMimoUcet.style.alignItems = 'center';
+  labelMimoUcet.style.gap = '8px';
+  const vstupMimoUcet = document.createElement('input');
+  vstupMimoUcet.type = 'checkbox';
+  vstupMimoUcet.checked = String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO';
+  vstupMimoUcet.title = 'Hrazeno hotově nebo soukromou kartou (nečekat na spárování s bankovním výpisem)';
+  labelMimoUcet.appendChild(vstupMimoUcet);
+  labelMimoUcet.appendChild(document.createTextNode('Mimo účet (hotově/soukromou kartou)'));
+  wrap.appendChild(labelMimoUcet);
+
+  if (d.Zdrojovy_soubor_URL) {
+    const souborDiv = document.createElement('div');
+    souborDiv.style.marginTop = '12px';
+    souborDiv.innerHTML = 'Soubor: <a href="' + escapeAttr(d.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>';
+    wrap.appendChild(souborDiv);
+  }
+
+  function ziskejZmeny() {
+    return {
+      Dodavatel: vstupDodavatel.value.trim(),
+      Datum_dokladu: vstupDatum.value,
+      Castka: vstupCastka.value,
+      Mena: vstupMena.value.trim(),
+      Firma_potvrzena: vstupFirma.value.trim(),
+      Kategorie: vstupKategorie.value.trim(),
+      Stredisko: vstupStredisko.value.trim(),
+      SPZ_auta: vstupSpz.value.trim(),
+      Hrazeno_mimo_ucet: vstupMimoUcet.checked ? 'ANO' : '',
+    };
+  }
+
+  const akce = document.createElement('div');
+  akce.className = 'radek-akci';
+
+  const tlacitkoUlozit = document.createElement('button');
+  tlacitkoUlozit.className = 'maly sekundarni';
+  tlacitkoUlozit.textContent = 'Uložit';
+  tlacitkoUlozit.onclick = () => ulozZmenu(d.ID, ziskejZmeny(), tlacitkoUlozit);
+  akce.appendChild(tlacitkoUlozit);
+
+  if (d.Stav !== 'Schváleno') {
+    const tlacitkoSchvalit = document.createElement('button');
+    tlacitkoSchvalit.className = 'maly';
+    tlacitkoSchvalit.textContent = 'Schválit';
+    tlacitkoSchvalit.onclick = () => ulozZmenu(
+      d.ID,
+      Object.assign(ziskejZmeny(), { Stav: 'Schváleno' }),
+      tlacitkoSchvalit
+    );
+    akce.appendChild(tlacitkoSchvalit);
+  }
+
+  const tlacitkoSmazat = document.createElement('button');
+  tlacitkoSmazat.className = 'maly sekundarni';
+  tlacitkoSmazat.textContent = 'Smazat';
+  tlacitkoSmazat.onclick = () => smazDoklad(d.ID, d.Dodavatel, tlacitkoSmazat);
+  akce.appendChild(tlacitkoSmazat);
+
+  wrap.appendChild(akce);
+
+  return wrap;
 }
 
 async function ulozZmenu(id, zmeny, tlacitko) {
@@ -1753,6 +1822,8 @@ document.getElementById('tlacitko-vybrat-soubor').addEventListener('click', () =
 document.getElementById('pole-foto').addEventListener('change', (e) => zpracujVybranySoubor(e.target.files[0]));
 document.getElementById('pole-soubor').addEventListener('change', (e) => zpracujVybranySoubor(e.target.files[0]));
 document.getElementById('tlacitko-nahrat').addEventListener('click', nahratDoklad);
+document.getElementById('dokl-sekce-ke-schvaleni').addEventListener('click', () => prepniDokladySekci('keSchvaleni'));
+document.getElementById('dokl-sekce-schvalene').addEventListener('click', () => prepniDokladySekci('schvalene'));
 document.getElementById('tlacitko-pridat-uzivatele').addEventListener('click', pridatUzivatele);
 document.getElementById('tlacitko-pridat-firmu').addEventListener('click', pridatFirmu);
 document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridatAuto);

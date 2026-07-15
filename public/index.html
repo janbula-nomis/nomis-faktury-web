@@ -60,28 +60,13 @@
 
     <!-- DOKLADY -->
     <div id="zalozka-doklady" class="karta skryto">
-      <h2>Doklady ke kontrole i schválené</h2>
-      <div id="doklady-nacitani" class="nacitani">Načítám…</div>
-      <div style="overflow-x:auto">
-      <table id="tabulka-doklady">
-        <thead>
-          <tr>
-            <th>Stav</th>
-            <th>Dodavatel</th>
-            <th>Datum</th>
-            <th>Částka</th>
-            <th>Firma</th>
-            <th>Kategorie</th>
-            <th>Středisko</th>
-            <th>SPZ</th>
-            <th>Mimo účet</th>
-            <th>Soubor</th>
-            <th>Akce</th>
-          </tr>
-        </thead>
-        <tbody id="tabulka-doklady-telo"></tbody>
-      </table>
+      <h2>Doklady</h2>
+      <div class="prepinac-sekce">
+        <button type="button" id="dokl-sekce-ke-schvaleni" class="prepinac-sekce-tlacitko aktivni" data-sekce="keSchvaleni">Ke schválení</button>
+        <button type="button" id="dokl-sekce-schvalene" class="prepinac-sekce-tlacitko" data-sekce="schvalene">Schválené</button>
       </div>
+      <div id="doklady-nacitani" class="nacitani">Načítám…</div>
+      <div id="doklady-seznam"></div>
     </div>
 
     <!-- PŘEHLED -->
