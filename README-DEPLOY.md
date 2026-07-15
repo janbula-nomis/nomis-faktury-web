@@ -594,6 +594,46 @@ i tak ihned (do 300 ms) ukáže schválený doklad ve „Schválené“, protož
 nečeká na server. Beze změny zůstává schéma v Sheets i backend endpoint
 `doklady.js` – jde o čistě frontendovou opravu, není potřeba `/api/setup`.
 
+## 20. Kompaktnější vzhled, přejmenování appky, zrušení SPZ, záložka Export (v3.8)
+
+Reakce na zpětnou vazbu ke screenshotu appky:
+
+1. **Kompaktnější a modernější vzhled** – zmenšeny a sjednoceny velikosti
+   písma napříč celou appkou (nadpisy, popisky, tlačítka, tabulky,
+   skládací řádky Dokladů/Bankovních výpisů), zmenšené odsazení karet
+   a mírně zaoblenější rohy (`public/style.css`, nové proměnné `--radius`
+   a `--radius-sm`). Čistě vizuální změna, žádná funkce se nemění.
+2. **Přejmenování appky** – „Nomis Faktury“ nahrazeno textem „NOMIS Group
+   evidence dokladů“ (v `<title>`, na přihlašovací obrazovce i v hlavičce
+   appky).
+3. **Místo na logo** – v hlavičce appky (na přihlašovací obrazovce i
+   v hlavní appce) je nově rezervovaný čtverec vedle názvu (`.misto-logo`
+   v `public/style.css`) – zatím jen prázdný rámeček, až Jan pošle logo,
+   stačí ho vložit jako `<img>` na stejné místo v `public/index.html`.
+4. **Zrušeno samostatné pole SPZ u Dokladů** – konkrétní auto je teď
+   součástí číselníku Středisko (např. „Auto - Tesla“, viz v3.6), takže
+   by šlo o duplicitní údaj. Appka pole SPZ v detailu dokladu už
+   nezobrazuje ani neukládá; sloupec `SPZ_auta` v Sheets zůstává
+   beze změny kvůli starším záznamům. Beze změny zůstává SPZ u listu
+   Auta v Nastavení (tam jde o evidenci vozového parku, ne o doklady).
+5. **Nová záložka Export** (vidí role admin a účetní, stejně jako
+   Bankovní výpisy) – filtry Firma/Měsíc/Rok/Středisko a přehled
+   nákladů podle firmy (počet dokladů, celková částka) pro účetní.
+   Zatím jen náhled na obrazovce – stahovatelný export přímo ve formátu
+   pro účetní program **Money S3 (modul XML DE)** appka doplní, jakmile
+   dostane od Jana přesný formát/ukázkový export (appka zatím ten formát
+   nezná, viz `nomis-faktury-architektura.md`, sekce „Rizika a omezení“).
+   Do té doby záložka zobrazuje jasnou informační poznámku, že tahle
+   část ještě chybí, ať to nepůsobí jako přehlédnutí.
+
+Čistě frontendová sada změn (`public/index.html`, `public/app.js`,
+`public/style.css`) – žádný nový sloupec v Sheets, žádná změna backendu,
+není potřeba `/api/setup`. Ověřeno novým Playwright UI testem (kompaktní
+rozvržení bez vodorovného přetečení při 700px i 360px, přejmenovaná
+hlavička s místem na logo, pole SPZ zmizelo z detailu dokladu, filtry
+Exportu se naplní a přehled podle firem se správně přepočítá) i plnou
+regresí existujících testů (beze změny, protože jde o frontend).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

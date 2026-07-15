@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.7.1 – 2026-07-15';
+const APP_VERZE = 'v3.8 – 2026-07-15';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -153,12 +153,13 @@ function zobrazApp() {
   const jeUcetniNeboAdmin = stav.role === 'admin' || stav.role === 'ucetni';
   document.getElementById('nav-nastaveni').classList.toggle('skryto', !jeAdmin);
   document.getElementById('nav-banka').classList.toggle('skryto', !jeUcetniNeboAdmin);
+  document.getElementById('nav-export').classList.toggle('skryto', !jeUcetniNeboAdmin);
 
   prepniZalozku('nahrat');
 }
 
 function prepniZalozku(nazev) {
-  ['nahrat', 'doklady', 'prehled', 'vydane-faktury', 'banka', 'nastaveni'].forEach((n) => {
+  ['nahrat', 'doklady', 'prehled', 'vydane-faktury', 'banka', 'export', 'nastaveni'].forEach((n) => {
     document.getElementById('zalozka-' + n).classList.toggle('skryto', n !== nazev);
   });
   document.querySelectorAll('nav.zalozky button').forEach((btn) => {
@@ -168,6 +169,7 @@ function prepniZalozku(nazev) {
   if (nazev === 'prehled') nactiPrehled();
   if (nazev === 'vydane-faktury') inicializujZalozkuVydaneFaktury();
   if (nazev === 'banka') inicializujZalozkuBanka();
+  if (nazev === 'export') inicializujZalozkuExport();
   if (nazev === 'nastaveni') {
     nactiUzivatele();
     nactiFirmy();
@@ -285,7 +287,6 @@ function stavTrida(stavText) {
   return 'stav-ke-kontrole';
 }
 
-let autaProVyberSpz = [];
 let firmyProVyberDokladu = [];
 
 // Doklady jsou rozdělené na dvě sekce (od v3.7) - "Ke schválení" (Ke
@@ -304,12 +305,10 @@ async function nactiDoklady() {
   kontejner.innerHTML = '';
 
   try {
-    const [dataDoklady, dataAuta, dataFirmy] = await Promise.all([
+    const [dataDoklady, dataFirmy] = await Promise.all([
       zavolejApi('/doklady', { method: 'GET' }),
-      zavolejApi('/auta', { method: 'GET' }).catch(() => ({ auta: [] })),
       zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
     ]);
-    autaProVyberSpz = dataAuta.auta || [];
     firmyProVyberDokladu = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
     nacitani.classList.add('skryto');
     vykresliDoklady(dataDoklady.doklady || []);
@@ -324,20 +323,6 @@ function prepniDokladySekci(sekce) {
     btn.classList.toggle('aktivni', btn.dataset.sekce === sekce);
   });
   vykresliDoklady(dokladySeznamAktualni);
-}
-
-function moznostiSpz(vybranaSpz) {
-  const zname = autaProVyberSpz.some((a) => a.SPZ === vybranaSpz);
-  let html = '<option value="">— bez SPZ —</option>';
-  autaProVyberSpz.forEach((a) => {
-    const oznaceno = a.SPZ === vybranaSpz ? ' selected' : '';
-    const popisek = a.SPZ + (a.Model ? ' – ' + a.Model : '');
-    html += '<option value="' + escapeAttr(a.SPZ) + '"' + oznaceno + '>' + escapeHtml(popisek) + '</option>';
-  });
-  if (vybranaSpz && !zname) {
-    html += '<option value="' + escapeAttr(vybranaSpz) + '" selected>' + escapeHtml(vybranaSpz) + ' (není v seznamu Auta)</option>';
-  }
-  return html;
 }
 
 // Firma se vybírá z číselníku (list Firmy), ne ručním opisem - jinak by
@@ -545,13 +530,10 @@ function vytvorDetailDoklad(d) {
   vstupStredisko.innerHTML = moznostiStrediska(d.Stredisko || '');
   wrap.appendChild(labelStredisko);
   wrap.appendChild(vstupStredisko);
-
-  const labelSpz = document.createElement('label');
-  labelSpz.textContent = 'SPZ';
-  const vstupSpz = document.createElement('select');
-  vstupSpz.innerHTML = moznostiSpz(d.SPZ_auta || '');
-  wrap.appendChild(labelSpz);
-  wrap.appendChild(vstupSpz);
+  // Pozn.: samostatné pole SPZ bylo od v3.8 zrušené - konkrétní auto je
+  // teď součástí Střediska (např. "Auto - Tesla"), takže by šlo o
+  // duplicitní údaj. Sloupec SPZ_auta v Sheets zůstává beze změny kvůli
+  // starším záznamům, appka do něj jen nově nezapisuje z týhle záložky.
 
   // Doklad zaplacený hotově nebo soukromou kartou nikdy nebude mít
   // protějšek v Bankovních výpisech (tam appka páruje jen odchozí platby
@@ -585,7 +567,6 @@ function vytvorDetailDoklad(d) {
       Firma_potvrzena: vstupFirma.value.trim(),
       Kategorie: vstupKategorie.value.trim(),
       Stredisko: vstupStredisko.value.trim(),
-      SPZ_auta: vstupSpz.value.trim(),
       Hrazeno_mimo_ucet: vstupMimoUcet.checked ? 'ANO' : '',
     };
   }
@@ -732,6 +713,124 @@ function parsujCastkuZListu(hodnota) {
 
 function formatCastka(hodnota) {
   return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 2 }).format(parsujCastkuZListu(hodnota)) + ' Kč';
+}
+
+// ---------- EXPORT (přehledy pro účetní, od v3.8) ----------
+// Zatím jen přehled na obrazovce (souhrn nákladů podle firmy, filtrovaný
+// firmou/měsícem/rokem/střediskem) - stahovatelný export přímo ve formátu
+// pro Money S3 (XML DE) appka doplní, až bude znát přesný formát/ukázkový
+// soubor. Vidí jen role admin a účetní (stejně jako Bankovní výpisy).
+
+let exportDataDoklady = [];
+
+async function inicializujZalozkuExport() {
+  const nacitani = document.getElementById('export-nacitani');
+  const vysledek = document.getElementById('export-vysledek');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+  vysledek.innerHTML = '';
+
+  try {
+    const [dataDoklady, dataFirmy] = await Promise.all([
+      zavolejApi('/doklady', { method: 'GET' }),
+      zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+    ]);
+    exportDataDoklady = dataDoklady.doklady || [];
+    naplnFiltryExport((dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean));
+    nacitani.classList.add('skryto');
+    vykresliPrehledExport();
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst data pro export: ' + e.message;
+  }
+}
+
+function naplnFiltryExport(firmy) {
+  const selFirma = document.getElementById('export-firma');
+  const selRok = document.getElementById('export-rok');
+  const selStredisko = document.getElementById('export-stredisko');
+
+  // Firma a Středisko naplníme jen jednou (dataset.naplneno) - opětovné
+  // otevření záložky tak nesmaže výběr, který na ní uživatel měl nastavený.
+  if (!selFirma.dataset.naplneno) {
+    let html = '<option value="">Všechny firmy</option>';
+    firmy.forEach((f) => { html += '<option value="' + escapeAttr(f) + '">' + escapeHtml(f) + '</option>'; });
+    selFirma.innerHTML = html;
+    selFirma.dataset.naplneno = '1';
+  }
+  if (!selStredisko.dataset.naplneno) {
+    let html = '<option value="">Všechna střediska</option>';
+    MOZNOSTI_STREDISKA.forEach((s) => { html += '<option value="' + escapeAttr(s) + '">' + escapeHtml(s) + '</option>'; });
+    selStredisko.innerHTML = html;
+    selStredisko.dataset.naplneno = '1';
+  }
+
+  // Rok - dynamicky podle roků, které se v dokladech opravdu vyskytují,
+  // plus aktuální rok (ať jde vybrat i rok, kde ještě žádný doklad není).
+  const vybranyRok = selRok.value;
+  const leta = new Set([String(new Date().getFullYear())]);
+  exportDataDoklady.forEach((d) => {
+    const rok = String(d.Datum_dokladu || '').slice(0, 4);
+    if (/^\d{4}$/.test(rok)) leta.add(rok);
+  });
+  const seraznaLeta = Array.from(leta).sort((a, b) => b.localeCompare(a));
+  let htmlRok = '<option value="">Všechny roky</option>';
+  seraznaLeta.forEach((r) => {
+    htmlRok += '<option value="' + r + '"' + (r === vybranyRok ? ' selected' : '') + '>' + r + '</option>';
+  });
+  selRok.innerHTML = htmlRok;
+}
+
+function vykresliPrehledExport() {
+  const firma = document.getElementById('export-firma').value;
+  const mesic = document.getElementById('export-mesic').value;
+  const rok = document.getElementById('export-rok').value;
+  const stredisko = document.getElementById('export-stredisko').value;
+
+  const filtrovane = exportDataDoklady.filter((d) => {
+    const firmaDokladu = d.Firma_potvrzena || d.Firma_AI_odhad || '';
+    if (firma && firmaDokladu !== firma) return false;
+    if (stredisko && (d.Stredisko || '') !== stredisko) return false;
+    const datum = String(d.Datum_dokladu || '');
+    if (rok && datum.slice(0, 4) !== rok) return false;
+    if (mesic && datum.slice(5, 7) !== mesic) return false;
+    return true;
+  });
+
+  const vysledek = document.getElementById('export-vysledek');
+  if (filtrovane.length === 0) {
+    vysledek.innerHTML = '<div class="nacitani">Žádné doklady neodpovídají zvolenému filtru.</div>';
+    return;
+  }
+
+  // Přehled podle firem - i když je vybraná konkrétní firma, appka pořád
+  // ukáže rozpad po firmách (u jedné vybrané firmy pak jde jen o jeden
+  // řádek), ať má tabulka vždy stejnou strukturu bez ohledu na filtr.
+  const podleFirmy = {};
+  filtrovane.forEach((d) => {
+    const nazevFirmy = d.Firma_potvrzena || d.Firma_AI_odhad || '(bez firmy)';
+    if (!podleFirmy[nazevFirmy]) podleFirmy[nazevFirmy] = { pocet: 0, castka: 0 };
+    podleFirmy[nazevFirmy].pocet += 1;
+    podleFirmy[nazevFirmy].castka += parsujCastkuZListu(d.Castka);
+  });
+
+  const nazvyFirem = Object.keys(podleFirmy).sort((a, b) => a.localeCompare(b, 'cs'));
+  let celkemPocet = 0;
+  let celkemCastka = 0;
+
+  let html = '<table><thead><tr><th>Firma</th><th>Počet dokladů</th><th>Celkem</th></tr></thead><tbody>';
+  nazvyFirem.forEach((nazev) => {
+    const r = podleFirmy[nazev];
+    celkemPocet += r.pocet;
+    celkemCastka += r.castka;
+    html += '<tr>' +
+      '<td data-label="Firma">' + escapeHtml(nazev) + '</td>' +
+      '<td data-label="Počet dokladů">' + r.pocet + '</td>' +
+      '<td data-label="Celkem">' + formatCastka(r.castka) + '</td>' +
+      '</tr>';
+  });
+  html += '<tr><td><strong>Celkem</strong></td><td><strong>' + celkemPocet + '</strong></td><td><strong>' + formatCastka(celkemCastka) + '</strong></td></tr>';
+  html += '</tbody></table>';
+  vysledek.innerHTML = html;
 }
 
 // ---------- VYDANÉ FAKTURY ----------
@@ -1873,6 +1972,10 @@ document.getElementById('banka-jen-chybejici').addEventListener('click', (e) => 
 document.getElementById('tlacitko-pridat-fakturu').addEventListener('click', pridatVydanouFakturu);
 document.getElementById('vf-filtr-firma').addEventListener('change', vykresliVydaneFaktury);
 document.getElementById('tlacitko-motiv').addEventListener('click', prepniMotiv);
+document.getElementById('tlacitko-export-zobrazit').addEventListener('click', vykresliPrehledExport);
+['export-firma', 'export-mesic', 'export-rok', 'export-stredisko'].forEach((id) => {
+  document.getElementById(id).addEventListener('change', vykresliPrehledExport);
+});
 
 document.querySelectorAll('nav.zalozky button').forEach((btn) => {
   btn.addEventListener('click', () => prepniZalozku(btn.dataset.zalozka));

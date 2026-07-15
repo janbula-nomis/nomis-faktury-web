@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Nomis Faktury</title>
+<title>NOMIS Group – evidence dokladů</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -11,8 +11,11 @@
 
   <!-- PŘIHLÁŠENÍ -->
   <section id="view-login" class="karta">
-    <h1>Nomis Faktury</h1>
-    <p class="popis">Evidence faktur a účtenek – Nomis Group</p>
+    <div class="znacka">
+      <div class="misto-logo" aria-hidden="true"></div>
+      <h1>NOMIS Group evidence dokladů</h1>
+    </div>
+    <p class="popis">Evidence faktur, účtenek a bankovních výpisů</p>
     <label for="vyber-jmeno">Jméno</label>
     <select id="vyber-jmeno">
       <option value="">Načítám seznam uživatelů…</option>
@@ -26,7 +29,10 @@
   <!-- HLAVNÍ APLIKACE -->
   <section id="view-app" class="skryto">
     <div class="hlavicka-app">
-      <h1>Nomis Faktury</h1>
+      <div class="znacka">
+        <div class="misto-logo" aria-hidden="true"></div>
+        <h1>NOMIS Group evidence dokladů</h1>
+      </div>
       <div class="uzivatel">
         <button class="prepinac-ikona" id="tlacitko-motiv" type="button" title="Přepnout světlý/tmavý režim" aria-pressed="false">🌙</button>
         <div id="jmeno-uzivatele"></div>
@@ -40,6 +46,7 @@
       <button data-zalozka="prehled">Přehled</button>
       <button data-zalozka="vydane-faktury">Vydané faktury</button>
       <button data-zalozka="banka" id="nav-banka" class="skryto">Bankovní výpisy</button>
+      <button data-zalozka="export" id="nav-export" class="skryto">Export</button>
       <button data-zalozka="nastaveni" id="nav-nastaveni" class="skryto">Nastavení</button>
     </nav>
 
@@ -169,6 +176,54 @@
 
       <div id="banka-nacitani" class="nacitani" style="margin-top:12px">Vyberte firmu…</div>
       <div id="banka-tabulka"></div>
+    </div>
+
+    <!-- EXPORT -->
+    <div id="zalozka-export" class="karta skryto">
+      <h2>Export</h2>
+      <p class="popis">Přehledy nákladů podle firem pro účetní – vyberte firmu, období a středisko.
+        Stahovatelný export přímo pro Money S3 appka doplní, až bude znát přesný formát.</p>
+
+      <div class="mriz-filtru">
+        <div>
+          <label for="export-firma">Firma</label>
+          <select id="export-firma"><option value="">Všechny firmy</option></select>
+        </div>
+        <div>
+          <label for="export-mesic">Měsíc</label>
+          <select id="export-mesic">
+            <option value="">Všechny měsíce</option>
+            <option value="01">Leden</option>
+            <option value="02">Únor</option>
+            <option value="03">Březen</option>
+            <option value="04">Duben</option>
+            <option value="05">Květen</option>
+            <option value="06">Červen</option>
+            <option value="07">Červenec</option>
+            <option value="08">Srpen</option>
+            <option value="09">Září</option>
+            <option value="10">Říjen</option>
+            <option value="11">Listopad</option>
+            <option value="12">Prosinec</option>
+          </select>
+        </div>
+        <div>
+          <label for="export-rok">Rok</label>
+          <select id="export-rok"><option value="">Všechny roky</option></select>
+        </div>
+        <div>
+          <label for="export-stredisko">Středisko</label>
+          <select id="export-stredisko"><option value="">Všechna střediska</option></select>
+        </div>
+      </div>
+      <button type="button" id="tlacitko-export-zobrazit">Zobrazit přehled</button>
+
+      <div id="export-nacitani" class="nacitani skryto" style="margin-top:12px">Načítám…</div>
+      <div id="export-vysledek" style="margin-top:12px"></div>
+
+      <div class="zprava info" id="export-money-s3-info" style="margin-top:16px">
+        Export přímo pro účetní program Money S3 (XML DE) appka zatím nemá – čeká se na přesný formát/ukázkový soubor od Jana. Zatím appka nabízí aspoň přehled na obrazovce výš.
+      </div>
     </div>
 
     <!-- NASTAVENÍ -->

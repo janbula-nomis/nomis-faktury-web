@@ -9,7 +9,8 @@
   --barva-uspech: #1a9c6b;
   --barva-varovani: #b8860b;
   --barva-chyba: #d0342c;
-  --radius: 10px;
+  --radius: 12px;
+  --radius-sm: 8px;
 }
 
 * { box-sizing: border-box; }
@@ -17,6 +18,8 @@
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
   background: var(--barva-pozadi);
   color: var(--barva-text);
 }
@@ -29,62 +32,84 @@ body {
   background: var(--barva-karta);
   border: 1px solid var(--barva-hranice);
   border-radius: var(--radius);
-  padding: 20px;
-  margin-bottom: 16px;
+  padding: 16px;
+  margin-bottom: 14px;
 }
 
-h1 { font-size: 20px; margin: 0 0 4px; }
-h2 { font-size: 16px; margin: 0 0 12px; }
-p.popis { color: var(--barva-text-tlumena); margin-top: 0; }
+h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; margin: 0; line-height: 1.2; }
+h2 { font-size: 14px; font-weight: 700; margin: 0 0 10px; }
+p.popis { color: var(--barva-text-tlumena); margin-top: 0; font-size: 12.5px; }
 
-label { display: block; font-size: 13px; color: var(--barva-text-tlumena); margin-bottom: 4px; margin-top: 12px; }
+label { display: block; font-size: 11.5px; color: var(--barva-text-tlumena); margin-bottom: 3px; margin-top: 10px; }
 
 input[type="text"], input[type="password"], input[type="number"], select {
   width: 100%;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--barva-hranice);
-  border-radius: 8px;
-  font-size: 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
   background: var(--barva-karta);
   color: var(--barva-text);
 }
 
 button {
-  font-size: 15px;
-  padding: 10px 16px;
-  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
   border: none;
   cursor: pointer;
   background: var(--barva-primarni);
   color: white;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 button:hover { background: var(--barva-primarni-tmava); }
 button.sekundarni { background: transparent; color: var(--barva-primarni); border: 1px solid var(--barva-primarni); }
-button.maly { padding: 6px 10px; font-size: 13px; margin-top: 0; }
+button.maly { padding: 5px 9px; font-size: 12px; margin-top: 0; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-nav.zalozky { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+nav.zalozky { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
 nav.zalozky button {
   background: var(--barva-karta);
   color: var(--barva-text);
   border: 1px solid var(--barva-hranice);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 12px;
   margin-top: 0;
 }
 nav.zalozky button.aktivni { background: var(--barva-primarni); color: white; border-color: var(--barva-primarni); }
 
-.hlavicka-app { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.hlavicka-app .uzivatel { font-size: 13px; color: var(--barva-text-tlumena); text-align: right; }
+.hlavicka-app { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.hlavicka-app .uzivatel { font-size: 12px; color: var(--barva-text-tlumena); text-align: right; }
 
-.zprava { padding: 10px 12px; border-radius: 8px; font-size: 14px; margin-top: 12px; }
+/* Značka appky (místo na logo + název) - stejná struktura na přihlašovací
+   obrazovce i v hlavičce appky, ať jde logo jednou vyměnit na obou místech
+   stejně. .misto-logo je jen rezervovaný prostor, dokud appka nemá reálné
+   logo od Jana - pak stačí sem vložit <img>. */
+.znacka { display: flex; align-items: center; gap: 10px; }
+.misto-logo {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  border: 1.5px dashed var(--barva-hranice);
+  background: var(--barva-pozadi);
+}
+
+.zprava { padding: 9px 11px; border-radius: var(--radius-sm); font-size: 13px; margin-top: 10px; }
 .zprava.chyba { background: #fdecea; color: var(--barva-chyba); }
 .zprava.uspech { background: #e8f7f0; color: var(--barva-uspech); }
+.zprava.info { background: var(--barva-pozadi); color: var(--barva-text-tlumena); }
 
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--barva-hranice); vertical-align: top; }
+/* Filtry Exportu - řádek roletek vedle sebe, zalamuje se na užších oknech. */
+.mriz-filtru { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 12px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--barva-hranice); vertical-align: top; }
 th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 
-.stav-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.stav-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .stav-ke-kontrole { background: #fff4de; color: var(--barva-varovani); }
 .stav-schvaleno { background: #e8f7f0; color: var(--barva-uspech); }
 .stav-duplicita { background: #fdecea; color: var(--barva-chyba); }
@@ -93,8 +118,8 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
    výběr JEDNOHO ze dvou pohledů na stejná data (ne dvě nezávislá
    tlačítka), proto vzhled segmentovaného přepínače, ne obyčejná tlačítka
    vedle sebe. */
-.prepinac-sekce { display: flex; margin: 12px 0; border: 1px solid var(--barva-hranice); border-radius: 8px; overflow: hidden; width: fit-content; }
-.prepinac-sekce-tlacitko { margin-top: 0; border: none; border-radius: 0; background: var(--barva-karta); color: var(--barva-text); padding: 8px 14px; font-size: 13px; }
+.prepinac-sekce { display: flex; margin: 10px 0; border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); overflow: hidden; width: fit-content; }
+.prepinac-sekce-tlacitko { margin-top: 0; border: none; border-radius: 0; background: var(--barva-karta); color: var(--barva-text); padding: 6px 12px; font-size: 12px; }
 .prepinac-sekce-tlacitko + .prepinac-sekce-tlacitko { border-left: 1px solid var(--barva-hranice); }
 .prepinac-sekce-tlacitko.aktivni { background: var(--barva-primarni); color: #fff; font-weight: 600; }
 
@@ -104,17 +129,17 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
    mobilní karty) musela vodorovně posouvat. Sbaleně appka teď ukazuje jen
    Stav/Dodavatel/Datum/Částka (vejde se na jakoukoli šířku bez
    posuvníku), rozkliknutím řádku se otevře zbytek polí k úpravě. */
-.doklad-radek { border: 1px solid var(--barva-hranice); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
-.doklad-radek-hlava { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; flex-wrap: wrap; }
+.doklad-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; overflow: hidden; font-size: 13px; }
+.doklad-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
 .doklad-radek-hlava:hover { filter: brightness(0.97); }
 .doklad-radek-hlava .dodavatel { font-weight: 600; }
 .doklad-radek-hlava .castka { font-weight: 600; margin-left: auto; }
-.doklad-radek-detail { padding: 12px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
+.doklad-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
 .doklad-radek.rozbaleno .doklad-radek-detail { display: block; }
 .doklad-radek.rozbaleno .doklad-sipka { transform: rotate(90deg); }
 .doklad-sipka { display: inline-block; transition: transform 0.15s; }
 .doklad-radek-detail label:first-child { margin-top: 0; }
-.doklad-radek-detail .radek-akci { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.doklad-radek-detail .radek-akci { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
 
 /* Probarvení celého skládacího řádku podle stavu (konzistentní s barvami
    .stav-chip výše). */
@@ -122,16 +147,16 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .doklad-radek.radek-stav-schvaleno { background: #f1faf6; border-left: 3px solid var(--barva-uspech); }
 .doklad-radek.radek-stav-duplicita { background: #fdf1f0; border-left: 3px solid var(--barva-chyba); }
 
-.mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-.polozka-souhrn { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 14px; }
+.mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.polozka-souhrn { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 13px; }
 .polozka-souhrn:last-child { border-bottom: none; }
 
-.nacitani { font-size: 14px; color: var(--barva-text-tlumena); }
+.nacitani { font-size: 13px; color: var(--barva-text-tlumena); }
 
 /* Poznámka appky u dokladu (např. vysvětlení, že firma/kategorie/středisko
    byly doplněny podle historie stejného dodavatele) - drobný, tlumený text
    pod jménem dodavatele, ať to nepůsobí jako chybové hlášení. */
-.poznamka-dokladu { font-size: 11px; color: var(--barva-text-tlumena); margin-top: 4px; font-weight: normal; }
+.poznamka-dokladu { font-size: 10.5px; color: var(--barva-text-tlumena); margin-top: 4px; font-weight: normal; }
 
 input[type="file"] { margin-top: 8px; }
 
@@ -143,18 +168,18 @@ input[type="file"] { margin-top: 8px; }
   td::before { content: attr(data-label) ": "; font-weight: 600; color: var(--barva-text-tlumena); }
 }
 
-.patka-verze { text-align: center; font-size: 12px; color: var(--barva-text-tlumena); padding: 16px 0 8px; }
+.patka-verze { text-align: center; font-size: 11px; color: var(--barva-text-tlumena); padding: 14px 0 8px; }
 
-.tlacitka-nahrani { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.tlacitka-nahrani { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .tlacitka-nahrani button { margin-top: 0; flex: 1; min-width: 140px; }
 
-.banka-radek { border: 1px solid var(--barva-hranice); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
-.banka-radek-hlava { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; flex-wrap: wrap; }
+.banka-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; overflow: hidden; font-size: 13px; }
+.banka-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
 .banka-radek-hlava:hover { filter: brightness(0.97); }
 .banka-radek-hlava .castka { font-weight: 600; margin-left: auto; }
 .banka-radek-hlava .castka.prijem { color: var(--barva-uspech); }
 .banka-radek-hlava .castka.vydaj { color: var(--barva-text); }
-.banka-radek-detail { padding: 12px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
+.banka-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
 .banka-radek.rozbaleno .banka-radek-detail { display: block; }
 .banka-radek.rozbaleno .banka-sipka { transform: rotate(90deg); }
 .banka-sipka { display: inline-block; transition: transform 0.15s; }
@@ -167,12 +192,12 @@ input[type="file"] { margin-top: 8px; }
 .banka-radek.stav-radek-potvrzeno { background: #e8f7f0; }
 .banka-radek.stav-radek-bezdokladu { background: #eef0f4; }
 
-.badge-chybi { background: #f7d9d5; color: var(--barva-chyba); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
-.badge-navrzeno { background: #d7e3fc; color: var(--barva-primarni-tmava); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
-.badge-potvrzeno { background: #d3efe0; color: var(--barva-uspech); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
-.badge-bezdokladu { background: #dde1e8; color: var(--barva-text-tlumena); font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
-.banka-radek-detail .radek-akci { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-.banka-radek-detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13px; margin: 0; }
+.badge-chybi { background: #f7d9d5; color: var(--barva-chyba); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-navrzeno { background: #d7e3fc; color: var(--barva-primarni-tmava); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-potvrzeno { background: #d3efe0; color: var(--barva-uspech); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-bezdokladu { background: #dde1e8; color: var(--barva-text-tlumena); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.banka-radek-detail .radek-akci { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.banka-radek-detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 12px; margin: 0; }
 .banka-radek-detail dt { color: var(--barva-text-tlumena); }
 .banka-radek-detail dd { margin: 0; }
 
@@ -190,8 +215,8 @@ input[type="file"] { margin-top: 8px; }
    (aria-pressed="true") se odliší jemným zvýrazněným pozadím. */
 .prepinac-ikona {
   margin-top: 0;
-  padding: 6px 10px;
-  font-size: 16px;
+  padding: 5px 9px;
+  font-size: 15px;
   line-height: 1;
   background: var(--barva-karta);
   border: 1px solid var(--barva-hranice);
@@ -206,20 +231,21 @@ input[type="file"] { margin-top: 8px; }
    záložky, výchozí stav zavřený kromě těch s atributem "open" v HTML. */
 .panel-skladaci {
   border: 1px solid var(--barva-hranice);
-  border-radius: 8px;
-  padding: 0 16px 4px;
-  margin-bottom: 12px;
+  border-radius: var(--radius-sm);
+  padding: 0 14px 4px;
+  margin-bottom: 10px;
 }
 .panel-skladaci summary {
   cursor: pointer;
-  padding: 12px 0;
+  padding: 10px 0;
   font-weight: 600;
+  font-size: 13px;
   list-style: none;
 }
 .panel-skladaci summary::-webkit-details-marker { display: none; }
 .panel-skladaci summary::before { content: '▶'; display: inline-block; margin-right: 8px; font-size: 11px; transition: transform 0.15s; }
 .panel-skladaci[open] summary::before { transform: rotate(90deg); }
-.panel-skladaci h3 { font-size: 14px; margin: 16px 0 10px; }
+.panel-skladaci h3 { font-size: 13px; margin: 14px 0 8px; }
 
 /* ---------- TMAVÝ REŽIM ---------- */
 :root[data-motiv="tmavy"] {
