@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.4 – 2026-07-15';
+const APP_VERZE = 'v3.5 – 2026-07-15';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -403,7 +403,11 @@ function vykresliDoklady(doklady) {
     const vstupCastka = document.createElement('input');
     vstupCastka.type = 'number';
     vstupCastka.step = '0.01';
-    vstupCastka.value = d.Castka || '';
+    // <input type="number"> vyžaduje tečku jako oddělovač desetin - kdyby
+    // Sheets vrátilo českou čárku (viz parsujCastkuZListu výše), input by
+    // hodnotu tiše nepřijal a zobrazil by se prázdný. Proto normalizace přes
+    // parsujCastkuZListu, ne přímo d.Castka.
+    vstupCastka.value = d.Castka !== undefined && d.Castka !== '' ? parsujCastkuZListu(d.Castka) : '';
     vstupCastka.className = 'vyber-doklad';
     vstupCastka.style.marginBottom = '4px';
     const vstupMena = document.createElement('input');
@@ -549,13 +553,23 @@ function vykresliSouhrn(idKontejneru, souhrn) {
   });
 }
 
-function formatCastka(cislo) {
-  const cisloBezpecne = Number(cislo);
-  // Obrana proti neplatné/chybějící hodnotě (např. starší vadný řádek v Sheets) -
-  // appka radši ukáže jasné "—", ať je vidět, že něco nesedí a je potřeba to
-  // zkontrolovat ručně, než matoucí "NaN Kč".
-  if (!Number.isFinite(cisloBezpecne)) return '— Kč (neplatná částka)';
-  return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(cisloBezpecne) + ' Kč';
+// Appka čte listy v Sheets, kde se čísla vrací naformátovaná přesně tak, jak
+// je appka vidí v UI Sheets (viz stejná poznámka v lib/bankHelpers.js na
+// backendu - tahle funkce je záměrně její duplicitou, appka nemá build krok,
+// takže frontend si lib/ soubory nemůže naimportovat). U celého čísla to
+// náhodou vypadá jako platný JS zápis ("-1717"), ale desetinné číslo se
+// v české lokalizaci zobrazí s ČÁRKOU misto tečky (např. "-2029,91") - obyčejné
+// Number() by na tom selhalo a appka by ukázala "NaN Kč" místo částky.
+function parsujCastkuZListu(hodnota) {
+  if (typeof hodnota === 'number') return Number.isFinite(hodnota) ? hodnota : 0;
+  if (hodnota === null || hodnota === undefined || hodnota === '') return 0;
+  const normalizovano = String(hodnota).trim().replace(/\s/g, '').replace(',', '.');
+  const cislo = Number(normalizovano);
+  return Number.isFinite(cislo) ? cislo : 0;
+}
+
+function formatCastka(hodnota) {
+  return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 2 }).format(parsujCastkuZListu(hodnota)) + ' Kč';
 }
 
 // ---------- VYDANÉ FAKTURY ----------
@@ -630,7 +644,7 @@ function vykresliVydaneFaktury() {
   const neuhrazeno = filtrovane.length - uhrazeno - poSplatnosti;
   const soucetNeuhrazeno = filtrovane
     .filter((f) => f.Stav !== 'Uhrazeno')
-    .reduce((soucet, f) => soucet + (Number(f.Castka) || 0), 0);
+    .reduce((soucet, f) => soucet + parsujCastkuZListu(f.Castka), 0);
   souhrn.textContent =
     uhrazeno + ' uhrazeno, ' + neuhrazeno + ' neuhrazeno, ' + poSplatnosti + ' po splatnosti ' +
     '(nezaplaceno celkem ' + formatCastka(soucetNeuhrazeno) + ')';
@@ -646,7 +660,7 @@ function vykresliVydaneFaktury() {
       '<td data-label="Zákazník">' + escapeHtml(f.Zakaznik || '') + '</td>' +
       '<td data-label="Vystaveno">' + escapeHtml(f.Datum_vystaveni || '') + '</td>' +
       '<td data-label="Splatnost">' + escapeHtml(f.Datum_splatnosti || '') + '</td>' +
-      '<td data-label="Částka">' + formatCastka(Number(f.Castka) || 0) + '</td>' +
+      '<td data-label="Částka">' + formatCastka(f.Castka) + '</td>' +
       '<td data-label="Stav">' + escapeHtml(vfStavText(f)) + '</td>' +
       '<td data-label="Akce"></td>';
 
@@ -833,7 +847,7 @@ function vytvorRadekBanka(p) {
 
   const hlava = document.createElement('div');
   hlava.className = 'banka-radek-hlava';
-  const castkaTrida = p.Castka > 0 ? 'prijem' : 'vydaj';
+  const castkaTrida = parsujCastkuZListu(p.Castka) > 0 ? 'prijem' : 'vydaj';
   hlava.innerHTML =
     '<span class="banka-sipka">▶</span>' +
     '<span>' + escapeHtml(p.Datum || '') + '</span>' +
@@ -876,7 +890,7 @@ function vytvorDetailBanka(p) {
   if (propojenyDoklad) {
     dokladBox.innerHTML =
       '<strong>Přiřazený doklad:</strong> ' + escapeHtml(propojenyDoklad.Dodavatel || '(bez dodavatele)') +
-      ', ' + escapeHtml(String(propojenyDoklad.Castka || '')) + ' ' + escapeHtml(propojenyDoklad.Mena || '') +
+      ', ' + escapeHtml(String(parsujCastkuZListu(propojenyDoklad.Castka))) + ' ' + escapeHtml(propojenyDoklad.Mena || '') +
       (propojenyDoklad.Zdrojovy_soubor_URL
         ? ' – <a href="' + escapeAttr(propojenyDoklad.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít scan</a>'
         : '') +
@@ -933,7 +947,7 @@ function vytvorDetailBanka(p) {
         .map(
           (d) =>
             '<option value="' + escapeAttr(d.ID) + '">' +
-            escapeHtml(d.Dodavatel || '(bez dodavatele)') + ' – ' + escapeHtml(String(d.Castka || '')) + ' ' +
+            escapeHtml(d.Dodavatel || '(bez dodavatele)') + ' – ' + escapeHtml(String(parsujCastkuZListu(d.Castka))) + ' ' +
             escapeHtml(d.Mena || '') + ' (' + escapeHtml(d.Datum_dokladu || '') + ')</option>'
         )
         .join('');

@@ -368,29 +368,46 @@ Nově přibylo i tlačítko **„Smazat“**:
 
 Bez potřeby nové sheet/sloupce ani znovu spustit `setup`.
 
-## 13. Oprava „NaN Kč“ u bankovních pohybů (od v3.4)
+## 13. Oprava „NaN Kč“ u částek s haléři (od v3.5)
 
-V Bankovních výpisech se u jednoho pohybu mohla objevit **„NaN Kč“** místo
-částky – docházelo k tomu, když George export obsahoval položku s
-neúplným/neočekávaným polem částky (např. chybějící `precision`), na což
-appka nebyla dost obranná a výpočet částky mohl vrátit neplatné číslo
-(`NaN`/`Infinity`), které se pak takhle uložilo a zobrazilo.
+V Bankovních výpisech se u jedné konkrétní platby (zahraniční transakce
+kartou přepočtená z EUR, tedy částka s haléři, ne celá koruna) objevilo
+**„NaN Kč“** místo částky. Skutečná příčina **není** poškozený/neúplný
+George export (tahle položka se z George JSON parsuje naprosto v pořádku,
+ověřeno na Janově reálném souboru) – je to o úroveň níž, v tom, jak appka
+čte čísla zpátky z Google Sheets:
 
-Oprava ve dvou vrstvách:
+`readSheetObjects` (viz `lib/sheetsHelpers.js`) používá výchozí
+`valueRenderOption` Sheets API, tzv. `FORMATTED_VALUE` – appka tak dostává
+čísla naformátovaná přesně tak, jak je vidět v UI Sheets, ne surová čísla.
+U celého čísla to náhodou vypadá jako platný JS zápis (např. `"-1717"`),
+ale desetinné číslo se v české lokalizaci Sheets vrátí s **čárkou** místo
+tečky (např. `"-2029,91"`) a případně mezerou jako oddělovačem tisíců
+(`"1 234,56"`). Obyčejné `Number()` na takovém řetězci vrátí `NaN` (proto
+"NaN Kč"), a `parseFloat()` by to bylo ještě zákeřnější – tiše by uřízlo
+desetinná místa (`parseFloat("2029,91")` → `2029`), takže by appka rovnou
+počítala s nepřesnou částkou, aniž by to bylo vidět. Netýkalo se to tedy
+jen zobrazení v Bankovních výpisech, ale i:
+- párování bankovního pohybu s dokladem podle částky (`navrhniShodu`),
+- detekce možné duplicity dokladu podle částky (`isMoznaDuplicita`),
+- součtů v Přehledu (`dashboard.js`),
+- editovatelného pole Částka u dokladu v Dokladech (`<input type="number">`
+  by takovou hodnotu s čárkou vůbec nepřijal a zobrazil by se prázdný).
 
-1. `lib/bankHelpers.js` (`castkaZHaleru`) – appka teď hlídá, že výsledek
-   výpočtu je vždy konečné číslo; pokud by vyšlo něco neplatného, uloží se
-   0 místo NaN/Infinity.
-2. `public/app.js` (`formatCastka`) – appka teď i při zobrazení hlídá
-   neplatnou hodnotu a místo matoucí „NaN Kč“ ukáže zřetelné „— Kč
-   (neplatná částka)“, ať je na první pohled vidět, že tenhle konkrétní
-   řádek stojí za ruční kontrolu.
+Oprava: nová sdílená funkce `parsujCastkuZListu` (`lib/bankHelpers.js` na
+backendu, stejná logika zduplikovaná v `public/app.js` na frontendu, appka
+nemá build krok, takže si frontend nemůže lib/ soubor naimportovat) –
+normalizuje řetězec (odstraní mezery, nahradí čárku tečkou) před
+převodem na číslo, a jako pojistku vždy vrátí platné konečné číslo (0
+místo NaN/Infinity). Použita všude výše. Zobrazení částek teď navíc
+správně ukazuje i haléře (dřív appka zaokrouhlovala na celé koruny), např.
+„-2 029,91 Kč“ místo dřívějšího zaokrouhleného „-2 030 Kč“.
 
 **Existující už uloženou „NaN“ hodnotu appka sama zpětně neopraví** (u
 staršího řádku, který vznikl před touhle opravou) – tu je potřeba doplnit
 ručně přímo v Google Sheets, v listu `Bankovni_pohyby`, sloupec `Castka`
 u dotčeného řádku (částku dohledáte v bankovním výpisu/historii účtu).
-Nové importy už touhle chybou netrpí.
+Nové importy i všechny nové výpočty už touhle chybou netrpí.
 
 Bez potřeby nové sheet/sloupce ani znovu spustit `setup`.
 

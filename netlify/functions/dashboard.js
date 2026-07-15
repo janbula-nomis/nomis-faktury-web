@@ -6,6 +6,7 @@
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects } = require('../../lib/sheetsHelpers');
+const { parsujCastkuZListu } = require('../../lib/bankHelpers');
 const { json } = require('../../lib/http');
 
 exports.handler = async (event) => {
@@ -37,7 +38,11 @@ exports.handler = async (event) => {
       const firma = r.Firma_potvrzena || r.Firma_AI_odhad || '(nepřiřazeno)';
       const kategorie = r.Kategorie || '(bez kategorie)';
       const mesic = String(r.Datum_dokladu || '').slice(0, 7) || '(bez data)';
-      const castka = parseFloat(r.Castka) || 0;
+      // r.Castka přichází z readSheetObjects (FORMATTED_VALUE) - u částky s
+      // haléři se může vrátit v českém formátu s čárkou (např. "2029,91"),
+      // na což by obyčejné parseFloat() tiše uřízlo desetiny (vrátilo by 2029)
+      // - proto parsujCastkuZListu, ať součty v Přehledu nejsou nepřesné.
+      const castka = parsujCastkuZListu(r.Castka);
 
       souhrnPodleFirmy[firma] = (souhrnPodleFirmy[firma] || 0) + castka;
       souhrnPodleKategorie[kategorie] = (souhrnPodleKategorie[kategorie] || 0) + castka;
