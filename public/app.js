@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.7 – 2026-07-15';
+const APP_VERZE = 'v3.7.1 – 2026-07-15';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -622,11 +622,39 @@ function vytvorDetailDoklad(d) {
   return wrap;
 }
 
+let dokladyZpravaTimeout = null;
+
+function zobrazZpravuDoklady(text) {
+  const zprava = document.getElementById('doklady-zprava');
+  if (!zprava) return;
+  zprava.textContent = text;
+  zprava.classList.toggle('skryto', !text);
+  if (dokladyZpravaTimeout) clearTimeout(dokladyZpravaTimeout);
+  if (text) {
+    dokladyZpravaTimeout = setTimeout(() => {
+      zprava.textContent = '';
+      zprava.classList.add('skryto');
+    }, 5000);
+  }
+}
+
 async function ulozZmenu(id, zmeny, tlacitko) {
   tlacitko.disabled = true;
   try {
     await zavolejApi('/doklady', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
-    await nactiDoklady();
+    // Optimistická aktualizace: promítneme změnu rovnou do lokálního seznamu
+    // a překreslíme z něj, místo abychom hned volali nactiDoklady() (nový GET).
+    // Google Sheets API má po zápisu krátké okno eventual-consistency, kdy by
+    // okamžitý GET mohl vrátit ještě starou hodnotu Stav - to způsobovalo, že
+    // se schválený doklad po Schválit nepřesunul do sekce "Schválené".
+    const idx = dokladySeznamAktualni.findIndex((d) => d.ID === id);
+    if (idx !== -1) {
+      Object.assign(dokladySeznamAktualni[idx], zmeny);
+    }
+    vykresliDoklady(dokladySeznamAktualni);
+    zobrazZpravuDoklady(
+      zmeny.Stav === 'Schváleno' ? 'Doklad schválen – najdete ho v sekci Schválené.' : 'Změna uložena.'
+    );
   } catch (e) {
     alert('Nepodařilo se uložit změnu: ' + e.message);
     tlacitko.disabled = false;
@@ -638,7 +666,9 @@ async function smazDoklad(id, dodavatel, tlacitko) {
   tlacitko.disabled = true;
   try {
     await zavolejApi('/doklady?id=' + encodeURIComponent(id), { method: 'DELETE' });
-    await nactiDoklady();
+    dokladySeznamAktualni = dokladySeznamAktualni.filter((d) => d.ID !== id);
+    vykresliDoklady(dokladySeznamAktualni);
+    zobrazZpravuDoklady('Doklad smazán.');
   } catch (e) {
     alert('Nepodařilo se smazat doklad: ' + e.message);
     tlacitko.disabled = false;

@@ -565,6 +565,35 @@ doklady, že rozkliknutí řádku zobrazí editovatelná pole, že kliknutí na
 „Schválit“ přesune doklad do „Schválené“, a že obsah nepřeteče přes šířku
 okna při 700px i 360px (typická šířka telefonu).
 
+## 19. Oprava: schválený doklad se hned nepřesunul do „Schválené“ (v3.7.1)
+
+Po nasazení v3.7 přišlo hlášení z ostrého provozu, že po kliknutí na
+„Schválit“ doklad nezmizel z „Ke schválení“ a neobjevil se ve
+„Schválené“ – i když stejný postup v testovacím prostředí fungoval
+správně. Nejpravděpodobnější příčina: appka po úspěšném uložení změny
+(`ulozZmenu`) dřív rovnou volala kompletní nové načtení dokladů ze
+serveru (`nactiDoklady()`, tedy nový GET). Google Sheets API má po zápisu
+krátké okno tzv. eventual consistency, kdy GET těsně po předchozím zápisu
+může ještě vrátit starou hodnotu – takže se mohlo stát, že appka po
+Schválit hned zase přepsala právě schválený doklad starým stavem „Ke
+kontrole“ vráceným z toho GETu, a doklad tak zůstal (aspoň chvíli) ve
+špatné sekci.
+
+Oprava: `ulozZmenu` a `smazDoklad` v `public/app.js` už po úspěšném
+zápisu na server nevolají nové kompletní načtení. Místo toho rovnou
+promítnou provedenou změnu do už načteného seznamu v prohlížeči
+(`dokladySeznamAktualni`) a překreslí z něj – appka se tak už nespoléhá
+na to, že server hned vrátí čerstvá data. Zároveň přibyla jasná
+potvrzovací hláška pod přepínačem sekcí („Doklad schválen – najdete ho
+v sekci Schválené.“ / „Změna uložena.“ / „Doklad smazán.“), aby bylo i
+vizuálně jednoznačné, že se akce provedla a kam doklad putoval.
+
+Ověřeno novým Playwright testem, který cíleně simuluje zpožděný/„stale“
+GET (server interně vrátí starou verzi dat ještě 1,5 s po PATCH) – appka
+i tak ihned (do 300 ms) ukáže schválený doklad ve „Schválené“, protože už
+nečeká na server. Beze změny zůstává schéma v Sheets i backend endpoint
+`doklady.js` – jde o čistě frontendovou opravu, není potřeba `/api/setup`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
