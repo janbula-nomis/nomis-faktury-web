@@ -411,6 +411,123 @@ Nové importy i všechny nové výpočty už touhle chybou netrpí.
 
 Bez potřeby nové sheet/sloupce ani znovu spustit `setup`.
 
+## 14. Doklad hrazený mimo účet (hotově/soukromou kartou) (od v3.6)
+
+V Dokladech přibyl nový sloupec **„Mimo účet“** (checkbox) – zaškrtne se
+u dokladu, který byl uhrazen hotově nebo soukromou kartou, tedy u kterého
+appka nikdy nenajde protějšek v Bankovních výpisech (tam se páruje jen
+odchozí platba z firemního účtu). Appka doklad kvůli chybějícímu
+bankovnímu pohybu nijak neblokovala ani předtím, tenhle příznak jen dělá
+zjevným i vizuálně, že se u konkrétního dokladu párování nečeká - pro
+účetní, ne pro appku samotnou (appka na hodnotu zatím nijak automaticky
+nereaguje, jde čistě o informační štítek).
+
+Nový sloupec `Hrazeno_mimo_ucet` v listu Doklady (`lib/dokladySchema.js`)
+– **po nasazení téhle verze je potřeba znovu spustit `/api/setup`**, ať
+appka sloupec doplní do existujícího listu (bezpečné, nic nemaže).
+
+Mimochodem, `setup.js` teď hlavičky listu Doklady čte přímo
+z `lib/dokladySchema.js` místo dřívější ruční duplikace na dvou místech
+(`DOKLADY_HEADERS` byl u `Stredisko` v v3.0 doplněný jen na jednom místě,
+což u příštích sloupců snadno vede k tomu, že se na tu druhou kopii
+zapomene) – od teď je jeden zdroj pravdy.
+
+## 15. Import bankovních výpisů v CSV a XLS/XLSX (od v3.6)
+
+Kromě George Business JSON exportu appka teď umí naimportovat výpis i jako
+**CSV** nebo **XLS/XLSX** – appka pozná formát podle přípony souboru
+(tlačítko „Nahrát výpis (JSON/CSV/XLS)“ v záložce Bankovní výpisy). Vhodí se
+to hlavně pro výpisy ze zahraničních/jiných bank, které George formát
+nemají.
+
+Na rozdíl od George JSON parseru appka u CSV/XLS **nezná předem přesné
+názvy sloupců** – žádný reálný Janův CSV/XLS export nebyl při vývoji
+k dispozici, takže appka (`lib/bankImportTabular.js`) sloupce hledá podle
+seznamu běžných aliasů (např. sloupec s datem pozná podle „Datum“, „Date“,
+„Datum zaúčtování“, „Booking“ apod., částku podle „Částka“, „Amount“,
+„Objem“ apod. – normalizovaně, bez ohledu na velikost písmen a diakritiku).
+Pokud appka v souboru sloupec s datem nebo částkou nenajde, vrátí
+srozumitelnou chybu a vypíše hlavičky, které v souboru skutečně našla –
+v tom případě prosím pošlete Janovi/vývojáři ukázkový soubor (stačí pár
+řádků, klidně s vymyšlenými částkami), ať se seznam aliasů doladí na
+skutečný formát banky.
+
+Důležité rozdíly oproti JSON importu:
+- **Kontrola shody bankovního účtu firmy** („účet nesedí“, viz sekce 9)
+  funguje jen u JSON importu – George export nese číslo účtu majitele,
+  CSV/XLS ho neobsahují, takže se u nich tahle kontrola přeskakuje. Vybírejte
+  proto u CSV/XLS importu firmu obzvlášť pozorně.
+- U CSV appka sama pozná oddělovač (středník, nebo čárka, pokud je v souboru
+  četnější) a umí i buňky v uvozovkách.
+- U XLSX appka potřebuje balíček `xlsx` (přidán do `package.json` – Netlify
+  ho při nasazení nainstaluje automaticky přes `npm install`, nic ručně
+  dělat netřeba).
+- Rozpoznávání duplicit (aby se stejný výpis nedal naimportovat dvakrát)
+  funguje stejně jako u JSON – appka počítá otisk (hash) z datumu, částky,
+  VS/KS/SS, protistrany a popisu.
+
+## 16. Jednotka u Vydaných faktur a rozšířený číselník Středisko (od v3.6)
+
+Přibylo pole **„Jednotka“** u Vydaných faktur (`lib/vydaneFakturySchema.js`,
+sloupec `Jednotka`) – appka do něj zapisuje, ke které nemovitosti/autu se
+vydaná (typicky nájemní) faktura vztahuje, např. „V Parku 695 - byt 47“
+nebo „Holečkova 1a“. Zákazník/nájemník se pořád píše do stávajícího pole
+Zákazník – Jednotka jen upřesňuje, za co se platí. V přidávacím formuláři
+je to textové pole s nápovědou (našeptávač), appka ale přijme i libovolný
+vlastní text.
+
+Číselník **Středisko** (u Dokladů, tj. nákladů) byl rozšířen z obecných
+„Auta“/„Nemovitosti“ na konkrétní auta a nemovitosti skupiny Nomis Group
+(`MOZNOSTI_STREDISKA` v `public/app.js`). Středisko a Jednotka mají
+záměrně **jinou granularitu tam, kde se náklady a příjmy dělí jinak**:
+- U bytů V Parku 695 (NOMIS Homes) a Ramonova 3466/4 (Hagibor, NOMIS CZ) je
+  Středisko i Jednotka na stejné úrovni (jeden nájemník na byt).
+- U Holečkova (nová firma „FO“ – fyzická osoba) appka eviduje **náklady**
+  (Středisko) na celou jednotku „Holečkova 1“, „Holečkova 7“, „Holečkova 9“,
+  „Holečkova - garáž“, protože náklady na byt/garáž jako celek se nedělí.
+  **Nájmy** (Jednotka u Vydaných faktur) jsou naopak jemnější – „Holečkova
+  1a“, „Holečkova 1b“, „Holečkova 7a“, „Holečkova 7b“ (byty 1 a 7 se dělí na
+  dvě samostatně pronajímané jednotky), „Holečkova 9“ a „Holečkova - garáž“
+  (ty se nedělí, takže jsou stejné jako ve Středisku).
+
+**Důležité – co je potřeba doplnit ručně:** tenhle číselník je jen
+předvyplněný seznam pro rozbalovací nabídky (dropdown/našeptávač) v appce,
+**appka jím nezakládá žádné skutečné řádky** v listech Auta/Firmy. Nová auta
+(Porsche 911, Tesla, VW Passat, Audi A5, Hyundai Kona), nová firma „FO“
+(placeholder název – přejmenujte v Nastavení → Firmy na skutečný název, až
+budete mít) a jejich SPZ je potřeba přidat ručně přes Nastavení (záložky
+Firmy/Auta), stejně jako doteď u ostatních firem/aut. Číselník Středisko/
+Jednotka v `public/app.js` slouží jen k tomu, aby šlo hned vybírat ze
+správných hodnot, ne k automatickému založení dat.
+
+## 17. Firma s víc bankovními účty (od v3.6)
+
+Firma může mít víc bankovních účtů (typicky samostatný CZK a EUR účet).
+Přibyl nový list **Ucty** (`lib/uctySchema.js`, sloupce `ID`, `Firma`,
+`Cislo_uctu`, `Mena`, `Popis`) a nová sekce **„Účty“** v Nastavení (vidí
+jen admin) pro jejich správu – přidání/úprava/smazání, obdoba sekce Auta.
+
+Kontrola shody účtu při importu výpisu (sekce 9, „účet nesedí“) teď hlídá
+shodu s **kterýmkoli** účtem firmy v seznamu Ucty, ne jen jedním. Starší
+pole **Bankovní účet** u firmy (list Firmy) appka nadále čte jako jeden
+„dřívější“ známý účet vedle Ucty – nic se automaticky nemigruje, obojí se
+jen sčítá dohromady při kontrole. Když appka o firmě zatím nezná žádný
+účet (ani v Ucty, ani ve starším poli u Firmy) a výpis nese číslo účtu
+(George JSON export), appka ho sama založí jako první řádek v Ucty – u
+CSV/XLS importu appka číslo vlastního účtu nezná, takže se tohle
+automatické založení týká jen JSON importu.
+
+Nový sloupec **`Cislo_uctu_vlastni`** v listu Bankovni_pohyby
+(`lib/bankSchema.js`) – appka si u každého pohybu poznamená, ze kterého
+vlastního účtu firmy platba je (u George JSON, kde appka číslo zná; u
+CSV/XLS zůstává zatím prázdné). Nezaměňovat se stávajícím sloupcem
+`Cislo_uctu_protistrany`, což je účet DRUHÉ strany platby.
+
+Po nasazení téhle verze je potřeba znovu spustit `/api/setup` (založí
+list Ucty, doplní sloupec `Cislo_uctu_vlastni` do Bankovni_pohyby –
+bezpečné, nic nemaže) a doplnit Janovy skutečné účty (pokud appka je
+sama nezaložila při prvním importu) přes Nastavení → Účty.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

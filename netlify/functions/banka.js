@@ -5,18 +5,29 @@
  * SPZ/dokladovými právy sem nevidí - jde o citlivější finanční data).
  *
  * GET    ?firma=Nazev             -> { pohyby: [...] }
- * POST   { firma, obsahSouboru, ignorovatNesouladUctu? }
- *          -> naimportuje George Business JSON export (viz lib/bankHelpers.js)
+ * POST   { firma, obsahSouboru, format?, ignorovatNesouladUctu? }
+ *          -> naimportuje výpis. format je "json" (výchozí, George Business
+ *             export), "csv" nebo "xlsx" (viz lib/bankImportTabular.js).
+ *             U json/csv je obsahSouboru čitelný text, u xlsx base64 (appka
+ *             posílá binární obsah souboru zakódovaný jako base64, protože
+ *             xlsx není textový formát).
  * PATCH  { id, zmeny: { Doklad_ID?, Stav_parovani?, Poznamka? } }
  *          -> potvrzení/zamítnutí návrhu, ruční přiřazení dokladu,
  *             označení "Bez dokladu", poznámka
+ *
+ * Firma může mít víc bankovních účtů (od v3.6, viz list "Ucty" a
+ * lib/uctySchema.js) - kontrola shody účtu při importu ("ucet_nesedi")
+ * hlídá shodu s KTERÝMKOLI známým účtem firmy (Ucty + starší legacy pole
+ * Firmy.Bankovni_ucet), ne jen jedním.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
-const { readSheetObjects, appendRows, updateRow } = require('../../lib/sheetsHelpers');
+const { readSheetObjects, appendRow, appendRows, updateRow } = require('../../lib/sheetsHelpers');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
+const { UCTY_HEADERS } = require('../../lib/uctySchema');
 const { parsujGeorgeExport, jeBezDokladu, navrhniShodu } = require('../../lib/bankHelpers');
+const { parsujCsvVypis, parsujXlsxVypis } = require('../../lib/bankImportTabular');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
 
@@ -58,9 +69,16 @@ exports.handler = async (event) => {
       if (!maPristupKFirme(uzivatel, firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
       if (!telo.obsahSouboru) return json(400, { error: 'Chybí obsah souboru.' });
 
+      const format = String(telo.format || 'json').trim().toLowerCase();
       let rozpar;
       try {
-        rozpar = parsujGeorgeExport(telo.obsahSouboru);
+        if (format === 'csv') {
+          rozpar = parsujCsvVypis(telo.obsahSouboru);
+        } else if (format === 'xlsx' || format === 'xls') {
+          rozpar = parsujXlsxVypis(telo.obsahSouboru);
+        } else {
+          rozpar = parsujGeorgeExport(telo.obsahSouboru);
+        }
       } catch (e) {
         return json(400, { error: e.message });
       }
@@ -69,14 +87,28 @@ exports.handler = async (event) => {
       const firmaRadek = firmyRadky.find((f) => f.Nazev === firma);
       if (!firmaRadek) return json(404, { error: 'Firma "' + firma + '" nebyla nalezena.' });
 
-      const ulozenyUcet = String(firmaRadek.Bankovni_ucet || '').trim();
-      let ucetPozn = null;
-      if (ulozenyUcet && rozpar.ownerAccountNumber && ulozenyUcet !== rozpar.ownerAccountNumber && !telo.ignorovatNesouladUctu) {
+      // Firma může mít víc účtů (typicky CZK + EUR) - appka kontrolu shody
+      // dělá proti MNOŽINĚ všech známých účtů firmy, ne jen jednomu. Zdroj:
+      // list Ucty (od v3.6) + starší jedno pole Bankovni_ucet v listu Firmy
+      // (appka ho dál čte jako "legacy" jeden účet, nic se nemigruje).
+      const { rows: uctyRadky } = await readSheetObjects(sheets, spreadsheetId, 'Ucty');
+      const uctyFirmy = uctyRadky.filter((u) => u.Firma === firma);
+      const znameUctyFirmy = new Set(
+        uctyFirmy.map((u) => String(u.Cislo_uctu || '').trim()).filter(Boolean)
+      );
+      const legacyUcet = String(firmaRadek.Bankovni_ucet || '').trim();
+      if (legacyUcet) znameUctyFirmy.add(legacyUcet);
+
+      if (
+        znameUctyFirmy.size > 0 && rozpar.ownerAccountNumber &&
+        !znameUctyFirmy.has(rozpar.ownerAccountNumber) && !telo.ignorovatNesouladUctu
+      ) {
         return json(409, {
           error: 'ucet_nesedi',
           varovani:
-            'Vybrali jste firmu "' + firma + '" (uložený účet ' + ulozenyUcet + '), ale tenhle výpis patří ' +
-            'k účtu ' + rozpar.ownerAccountNumber + (rozpar.ownerAccountTitle ? ' (' + rozpar.ownerAccountTitle + ')' : '') +
+            'Vybrali jste firmu "' + firma + '" (známé účty: ' + Array.from(znameUctyFirmy).join(', ') +
+            '), ale tenhle výpis patří k účtu ' + rozpar.ownerAccountNumber +
+            (rozpar.ownerAccountTitle ? ' (' + rozpar.ownerAccountTitle + ')' : '') +
             '. Opravdu pokračovat?',
           detekovanyUcet: rozpar.ownerAccountNumber,
           detekovanyNazev: rozpar.ownerAccountTitle,
@@ -134,6 +166,7 @@ exports.handler = async (event) => {
         novePohyby.push({
           ID: crypto.randomUUID(),
           Firma: firma,
+          Cislo_uctu_vlastni: rozpar.ownerAccountNumber || '',
           Datum: p.datum,
           Castka: p.castka,
           Mena: p.mena,
@@ -156,17 +189,22 @@ exports.handler = async (event) => {
         await appendRows(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, novePohyby);
       }
 
+      // Pohodlnostní doplnění: pokud appka o firmě zatím NEZNÁ žádný účet
+      // (ani Ucty, ani legacy Firmy.Bankovni_ucet) a výpis nesl číslo účtu
+      // (George JSON), appka ho rovnou založí jako první řádek v Ucty - ať
+      // Jan nemusí po prvním importu nic ručně doplňovat. U dalších účtů
+      // firmy (když už první existuje) appka nic sama nezakládá - jen
+      // hlídá shodu s tím, co je v Ucty/Firmy, viz "ucet_nesedi" výš.
       let ucetUlozenNove = false;
-      if (!ulozenyUcet && rozpar.ownerAccountNumber) {
+      if (znameUctyFirmy.size === 0 && rozpar.ownerAccountNumber) {
         try {
-          await updateRow(
-            sheets,
-            spreadsheetId,
-            'Firmy',
-            ['Nazev', 'ICO', 'DIC', 'Platce_DPH', 'Bankovni_ucet'],
-            firmaRadek._row,
-            Object.assign({}, firmaRadek, { Bankovni_ucet: rozpar.ownerAccountNumber })
-          );
+          await appendRow(sheets, spreadsheetId, 'Ucty', UCTY_HEADERS, {
+            ID: crypto.randomUUID(),
+            Firma: firma,
+            Cislo_uctu: rozpar.ownerAccountNumber,
+            Mena: (rozpar.polozky[0] && rozpar.polozky[0].mena) || 'CZK',
+            Popis: rozpar.ownerAccountTitle || '',
+          });
           ucetUlozenNove = true;
         } catch (e) {
           // nekritické - jen pohodlnostní doplnění, import samotný už proběhl

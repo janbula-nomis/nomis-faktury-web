@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.5 – 2026-07-15';
+const APP_VERZE = 'v3.6 – 2026-07-15';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -172,6 +172,7 @@ function prepniZalozku(nazev) {
     nactiUzivatele();
     nactiFirmy();
     nactiAuta();
+    nactiUcty();
   }
 }
 
@@ -339,11 +340,60 @@ function moznostiFirmy(vybranaFirma) {
   return html;
 }
 
-// Číselník Středisko - zatím pevně dvě hodnoty (auta vs. nemovitosti), viz
-// zadání appky. Kdyby bylo v budoucnu potřeba víc středisek nebo aby si je
-// admin spravoval sám, stačí tenhle seznam nahradit načtením z Sheets
-// (stejně jako Firmy/Auta).
-const MOZNOSTI_STREDISKA = ['Auta', 'Nemovitosti'];
+// Číselník Středisko - konkrétní auta a nemovitosti skupiny Nomis Group
+// (od v3.6, dřív jen obecné "Auta"/"Nemovitosti"). Používá se u Dokladů
+// (náklady), proto jsou nemovitosti, kde appka náklady eviduje na celou
+// jednotku (Holečkova se rozděluje na nájemníky, ale náklady na byt/garáž
+// jako celek nikoli), uvedené v HRUBŠÍM členění než MOZNOSTI_JEDNOTKA níž
+// (ta se používá u Vydaných faktur/nájmů, kde se platí zvlášť za 1a/1b apod.).
+// Kdyby bylo v budoucnu potřeba, aby si číselník spravoval admin sám, stačí
+// tenhle seznam nahradit načtením z Sheets (stejně jako Firmy/Auta).
+const MOZNOSTI_STREDISKA = [
+  // Auta
+  'Auto - Defender',
+  'Auto - Porsche 911',
+  'Auto - Tesla',
+  'Auto - VW Passat',
+  'Auto - Audi A5',
+  'Auto - Hyundai Kona',
+  // Nemovitosti - NOMIS Homes, V Parku 695, Velké Popovice
+  'V Parku 695 - byt 45',
+  'V Parku 695 - byt 47',
+  'V Parku 695 - byt 49',
+  'V Parku 695 - byt 51',
+  'V Parku 695 - byt 52',
+  'V Parku 695 - byt 53',
+  'V Parku 695 - byt 54',
+  // Nemovitosti - NOMIS CZ, Hagibor
+  'Ramonova 3466/4 (Hagibor)',
+  // Nemovitosti - FO, Holečkova (náklady appka eviduje na celou jednotku,
+  // ne rozdělené na 1a/1b/7a/7b - viz komentář výš)
+  'Holečkova 1',
+  'Holečkova 7',
+  'Holečkova 9',
+  'Holečkova - garáž',
+];
+
+// Číselník Jednotka (od v3.6) - u Vydaných faktur/nájmů, kde se u Holečkova
+// platí zvlášť za 1a/1b/7a/7b (na rozdíl od Středisko výš, kde jsou náklady
+// na celou jednotku 1/7). U V Parku a Hagiboru je to stejná granularita
+// jako Středisko (jeden nájemník na byt).
+const MOZNOSTI_JEDNOTKA = [
+  'V Parku 695 - byt 45',
+  'V Parku 695 - byt 47',
+  'V Parku 695 - byt 49',
+  'V Parku 695 - byt 51',
+  'V Parku 695 - byt 52',
+  'V Parku 695 - byt 53',
+  'V Parku 695 - byt 54',
+  'Ramonova 3466/4 (Hagibor)',
+  'Holečkova 1a',
+  'Holečkova 1b',
+  'Holečkova 7a',
+  'Holečkova 7b',
+  'Holečkova 9',
+  'Holečkova - garáž',
+];
 
 function moznostiStrediska(vybrane) {
   let html = '<option value="">— bez střediska —</option>';
@@ -376,6 +426,7 @@ function vykresliDoklady(doklady) {
       '<td data-label="Kategorie" class="td-vyber-siroky"></td>' +
       '<td data-label="Středisko" class="td-vyber-siroky"></td>' +
       '<td data-label="SPZ" class="td-vyber-siroky"></td>' +
+      '<td data-label="Mimo účet" class="td-vyber-siroky" style="text-align:center"></td>' +
       '<td data-label="Soubor">' + (d.Zdrojovy_soubor_URL ? '<a href="' + escapeAttr(d.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>' : '') + '</td>' +
       '<td data-label="Akce"></td>';
 
@@ -442,6 +493,17 @@ function vykresliDoklady(doklady) {
     vstupSpz.innerHTML = moznostiSpz(d.SPZ_auta || '');
     buneckaSpz.appendChild(vstupSpz);
 
+    // Doklad zaplacený hotově nebo soukromou kartou nikdy nebude mít
+    // protějšek v Bankovních výpisech (tam appka páruje jen odchozí platby
+    // z firemního účtu) - tenhle příznak to u dokladu rovnou zviditelní,
+    // ať účetní ví, že na bankovní pohyb u něj nemá čekat.
+    const buneckaMimoUcet = tr.children[8];
+    const vstupMimoUcet = document.createElement('input');
+    vstupMimoUcet.type = 'checkbox';
+    vstupMimoUcet.checked = String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO';
+    vstupMimoUcet.title = 'Hrazeno hotově nebo soukromou kartou (nečekat na spárování s bankovním výpisem)';
+    buneckaMimoUcet.appendChild(vstupMimoUcet);
+
     function ziskejZmeny() {
       return {
         Dodavatel: vstupDodavatel.value.trim(),
@@ -452,10 +514,11 @@ function vykresliDoklady(doklady) {
         Kategorie: vstupKategorie.value.trim(),
         Stredisko: vstupStredisko.value.trim(),
         SPZ_auta: vstupSpz.value.trim(),
+        Hrazeno_mimo_ucet: vstupMimoUcet.checked ? 'ANO' : '',
       };
     }
 
-    const buneckaAkce = tr.children[9];
+    const buneckaAkce = tr.children[10];
     const tlacitkoUlozit = document.createElement('button');
     tlacitkoUlozit.className = 'maly sekundarni';
     tlacitkoUlozit.textContent = 'Uložit';
@@ -486,7 +549,7 @@ function vykresliDoklady(doklady) {
   });
 
   if (serazene.length === 0) {
-    telo.innerHTML = '<tr><td colspan="10" class="nacitani">Zatím žádné doklady.</td></tr>';
+    telo.innerHTML = '<tr><td colspan="11" class="nacitani">Zatím žádné doklady.</td></tr>';
   }
 }
 
@@ -580,6 +643,13 @@ let vfFirmySeznam = [];
 let vfFakturySeznam = [];
 
 async function inicializujZalozkuVydaneFaktury() {
+  const seznamJednotek = document.getElementById('seznam-jednotek');
+  if (seznamJednotek && seznamJednotek.children.length === 0) {
+    seznamJednotek.innerHTML = MOZNOSTI_JEDNOTKA
+      .map((j) => '<option value="' + escapeAttr(j) + '"></option>')
+      .join('');
+  }
+
   if (vfFirmySeznam.length === 0) {
     try {
       const data = await zavolejApi('/firmy', { method: 'GET' });
@@ -657,6 +727,7 @@ function vykresliVydaneFaktury() {
     tr.innerHTML =
       '<td data-label="Firma">' + escapeHtml(f.Firma || '') + '</td>' +
       '<td data-label="Číslo">' + escapeHtml(f.Cislo_faktury || '') + '</td>' +
+      '<td data-label="Jednotka">' + escapeHtml(f.Jednotka || '') + '</td>' +
       '<td data-label="Zákazník">' + escapeHtml(f.Zakaznik || '') + '</td>' +
       '<td data-label="Vystaveno">' + escapeHtml(f.Datum_vystaveni || '') + '</td>' +
       '<td data-label="Splatnost">' + escapeHtml(f.Datum_splatnosti || '') + '</td>' +
@@ -664,7 +735,7 @@ function vykresliVydaneFaktury() {
       '<td data-label="Stav">' + escapeHtml(vfStavText(f)) + '</td>' +
       '<td data-label="Akce"></td>';
 
-    const buneckaAkce = tr.children[7];
+    const buneckaAkce = tr.children[8];
     const tlacitko = document.createElement('button');
     tlacitko.className = 'maly sekundarni';
     if (f.Stav === 'Uhrazeno') {
@@ -684,7 +755,7 @@ function vykresliVydaneFaktury() {
   });
 
   if (serazene.length === 0) {
-    telo.innerHTML = '<tr><td colspan="8" class="nacitani">Zatím žádné vydané faktury.</td></tr>';
+    telo.innerHTML = '<tr><td colspan="9" class="nacitani">Zatím žádné vydané faktury.</td></tr>';
   }
 }
 
@@ -711,6 +782,7 @@ async function pridatVydanouFakturu() {
       body: JSON.stringify({
         Firma: document.getElementById('vf-firma').value,
         Cislo_faktury: document.getElementById('vf-cislo').value.trim(),
+        Jednotka: document.getElementById('vf-jednotka').value.trim(),
         Zakaznik: document.getElementById('vf-zakaznik').value.trim(),
         ICO_zakaznika: document.getElementById('vf-ico').value.trim(),
         Datum_vystaveni: document.getElementById('vf-vystaveni').value,
@@ -721,7 +793,7 @@ async function pridatVydanouFakturu() {
       }),
     });
     zprava.innerHTML = '<div class="zprava uspech">Faktura přidána.</div>';
-    ['vf-cislo', 'vf-zakaznik', 'vf-ico', 'vf-vystaveni', 'vf-splatnost', 'vf-castka', 'vf-poznamka'].forEach((id) => {
+    ['vf-cislo', 'vf-jednotka', 'vf-zakaznik', 'vf-ico', 'vf-vystaveni', 'vf-splatnost', 'vf-castka', 'vf-poznamka'].forEach((id) => {
       document.getElementById(id).value = '';
     });
     document.getElementById('vf-mena').value = 'CZK';
@@ -1018,14 +1090,42 @@ function vytvorDetailBanka(p) {
   return wrap;
 }
 
+// Appka pozná formát podle přípony souboru - JSON/CSV posílá jako čitelný
+// text, XLS/XLSX (binární formát) jako base64 (viz souborNaBase64 níž).
+// Poznámka: appka neumí kontrolovat mimetype u téhle appky bez skutečné
+// ukázky Janova výpisu, takže se spoléhá na příponu, ne na soubor.type
+// (ten se u exportů z různých bank/prohlížečů často liší nebo chybí).
+function priponaSouboru(nazevSouboru) {
+  const nazev = String(nazevSouboru || '').toLowerCase();
+  if (nazev.endsWith('.csv')) return 'csv';
+  if (nazev.endsWith('.xlsx') || nazev.endsWith('.xls')) return 'xlsx';
+  return 'json';
+}
+
+function souborNaBase64(soubor) {
+  return new Promise((resolve, reject) => {
+    const cteni = new FileReader();
+    cteni.onload = () => {
+      // readAsDataURL vrací "data:<mime>;base64,AAAA…" - appka posílá jen
+      // část obsahu za čárkou (samotný base64 řetězec).
+      const vysledek = String(cteni.result || '');
+      const carka = vysledek.indexOf(',');
+      resolve(carka >= 0 ? vysledek.slice(carka + 1) : vysledek);
+    };
+    cteni.onerror = () => reject(cteni.error || new Error('Soubor se nepodařilo přečíst.'));
+    cteni.readAsDataURL(soubor);
+  });
+}
+
 async function nahratVypis(soubor) {
   if (!soubor) return;
   document.getElementById('pole-vypis').value = '';
-  const obsah = await soubor.text();
-  await odeslatImportVypisu(obsah, false);
+  const format = priponaSouboru(soubor.name);
+  const obsah = format === 'xlsx' ? await souborNaBase64(soubor) : await soubor.text();
+  await odeslatImportVypisu(obsah, format, false);
 }
 
-async function odeslatImportVypisu(obsah, ignorovatNesoulad) {
+async function odeslatImportVypisu(obsah, format, ignorovatNesoulad) {
   const zprava = document.getElementById('banka-import-zprava');
   zprava.innerHTML = '<div class="zprava">Nahrávám a zpracovávám výpis…</div>';
   try {
@@ -1034,6 +1134,7 @@ async function odeslatImportVypisu(obsah, ignorovatNesoulad) {
       body: JSON.stringify({
         firma: bankaAktivniFirma,
         obsahSouboru: obsah,
+        format: format,
         ignorovatNesouladUctu: !!ignorovatNesoulad,
       }),
     });
@@ -1045,7 +1146,7 @@ async function odeslatImportVypisu(obsah, ignorovatNesoulad) {
   } catch (e) {
     if (e.data && e.data.error === 'ucet_nesedi') {
       if (confirm(e.data.varovani + '\n\nPokračovat i přesto?')) {
-        await odeslatImportVypisu(obsah, true);
+        await odeslatImportVypisu(obsah, format, true);
         return;
       }
       zprava.innerHTML = '<div class="zprava">Import zrušen.</div>';
@@ -1494,6 +1595,140 @@ async function smazAuto(row, spz, tlacitko) {
   }
 }
 
+// ---------- ADMIN: ÚČTY (firma může mít víc bankovních účtů, od v3.6) ----------
+
+async function nactiUcty() {
+  const nacitani = document.getElementById('ucty-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  try {
+    const data = await zavolejApi('/ucty', { method: 'GET' });
+    nacitani.classList.add('skryto');
+    vyplnVyberFirem('novy-uc-firma', data.firmyDostupne || []);
+    vykresliUcty(data.ucty || [], data.firmyDostupne || []);
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst účty: ' + e.message;
+  }
+}
+
+function vykresliUcty(ucty, firmyDostupne) {
+  const telo = document.getElementById('tabulka-ucty-telo');
+  telo.innerHTML = '';
+
+  ucty.forEach((u) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td data-label="Firma"></td>' +
+      '<td data-label="Číslo účtu"></td>' +
+      '<td data-label="Měna"></td>' +
+      '<td data-label="Popis"></td>' +
+      '<td data-label="Akce"></td>';
+
+    const vyberFirma = document.createElement('select');
+    vyberFirma.innerHTML = '<option value=""></option>' +
+      firmyDostupne.map((n) => '<option value="' + escapeAttr(n) + '">' + escapeHtml(n) + '</option>').join('');
+    vyberFirma.value = u.Firma || '';
+    tr.children[0].appendChild(vyberFirma);
+
+    tr.children[1].textContent = u.Cislo_uctu || '';
+
+    const vstupMena = document.createElement('input');
+    vstupMena.type = 'text';
+    vstupMena.value = u.Mena || '';
+    vstupMena.style.fontSize = '13px';
+    vstupMena.style.width = '70px';
+    tr.children[2].appendChild(vstupMena);
+
+    const vstupPopis = document.createElement('input');
+    vstupPopis.type = 'text';
+    vstupPopis.value = u.Popis || '';
+    vstupPopis.style.fontSize = '13px';
+    tr.children[3].appendChild(vstupPopis);
+
+    const tlacitkoUlozit = document.createElement('button');
+    tlacitkoUlozit.className = 'maly sekundarni';
+    tlacitkoUlozit.textContent = 'Uložit';
+    tlacitkoUlozit.onclick = () => ulozUcet(u._row, {
+      Firma: vyberFirma.value,
+      Mena: vstupMena.value.trim(),
+      Popis: vstupPopis.value.trim(),
+    }, tlacitkoUlozit);
+    tr.children[4].appendChild(tlacitkoUlozit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.style.marginLeft = '6px';
+    tlacitkoSmazat.onclick = () => smazUcet(u._row, u.Cislo_uctu, tlacitkoSmazat);
+    tr.children[4].appendChild(tlacitkoSmazat);
+
+    telo.appendChild(tr);
+  });
+
+  if (ucty.length === 0) {
+    telo.innerHTML = '<tr><td colspan="5" class="nacitani">Zatím žádné účty. Appka první účet firmy sama '
+      + 'doplní i po prvním importu výpisu (George JSON), pokud ho zatím nezná.</td></tr>';
+  }
+}
+
+async function pridatUcet() {
+  const zprava = document.getElementById('ucty-zprava');
+  zprava.innerHTML = '';
+
+  const firma = document.getElementById('novy-uc-firma').value;
+  const cislo = document.getElementById('novy-uc-cislo').value.trim();
+  if (!firma) {
+    zprava.innerHTML = '<div class="zprava chyba">Vyberte firmu.</div>';
+    return;
+  }
+  if (!cislo) {
+    zprava.innerHTML = '<div class="zprava chyba">Číslo účtu je povinné.</div>';
+    return;
+  }
+
+  try {
+    await zavolejApi('/ucty', {
+      method: 'POST',
+      body: JSON.stringify({
+        Firma: firma,
+        Cislo_uctu: cislo,
+        Mena: document.getElementById('novy-uc-mena').value.trim() || 'CZK',
+        Popis: document.getElementById('novy-uc-popis').value.trim(),
+      }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Účet přidán.</div>';
+    document.getElementById('novy-uc-cislo').value = '';
+    document.getElementById('novy-uc-popis').value = '';
+    await nactiUcty();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function ulozUcet(row, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/ucty', { method: 'PATCH', body: JSON.stringify({ row, zmeny }) });
+    await nactiUcty();
+  } catch (e) {
+    alert('Nepodařilo se uložit účet: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazUcet(row, cisloUctu, tlacitko) {
+  if (!confirm('Opravdu smazat účet „' + cisloUctu + '“?')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/ucty?row=' + row, { method: 'DELETE' });
+    await nactiUcty();
+  } catch (e) {
+    alert('Nepodařilo se smazat účet: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
 // ---------- POMOCNÉ ----------
 
 function escapeHtml(text) {
@@ -1521,6 +1756,7 @@ document.getElementById('tlacitko-nahrat').addEventListener('click', nahratDokla
 document.getElementById('tlacitko-pridat-uzivatele').addEventListener('click', pridatUzivatele);
 document.getElementById('tlacitko-pridat-firmu').addEventListener('click', pridatFirmu);
 document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridatAuto);
+document.getElementById('tlacitko-pridat-ucet').addEventListener('click', pridatUcet);
 document.getElementById('tlacitko-pripojit-google').addEventListener('click', () => {
   if (!stav || !stav.token) return;
   window.open('/.netlify/functions/google-oauth-start?token=' + encodeURIComponent(stav.token), '_blank');

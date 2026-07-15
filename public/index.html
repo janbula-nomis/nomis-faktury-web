@@ -74,6 +74,7 @@
             <th>Kategorie</th>
             <th>Středisko</th>
             <th>SPZ</th>
+            <th>Mimo účet</th>
             <th>Soubor</th>
             <th>Akce</th>
           </tr>
@@ -110,6 +111,9 @@
         <select id="vf-firma"></select>
         <label for="vf-cislo">Číslo faktury</label>
         <input type="text" id="vf-cislo" placeholder="např. 2026-014" />
+        <label for="vf-jednotka">Jednotka</label>
+        <input type="text" id="vf-jednotka" list="seznam-jednotek" placeholder="např. V Parku 695 - byt 47 (nepovinné)" />
+        <datalist id="seznam-jednotek"></datalist>
         <label for="vf-zakaznik">Zákazník</label>
         <input type="text" id="vf-zakaznik" placeholder="Jméno / název odběratele" />
         <label for="vf-ico">IČO zákazníka</label>
@@ -141,6 +145,7 @@
           <tr>
             <th>Firma</th>
             <th>Číslo</th>
+            <th>Jednotka</th>
             <th>Zákazník</th>
             <th>Vystaveno</th>
             <th>Splatnost</th>
@@ -157,15 +162,17 @@
     <!-- BANKOVNÍ VÝPISY -->
     <div id="zalozka-banka" class="karta skryto">
       <h2>Bankovní výpisy</h2>
-      <p class="popis">Nahrajte export z George Business (JSON) a přiřaďte platby k dokladům. Appka vždy pracuje
-        jen s jednou firmou najednou, ať se výpisy různých firem nesmíchají.</p>
+      <p class="popis">Nahrajte export z George Business (JSON), nebo výpis v CSV či XLS/XLSX (appka pozná formát
+        podle přípony souboru) a přiřaďte platby k dokladům. Appka vždy pracuje jen s jednou firmou najednou,
+        ať se výpisy různých firem nesmíchají. U CSV/XLS appka hledá sloupce s datem a částkou podle běžných
+        názvů (viz README-DEPLOY.md) - pokud soubor nerozpozná, pošlete ukázku, ať appka doladí.</p>
 
       <label for="banka-vyber-firmy">Firma</label>
       <select id="banka-vyber-firmy"></select>
 
       <div class="tlacitka-nahrani" style="margin-top:12px">
-        <button id="tlacitko-nahrat-vypis" type="button">Nahrát výpis (JSON)</button>
-        <input type="file" id="pole-vypis" accept="application/json,.json" class="skryto" />
+        <button id="tlacitko-nahrat-vypis" type="button">Nahrát výpis (JSON/CSV/XLS)</button>
+        <input type="file" id="pole-vypis" accept=".json,.csv,.xls,.xlsx,application/json,text/csv" class="skryto" />
       </div>
       <div id="banka-import-zprava"></div>
 
@@ -270,6 +277,33 @@
         <table id="tabulka-auta">
           <thead><tr><th>SPZ</th><th>Model</th><th>Firma</th><th>Řidič</th><th>Akce</th></tr></thead>
           <tbody id="tabulka-auta-telo"></tbody>
+        </table>
+        </div>
+      </details>
+
+      <details class="panel-skladaci">
+        <summary>Účty</summary>
+        <p class="popis">Bankovní účty firem – firma může mít víc účtů (např. samostatný CZK a EUR účet).
+          Appka podle tohoto seznamu (a staršího pole Bankovní účet u Firmy) kontroluje při importu výpisu,
+          že nahráváte výpis ke správné firmě.</p>
+        <h3>Přidat účet</h3>
+        <label for="novy-uc-firma">Firma</label>
+        <select id="novy-uc-firma"></select>
+        <label for="novy-uc-cislo">Číslo účtu</label>
+        <input type="text" id="novy-uc-cislo" placeholder="např. 11002722/0800" />
+        <label for="novy-uc-mena">Měna</label>
+        <input type="text" id="novy-uc-mena" value="CZK" />
+        <label for="novy-uc-popis">Popis</label>
+        <input type="text" id="novy-uc-popis" placeholder="např. Hlavní účet / EUR účet (nepovinné)" />
+        <button id="tlacitko-pridat-ucet">Přidat účet</button>
+        <div id="ucty-zprava"></div>
+
+        <h3 style="margin-top:24px">Existující účty</h3>
+        <div id="ucty-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-ucty">
+          <thead><tr><th>Firma</th><th>Číslo účtu</th><th>Měna</th><th>Popis</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-ucty-telo"></tbody>
         </table>
         </div>
       </details>

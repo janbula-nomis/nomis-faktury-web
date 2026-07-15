@@ -1,6 +1,6 @@
 /**
  * netlify/functions/setup.js
- * Administrátorská funkce: vytvoří (pokud chybí) listy Firmy, Auta,
+ * Administrátorská funkce: vytvoří (pokud chybí) listy Firmy, Auta, Ucty,
  * Doklady, Bankovni_pohyby, Vydane_faktury, Log a Uzivatele s hlavičkami
  * a ukázkovými daty.
  * Bezpečně chráněná SETUP_SECRET, aby ji nemohl spustit kdokoliv, kdo
@@ -26,6 +26,8 @@ const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { zajistiInboxSlozku } = require('../../lib/driveHelpers');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
+const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
+const { UCTY_HEADERS } = require('../../lib/uctySchema');
 const { json } = require('../../lib/http');
 
 const LISTY = [
@@ -40,13 +42,19 @@ const LISTY = [
   },
   { nazev: 'Auta', hlavicky: ['SPZ', 'Model', 'Firma', 'Ridic'], ukazka: [] },
   {
+    // Bankovní účty firem (od v3.6) - firma může mít víc účtů (typicky
+    // CZK + EUR), viz lib/uctySchema.js a netlify/functions/ucty.js.
+    nazev: 'Ucty',
+    hlavicky: UCTY_HEADERS,
+    ukazka: [],
+  },
+  {
     nazev: 'Doklady',
-    hlavicky: [
-      'ID', 'Datum_zpracovani', 'Typ', 'Zdrojovy_soubor_URL', 'Zdrojovy_soubor_ID',
-      'Dodavatel', 'ICO_dodavatele', 'Odberatel_text', 'Datum_dokladu', 'Cislo_dokladu',
-      'Castka', 'Mena', 'DPH', 'Variabilni_symbol', 'Firma_AI_odhad', 'Firma_potvrzena',
-      'Kategorie', 'Stredisko', 'SPZ_auta', 'Stav', 'Poznamka', 'Nahral_uzivatel',
-    ],
+    // Přímo import z lib/dokladySchema.js (dřív tu byl ručně duplikovaný
+    // seznam, který se při přidání sloupce Stredisko/Hrazeno_mimo_ucet
+    // musel pokaždé ručně dohledat a opravit na dvou místech zvlášť -
+    // teď je jeden zdroj pravdy).
+    hlavicky: DOKLADY_HEADERS,
     ukazka: [],
   },
   { nazev: 'Bankovni_pohyby', hlavicky: BANKOVNI_HEADERS, ukazka: [] },

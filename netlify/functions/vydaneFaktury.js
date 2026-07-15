@@ -5,7 +5,7 @@
  *
  * GET    ?firma=Nazev (nepovinné) -> { faktury: [...] }
  *          bez parametru firma appka vrátí vše, k čemu má uživatel přístup
- * POST   { Firma, Cislo_faktury, Zakaznik, ICO_zakaznika, Datum_vystaveni,
+ * POST   { Firma, Cislo_faktury, Jednotka, Zakaznik, ICO_zakaznika, Datum_vystaveni,
  *          Datum_splatnosti, Castka, Mena, Poznamka } -> nová faktura
  * PATCH  { id, zmeny: { Stav?, Datum_uhrady?, Poznamka?, ... } }
  *          -> typicky označení Uhrazeno/Neuhrazeno, oprava údajů
@@ -62,6 +62,7 @@ exports.handler = async (event) => {
         ID: crypto.randomUUID(),
         Firma: firma,
         Cislo_faktury: cisloFaktury,
+        Jednotka: String(telo.Jednotka || '').trim(),
         Zakaznik: zakaznik,
         ICO_zakaznika: String(telo.ICO_zakaznika || '').trim(),
         Datum_vystaveni: String(telo.Datum_vystaveni || '').trim(),
