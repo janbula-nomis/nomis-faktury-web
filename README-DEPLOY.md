@@ -840,6 +840,63 @@ všechny 4 funkce (`readSheetObjects`, `appendRow`, `appendRows`,
 `updateRow`) a ověřuje, že appka vždy vyhodí srozumitelnou českou hlášku
 s odkazem na `/api/setup`, ne syrovou anglickou chybu.
 
+## 26. CORS: chybějící hlavička X-Setup-Secret blokovala volání z prohlížečových nástrojů (v3.11.2)
+
+Jan zkoušel spustit `/api/setup` přes Hoppscotch (webový REST nástroj bez
+instalace, protože neměl po ruce terminál) a appka vrátila jen obecnou
+"Chyba sítě / Network Error: Neznámá příčina" - bez jakéhokoli
+srozumitelného důvodu.
+
+**Příčina**: `lib/http.js` (sdílená pomocná funkce pro odpovědi ze všech
+Netlify Functions) měla v CORS hlavičce `Access-Control-Allow-Headers`
+jen `Content-Type, Authorization` - hlavička `X-Setup-Secret` (kterou
+používají `/api/setup` a `diagnostika-doklady`) tam chyběla. Appka
+samotná (běžící na stejné doméně) tohle nikdy nepocítí, protože CORS
+platí jen pro požadavky z JINÉ domény - ale `curl` v terminálu CORS řeší
+úplně stejně (CORS je čistě prohlížečové omezení), takže volání z
+terminálu funguje bez problémů. Prohlížečový nástroj jako Hoppscotch ale
+běží na jiné doméně (hoppscotch.io) a prohlížeč před vlastním požadavkem
+pošle tzv. CORS preflight - protože appka `X-Setup-Secret` mezi povolené
+hlavičky neuváděla, prohlížeč skutečný požadavek vůbec neodeslal a jen
+nahlásil nejasnou síťovou chybu.
+
+**Oprava**: `Access-Control-Allow-Headers` teď zahrnuje i
+`X-Setup-Secret`, takže `/api/setup` i `diagnostika-doklady` jdou spustit
+i z prohlížečového REST nástroje, ne jen z terminálu.
+
+**Poznámka pro příště**: pokud nemáte po ruce terminál, `curl` z něj je
+i tak nejspolehlivější způsob, jak tyhle admin příkazy spustit (CORS se
+ho netýká vůbec) - prohlížečový nástroj je pohodlná záloha pro případ,
+že terminál není k dispozici, ale vyžaduje nasazenou aktuální verzi appky.
+
+## 27. Tlačítka „Aktualizovat“ a „Spustit kontrolu dokladů“ u Bankovních výpisů (v3.12)
+
+Jan si vyžádal dvě nová tlačítka na kartě Bankovní výpisy, vedle „Nahrát
+výpis“:
+
+**Aktualizovat** - jen znovu načte pohyby a doklady dané firmy ze Sheets.
+Appka se jinak obnoví jen při přepnutí firmy nebo po vlastní akci
+(potvrzení/zamítnutí/import) - tohle je pro případ, že se něco změnilo
+jinde (jiné zařízení, přímá úprava v Google Sheets) a appka to ještě neví.
+
+**Spustit kontrolu dokladů** - appka doteď navrhovala shodu dokladu
+k bankovnímu pohybu jen v okamžiku importu výpisu, podle dokladů, které
+v tu chvíli existovaly. Běžná situace ale je, že doklad (účtenka, faktura)
+se nahraje/vytěží AŽ PO odpisu z účtu o pár dní později - takový pohyb pak
+zůstal „Nespárováno“ napořád, dokud appka znovu nezkusila porovnat.
+Tohle tlačítko (nová akce `POST /banka { firma, akce: "prepocitatShody" }`)
+appku donutí přepočítat návrhy pro všechny dosud „Nespárováno“ pohyby
+aktuální firmy proti aktuálním dokladům - beze změny už rozhodnutých
+pohybů (Navrženo/Potvrzeno/Bez dokladu appka nechává být) a bez rizika
+nabídnout stejný doklad dvakrát dvěma různým pohybům. Nevyžaduje žádný
+soubor k nahrání, dá se spustit kdykoli.
+
+Ověřeno novým testem (`netlify/functions/banka.js`, akce
+`prepocitatShody`) - appka správně přepočítá jen nespárované pohyby
+zvolené firmy, nedotkne se už rozhodnutých pohybů ani pohybů jiné firmy,
+opakované spuštění je neškodné (idempotentní) - a Playwright UI testem,
+že obě tlačítka existují.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

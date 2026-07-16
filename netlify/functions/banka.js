@@ -11,6 +11,15 @@
  *             U json/csv je obsahSouboru čitelný text, u xlsx base64 (appka
  *             posílá binární obsah souboru zakódovaný jako base64, protože
  *             xlsx není textový formát).
+ * POST   { firma, akce: "prepocitatShody" }
+ *          -> (od v3.12) appka normálně navrhuje shodu dokladu k pohybu jen
+ *             v okamžiku importu výpisu, podle dokladů, které v tu chvíli
+ *             existují - pokud doklad k pohybu přibyde (nahraje se) až
+ *             POZDĚJI, pohyb zůstane "Nespárováno" navždy, dokud appka
+ *             znovu nezkusí porovnat. Tahle akce přepočítá návrhy pro
+ *             všechny dosud "Nespárováno" pohyby dané firmy proti aktuálním
+ *             dokladům, beze změny už rozhodnutých pohybů (Navrženo/
+ *             Potvrzeno/Bez dokladu appka nechává být).
  * PATCH  { id, zmeny: { Doklad_ID?, Stav_parovani?, Poznamka? } }
  *          -> potvrzení/zamítnutí návrhu, ruční přiřazení dokladu,
  *             označení "Bez dokladu", poznámka
@@ -26,7 +35,7 @@ const { readSheetObjects, appendRow, appendRows, updateRow } = require('../../li
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { UCTY_HEADERS } = require('../../lib/uctySchema');
-const { parsujGeorgeExport, jeBezDokladu, navrhniShodu } = require('../../lib/bankHelpers');
+const { parsujGeorgeExport, jeBezDokladu, navrhniShodu, parsujCastkuZListu } = require('../../lib/bankHelpers');
 const { parsujCsvVypis, parsujXlsxVypis } = require('../../lib/bankImportTabular');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
@@ -67,6 +76,60 @@ exports.handler = async (event) => {
       const firma = String(telo.firma || '').trim();
       if (!firma) return json(400, { error: 'Vyberte firmu.' });
       if (!maPristupKFirme(uzivatel, firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
+
+      if (telo.akce === 'prepocitatShody') {
+        const { rows: pohybyVsechnyFirmy } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
+        const pohybyFirmy = pohybyVsechnyFirmy.filter((p) => p.Firma === firma);
+
+        const { rows: dokladyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Doklady');
+        // Doklad appka nesmí navrhnout, pokud už je přiřazený k JAKÉMUKOLI
+        // pohybu dané firmy (ne jen k těm právě přepočítávaným) - jinak by
+        // mohla stejný doklad nabídnout dvakrát dvěma různým pohybům.
+        const jizPouzitaDokladId = new Set(pohybyFirmy.filter((p) => p.Doklad_ID).map((p) => p.Doklad_ID));
+        const kandidatiDoklady = dokladyVsechny.filter(
+          (d) => (d.Firma_potvrzena || d.Firma_AI_odhad) === firma && !jizPouzitaDokladId.has(d.ID)
+        );
+
+        // Appka projde nespárované pohyby od nejstaršího - u víc shodných
+        // kandidátů tak dostane přednost ten, který je datem blíž tomu
+        // dřívějšímu pohybu.
+        const nesparovane = pohybyFirmy
+          .filter((p) => p.Stav_parovani === 'Nespárováno')
+          .slice()
+          .sort((a, b) => String(a.Datum || '').localeCompare(String(b.Datum || '')));
+
+        let noveNavrzeno = 0;
+        for (const pohyb of nesparovane) {
+          const pProNavrh = {
+            castka: parsujCastkuZListu(pohyb.Castka),
+            protistrana: pohyb.Protistrana || '',
+            popis: pohyb.Popis || '',
+            variabilni_symbol: pohyb.Variabilni_symbol || '',
+            datum: pohyb.Datum || '',
+          };
+          const navrh = navrhniShodu(pProNavrh, kandidatiDoklady);
+          if (!navrh || navrh.skore < 2) continue;
+
+          await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, {
+            ...pohyb,
+            Doklad_ID: navrh.dokladId,
+            Stav_parovani: 'Navrženo',
+          });
+          noveNavrzeno += 1;
+          // ať appka nenabídne stejný doklad dvakrát dvěma různým pohybům
+          // v rámci tohohle jednoho přepočtu
+          const idx = kandidatiDoklady.findIndex((d) => d.ID === navrh.dokladId);
+          if (idx >= 0) kandidatiDoklady.splice(idx, 1);
+        }
+
+        return json(200, {
+          ok: true,
+          zkontrolovano: nesparovane.length,
+          noveNavrzeno,
+          zustavaNesparovano: nesparovane.length - noveNavrzeno,
+        });
+      }
+
       if (!telo.obsahSouboru) return json(400, { error: 'Chybí obsah souboru.' });
 
       const format = String(telo.format || 'json').trim().toLowerCase();

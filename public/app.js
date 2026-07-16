@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.11.1 – 2026-07-16';
+const APP_VERZE = 'v3.12 – 2026-07-16';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1461,6 +1461,48 @@ async function odeslatImportVypisu(obsah, format, ignorovatNesoulad) {
   }
 }
 
+// Ruční "Aktualizovat" - znovu načte pohyby i doklady pro aktuální firmu ze
+// Sheets. Appka se jinak obnoví jen při přepnutí firmy nebo po vlastní akci
+// (potvrzení/zamítnutí atd.) - tohle je pro případ, že se něco změnilo jinde
+// (jiné zařízení, přímá úprava v Google Sheets) a appka to ještě neví.
+async function aktualizovatBankovniPohyby(tlacitko) {
+  if (tlacitko) tlacitko.disabled = true;
+  try {
+    await nactiBankovniPohyby();
+  } finally {
+    if (tlacitko) tlacitko.disabled = false;
+  }
+}
+
+// "Spustit kontrolu dokladů" - appka normálně navrhuje shody jen v okamžiku
+// importu výpisu (podle dokladů, které v tu chvíli existují). Pokud doklad
+// k pohybu přibyde/vytěží se AŽ POZDĚJI (běžné - třeba účtenka za benzín se
+// nahraje o pár dní později, než přijde bankovní odpis), pohyb zůstane
+// "Nespárováno" navždycky, dokud appka znovu nezkusí porovnat. Tohle
+// tlačítko appku donutí přepočítat návrhy pro všechny dosud "Nespárováno"
+// pohyby aktuální firmy proti aktuálním dokladům, bez nutnosti cokoli znovu
+// nahrávat (viz netlify/functions/banka.js, akce "prepocitatShody").
+async function spustitKontroluDokladu(tlacitko) {
+  const zprava = document.getElementById('banka-import-zprava');
+  if (tlacitko) tlacitko.disabled = true;
+  zprava.innerHTML = '<div class="zprava">Porovnávám nespárované pohyby s doklady…</div>';
+  try {
+    const vysledek = await zavolejApi('/banka', {
+      method: 'POST',
+      body: JSON.stringify({ firma: bankaAktivniFirma, akce: 'prepocitatShody' }),
+    });
+    zprava.innerHTML =
+      '<div class="zprava uspech">Zkontrolováno ' + vysledek.zkontrolovano + ' nespárovaných pohybů - ' +
+      vysledek.noveNavrzeno + ' appka nově navrhla ke kontrole, ' + vysledek.zustavaNesparovano +
+      ' pořád čeká na doklad.</div>';
+    await nactiBankovniPohyby();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  } finally {
+    if (tlacitko) tlacitko.disabled = false;
+  }
+}
+
 // ---------- ADMIN: UŽIVATELÉ ----------
 
 async function nactiUzivatele() {
@@ -2071,6 +2113,8 @@ document.getElementById('tlacitko-pripojit-google').addEventListener('click', ()
 document.getElementById('banka-vyber-firmy').addEventListener('change', nactiBankovniPohyby);
 document.getElementById('tlacitko-nahrat-vypis').addEventListener('click', () => document.getElementById('pole-vypis').click());
 document.getElementById('pole-vypis').addEventListener('change', (e) => nahratVypis(e.target.files[0]));
+document.getElementById('tlacitko-banka-aktualizovat').addEventListener('click', (e) => aktualizovatBankovniPohyby(e.target));
+document.getElementById('tlacitko-banka-kontrola').addEventListener('click', (e) => spustitKontroluDokladu(e.target));
 document.getElementById('banka-jen-chybejici').addEventListener('click', (e) => {
   const zapnuto = e.target.getAttribute('aria-pressed') === 'true';
   e.target.setAttribute('aria-pressed', String(!zapnuto));
