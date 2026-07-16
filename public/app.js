@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.12 – 2026-07-16';
+const APP_VERZE = 'v3.13 – 2026-07-16';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1171,6 +1171,17 @@ function bankaStavBadge(stav) {
   return '<span class="badge-chybi">Chybí doklad</span>';
 }
 
+// Pořadí důležitosti stavů při řazení výpisu (viz vykresliBankovniPohyby) -
+// čím nižší číslo, tím výš v seznamu. "Nespárováno" appka řadí schválně AŽ
+// PO "Navrženo" (i když u něj appka žádný tip nenabízí) - "Navrženo" totiž
+// vyžaduje jen rychlé potvrzení/zamítnutí, zatímco "Nespárováno" obvykle
+// vyžaduje víc práce (dohledat/nahrát doklad, nebo ho ručně přiřadit).
+function bankaStavRazeniPriorita(stav) {
+  if (stav === 'Navrženo') return 0;
+  if (stav === 'Nespárováno') return 1;
+  return 2; // Potvrzeno, Bez dokladu - vyřízeno, patří na konec
+}
+
 // Třída pro probarvení celého řádku podle stavu spárování - stejné čtyři
 // stavy jako bankaStavBadge, jen jako modifikátor na .banka-radek.
 function bankaStavRadekTrida(stav) {
@@ -1197,7 +1208,18 @@ function vykresliBankovniPohyby() {
   const serazene = bankaPohybySeznam
     .filter((p) => !jenChybejici || p.Stav_parovani === 'Nespárováno' || p.Stav_parovani === 'Navrženo')
     .slice()
-    .sort((a, b) => (b.Datum || '').localeCompare(a.Datum || ''));
+    .sort((a, b) => {
+      // Řazení primárně podle toho, kolik pozornosti pohyb ještě potřebuje
+      // (nejdřív "Navrženo" - appka má tip, stačí zkontrolovat a potvrdit/
+      // zamítnout; pak "Nespárováno" - appka nic nenašla, čeká na doklad
+      // nebo ruční přiřazení; nakonec "Potvrzeno"/"Bez dokladu" - vyřízeno,
+      // nepotřebuje další akci), teprve v rámci stejné skupiny appka řadí
+      // podle data (nejnovější nahoře), stejně jako dřív.
+      const prioritaA = bankaStavRazeniPriorita(a.Stav_parovani);
+      const prioritaB = bankaStavRazeniPriorita(b.Stav_parovani);
+      if (prioritaA !== prioritaB) return prioritaA - prioritaB;
+      return (b.Datum || '').localeCompare(a.Datum || '');
+    });
 
   if (serazene.length === 0) {
     kontejner.innerHTML =

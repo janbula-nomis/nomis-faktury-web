@@ -897,6 +897,19 @@ zvolené firmy, nedotkne se už rozhodnutých pohybů ani pohybů jiné firmy,
 opakované spuštění je neškodné (idempotentní) - a Playwright UI testem,
 že obě tlačítka existují.
 
+## 28. Řazení bankovních pohybů podle naléhavosti (v3.13)
+
+Na přání appka teď v záložce Bankovní výpisy řadí pohyby primárně podle
+toho, kolik pozornosti ještě potřebují, ne jen podle data: nejdřív
+„Navrženo“ (appka má tip, stačí rychle zkontrolovat a potvrdit/zamítnout),
+pak „Nespárováno“ (appka nic nenašla, čeká na doklad nebo ruční
+přiřazení), a úplně na konci „Potvrzeno“/„Bez dokladu“ (vyřízeno, žádná
+další akce potřeba). V rámci každé skupiny appka dál řadí podle data
+(nejnovější nahoře), stejně jako dřív.
+
+Ověřeno Playwright UI testem se 6 pohyby ve všech 4 stavech a různými
+daty - appka je seřadí přesně v očekávaném pořadí.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
