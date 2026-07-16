@@ -155,13 +155,23 @@
     <!-- BANKOVNÍ VÝPISY -->
     <div id="zalozka-banka" class="karta skryto">
       <h2>Bankovní výpisy</h2>
-      <p class="popis">Nahrajte export z George Business (JSON), nebo výpis v CSV či XLS/XLSX (appka pozná formát
-        podle přípony souboru) a přiřaďte platby k dokladům. Appka vždy pracuje jen s jednou firmou najednou,
-        ať se výpisy různých firem nesmíchají. U CSV/XLS appka hledá sloupce s datem a částkou podle běžných
-        názvů (viz README-DEPLOY.md) - pokud soubor nerozpozná, pošlete ukázku, ať appka doladí.</p>
+      <p class="popis">Nahrajte export z George Business (JSON), nebo výpis v CSV či XLS/XLSX a přiřaďte platby
+        k dokladům. Appka vždy pracuje jen s jednou firmou najednou, ať se výpisy různých firem nesmíchají.
+        U CSV/XLS appka hledá sloupce s datem a částkou podle běžných názvů (viz README-DEPLOY.md) - pokud
+        soubor nerozpozná, pošlete ukázku, ať appka doladí. Appka se sice zkusí formát poznat sama podle
+        přípony souboru, ale vyberte si ho níž ručně, pokud by si appka poradila špatně (např. soubor bez
+        přípony, nebo přípona neodpovídá skutečnému obsahu).</p>
 
       <label for="banka-vyber-firmy">Firma</label>
       <select id="banka-vyber-firmy"></select>
+
+      <label for="banka-vyber-formatu" style="margin-top:10px">Formát souboru</label>
+      <select id="banka-vyber-formatu">
+        <option value="auto">Poznat automaticky podle přípony</option>
+        <option value="json">JSON (George Business export)</option>
+        <option value="csv">CSV</option>
+        <option value="xlsx">XLS / XLSX</option>
+      </select>
 
       <div class="tlacitka-nahrani" style="margin-top:12px">
         <button id="tlacitko-nahrat-vypis" type="button">Nahrát výpis (JSON/CSV/XLS)</button>

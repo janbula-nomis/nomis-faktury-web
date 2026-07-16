@@ -785,6 +785,34 @@ správně pozná neposunutý i posunutý řádek, i řádek posunutý jen podle
 vzoru hodnoty bez zjevných "skrytých" sloupců navíc) - a že diagnostická
 funkce sama nikdy nic nezapisuje.
 
+## 24. Ruční přepínač formátu a oprava rozpoznávání hlavičky u CSV/XLS importu (v3.11)
+
+Jan zkusil nahrát bankovní výpis pro NOMIS & Homes a appka ho odmítla
+s chybou „Appka v souboru nenašla sloupec s datem a/nebo částkou … Nalezené
+hlavičky: NOMIS & Homes CZK / NOMIS & Homes s.r.o.“. Ukázalo se, že appka
+u CSV/XLS importu (`lib/bankImportTabular.js`) brala jako hlavičkový řádek
+VŽDY úplně první řádek souboru - Janův reálný export ale měl na začátku
+pár řádků s metadaty výpisu (název účtu, název firmy), skutečná tabulka
+se sloupci „Datum“/„Částka“ začínala až o pár řádků níž.
+
+**Oprava**: appka teď u CSV i XLS/XLSX prohledá prvních 15 řádků souboru
+a jako hlavičku vezme první řádek, který má rozpoznatelný sloupec s datem
+I s částkou zároveň - řádky před ním (metadata) appka ignoruje. Pokud
+takový řádek nenajde vůbec, spadne zpátky na původní chování (první řádek)
+a vyhodí stejně srozumitelnou chybu jako dřív, jen doplněnou o poznámku,
+že appka už zkusila přeskočit úvodní řádky.
+
+Zároveň appka na kartě „Bankovní výpisy“ dostala nový select „Formát
+souboru“ (Poznat automaticky / JSON / CSV / XLS·XLSX) - appka odteď
+nespoléhá jen na příponu nahrávaného souboru (ta může u exportu z banky
+chybět nebo být nejednoznačná), ale respektuje ruční volbu, pokud si ji
+uživatel nastaví.
+
+Ověřeno novým testem (`lib/bankImportTabular.js` s CSV i XLSX souborem,
+který má na začátku 2 řádky metadat přesně podle Janova scénáře), plnou
+regresní sadou (21 backend testů) a Playwright UI testem, že select
+existuje se všemi 4 volbami.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

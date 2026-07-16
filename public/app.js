@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.10 – 2026-07-16';
+const APP_VERZE = 'v3.11 – 2026-07-16';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1417,8 +1417,16 @@ function souborNaBase64(soubor) {
 async function nahratVypis(soubor) {
   if (!soubor) return;
   document.getElementById('pole-vypis').value = '';
-  const format = priponaSouboru(soubor.name);
-  const obsah = format === 'xlsx' ? await souborNaBase64(soubor) : await soubor.text();
+  // Appka primárně použije formát, který si uživatel ručně vybral v selectu
+  // "Formát souboru" - přípona souboru se použije jen jako záloha, když
+  // zůstane na "Poznat automaticky" (viz index.html, banka-vyber-formatu).
+  // Důvod: appka pozná formát podle přípony nespolehlivě (bance stažený
+  // soubor může mít nejednoznačnou/chybějící příponu), takže ruční volba
+  // má vždycky přednost.
+  const vybranyFormat = (document.getElementById('banka-vyber-formatu') || {}).value || 'auto';
+  const format = vybranyFormat === 'auto' ? priponaSouboru(soubor.name) : vybranyFormat;
+  const jeBinarniFormat = format === 'xlsx' || format === 'xls';
+  const obsah = jeBinarniFormat ? await souborNaBase64(soubor) : await soubor.text();
   await odeslatImportVypisu(obsah, format, false);
 }
 
