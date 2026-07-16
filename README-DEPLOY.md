@@ -712,6 +712,79 @@ s historickou shodou) a novým Playwright UI testem (placeholder doklad je
 zřetelně odlišený, tlačítko „Dokončit zpracování“ funguje) – žádná
 z existujících 17 backendových sad ani UI testů se nerozbila.
 
+## 23. DŮLEŽITÁ OPRAVA: posunuté sloupce u Dokladů (v3.10)
+
+Jan nahlásil ze živé appky: „nezapisuje se mi změna stavu při schváleno,
+takže to nevidím pak v app mobilu“ a poslal ukázku dat z listu Doklady.
+Z ní se ukázalo, že jde o vážnější a jinou chybu, než jen zpožděné/
+cachované čtení (viz v3.8.1) - **appka dlouhodobě zapisovala hodnoty
+Stav/Středisko/SPZ_auta/Hrazeno_mimo_ucet/Poznámka/Nahrál_uživatel do
+ŠPATNÝCH sloupců** listu Doklady.
+
+**Příčina**: `appendRow`/`updateRow` (`lib/sheetsHelpers.js`) zapisovaly
+hodnoty na pozice podle POŘADÍ pole `DOKLADY_HEADERS` v aktuální verzi
+KÓDU (23 sloupců), ne podle skutečného hlavičkového řádku v listu. Když
+appka v kódu ve verzi v3.0 přidala sloupec `Stredisko` a ve v3.6 sloupec
+`Hrazeno_mimo_ucet` (oba logicky doprostřed seznamu, ne na konec), ale
+`/api/setup` se po nasazení těchhle verzí nespustilo znovu (ať skutečně
+doplní chybějící sloupce do listu), skutečný hlavičkový řádek v listu
+zůstal o 2 sloupce kratší/jinak uspořádaný než to, co appka předpokládala
+při zápisu. Výsledek: appka zapisovala hodnotu Stav do sloupce, který
+list nazýval „Nahral_uzivatel“, hodnotu Střediska do sloupce „SPZ_auta“
+atd. - proto se po klepnutí na „Schválit“ zdálo, že se stav „neuloží“
+(ve skutečnosti se zapsal, jen jinam, než odkud ho appka zpátky čte).
+Tahle chyba navíc při KAŽDÉ úpravě přepisovala i sloupec „Nahral_uzivatel“
+další (špatně umístěnou) hodnotou.
+
+**Oprava** (`lib/sheetsHelpers.js`): `appendRow`/`appendRows`/`updateRow`
+si teď před každým zápisem samy načtou aktuální hlavičkový řádek přímo
+z listu a zapisují hodnoty PODLE NĚJ (podle skutečného textu v hlavičce),
+ne podle pořadí v kódovém poli `*_HEADERS` - appka tak zapisuje správně
+i do listu, kde jsou sloupce v jiném pořadí nebo kde některý nový sloupec
+ještě vůbec neexistuje (takové pole appka bezpečně přeskočí, radši než
+zapsat ho jinam). Tahle oprava se týká VŠECH listů (Doklady, Firmy, Auta,
+Ucty, Bankovni_pohyby, Vydane_faktury, Uzivatele), ne jen Dokladů - je to
+sdílená vrstva. Ověřeno novým testem, který přesně reprodukuje scénář
+z Janových dat (list bez sloupce Stredisko/Hrazeno_mimo_ucet, zápis
+kódovým schématem, které tyhle sloupce má) a ověřuje, že se Stav/
+Kategorie/Poznamka/Nahral_uzivatel zapíšou do SPRÁVNÝCH sloupců podle
+skutečné hlavičky, i když se hlavička/pořadí liší od kódu.
+
+**Po nasazení téhle verze je NUTNÉ znovu spustit `/api/setup`** (viz krok 6
+níže) - doplní do listu Doklady chybějící sloupce `Stredisko` a
+`Hrazeno_mimo_ucet` (bezpečně, na konec, nic nemaže/nepřepisuje), aby
+appka od teď měla kam tyhle dvě pole ukládat.
+
+**Existující (už zapsaná) data**: appka nemůže tuhle chybu u už uložených
+dokladů opravit automaticky a naslepo - u dokladů upravovaných/schválených
+VÍCEKRÁT po sobě od chvíle, kdy chyba vznikla, se totiž mohla původní
+hodnota sloupce Poznámka/Nahral_uzivatel při dalších úpravách znovu
+přepsat (appka totiž vždy bere aktuální - už špatně umístěný - obsah
+řádku jako základ dalšího zápisu), takže jistá naslepo-automatická oprava
+by mohla data spíš dál zamotat, ne opravit. Místo toho appka dostala
+novou ČISTĚ ČTECÍ diagnostickou funkci:
+
+```
+curl https://VAŠE-DOMÉNA.netlify.app/.netlify/functions/diagnostika-doklady \
+  -H "X-Setup-Secret: HODNOTA_SETUP_SECRET"
+```
+
+Vrátí u každého dokladu, jestli vypadá posunutě, a pokud ano, nejlepší
+odhad skutečných hodnot - **Stav a Středisko appka dokáže rozpoznat
+spolehlivě** (jde o hodnoty z jasně rozpoznatelného vzoru/výčtu), odhad
+Poznámky a Nahral_uzivatel je jen orientační. Doporučený postup: podle
+výpisu z týhle diagnostiky ručně opravit sloupce Stav/Středisko přímo
+v Google Sheets u dotčených dokladů (u pár desítek dokladů jde o pár
+minut práce) - je to bezpečnější než automatický přepis. **Finanční
+údaje (Dodavatel, Částka, Datum, Firma, Kategorie) touhle chybou
+zasažené NEBYLY** - ty appka zapisovala do sloupců PŘED tím, kde posun
+začíná, takže jsou v pořádku.
+
+Ověřeno testem s daty odpovídajícími přesně tomu, co Jan poslal (diagnóza
+správně pozná neposunutý i posunutý řádek, i řádek posunutý jen podle
+vzoru hodnoty bez zjevných "skrytých" sloupců navíc) - a že diagnostická
+funkce sama nikdy nic nezapisuje.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
