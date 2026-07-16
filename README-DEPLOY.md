@@ -813,6 +813,33 @@ který má na začátku 2 řádky metadat přesně podle Janova scénáře), pln
 regresní sadou (21 backend testů) a Playwright UI testem, že select
 existuje se všemi 4 volbami.
 
+## 25. Srozumitelná chyba, když v Sheets ještě chybí celý list (v3.11.1)
+
+Hned po v3.11 Jan narazil při importu bankovního výpisu na chybu „Unable to
+parse range: Ucty“ - syrová anglická chyba přímo z Google Sheets API.
+Příčina: appka se snažila přečíst list „Ucty“ (bankovní účty firem, viz
+v3.6), který v Janově tabulce ještě vůbec neexistoval jako list/tab -
+nešlo tedy o chybějící SLOUPEC (jako u opravy v3.10), ale o chybějící
+celý LIST, protože `/api/setup` po zavedení téhle funkce ještě nebylo
+spuštěné.
+
+**Oprava** (`lib/sheetsHelpers.js`): `readSheetObjects`/`appendRow`/
+`appendRows`/`updateRow` teď tenhle konkrétní typ chyby Google API poznají
+a nahradí ho jasnou českou hláškou: „List "Ucty" v Google Sheets zatím
+neexistuje. Spusťte prosím znovu /api/setup …“ - místo aby appka jen
+ukázala nesrozumitelnou anglickou technickou chybu. Týká se to všech
+listů, ne jen Ucty (stejná sdílená vrstva jako u opravy v3.10).
+
+**Důležité připomenutí**: po nasazení v3.10/v3.11/v3.11.1 je potřeba
+spustit `/api/setup` (krok 6), ať appka doplní chybějící listy (Ucty,
+Bankovni_pohyby, Vydane_faktury apod.) i chybějící sloupce (Stredisko,
+Hrazeno_mimo_ucet) - bezpečně, nic se tím nemaže ani nepřepisuje.
+
+Ověřeno novým testem, který simuluje přesně tuhle chybu Google API pro
+všechny 4 funkce (`readSheetObjects`, `appendRow`, `appendRows`,
+`updateRow`) a ověřuje, že appka vždy vyhodí srozumitelnou českou hlášku
+s odkazem na `/api/setup`, ne syrovou anglickou chybu.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

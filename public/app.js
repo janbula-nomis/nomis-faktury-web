@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.11 – 2026-07-16';
+const APP_VERZE = 'v3.11.1 – 2026-07-16';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
