@@ -46,6 +46,7 @@
       <button data-zalozka="prehled">Přehled</button>
       <button data-zalozka="vydane-faktury">Vydané faktury</button>
       <button data-zalozka="banka" id="nav-banka" class="skryto">Bankovní výpisy</button>
+      <button data-zalozka="smlouvy" id="nav-smlouvy" class="skryto">Smlouvy</button>
       <button data-zalozka="export" id="nav-export" class="skryto">Export</button>
       <button data-zalozka="nastaveni" id="nav-nastaveni" class="skryto">Nastavení</button>
     </nav>
@@ -198,6 +199,62 @@
 
       <div id="banka-nacitani" class="nacitani" style="margin-top:12px">Vyberte firmu…</div>
       <div id="banka-tabulka"></div>
+    </div>
+
+    <!-- SMLOUVY -->
+    <div id="zalozka-smlouvy" class="karta skryto">
+      <h2>Smlouvy</h2>
+      <p class="popis">Nájem, elektřina, leasing a podobné opakované platby, u kterých není měsíční doklad za
+        každou platbu - jen smlouva nebo roční přehled (např. vyúčtování energií). Bankovní pohyb appka pak jde
+        přiřadit rovnou ke smlouvě v záložce Bankovní výpisy, místo párování s jednotlivým dokladem. Ke smlouvě
+        appka umí uložit víc souborů (např. samotnou smlouvu a ke každý rok zvlášť vyúčtování).</p>
+
+      <h3>Nahrát smlouvu (s AI vytěžením)</h3>
+      <p class="popis">Appka se ze souboru pokusí sama vyčíst firmu, středisko, název, typ, periodu, částku a
+        platnost - vždy jen jako návrh, který si po nahrání zkontrolujte a případně opravte v detailu smlouvy níž.</p>
+      <div class="tlacitka-nahrani">
+        <button id="sm-tlacitko-vyfotit" type="button" class="sekundarni">📷 Vyfotit smlouvu</button>
+        <button id="sm-tlacitko-vybrat-soubor" type="button" class="sekundarni">📁 Nahrát soubor smlouvy</button>
+      </div>
+      <input type="file" id="sm-pole-foto" accept="image/*" capture="environment" class="skryto" />
+      <input type="file" id="sm-pole-soubor" accept="image/*,application/pdf" class="skryto" />
+      <div id="sm-vybrany-soubor-info" class="popis"></div>
+      <button id="sm-tlacitko-nahrat" disabled>Nahrát a vytěžit AI</button>
+      <div id="sm-nahrat-zprava"></div>
+
+      <details class="panel-skladaci" style="margin-top:16px">
+        <summary>Přidat smlouvu ručně (bez souboru)</summary>
+        <label for="nova-sm-firma">Firma</label>
+        <select id="nova-sm-firma"></select>
+        <label for="nova-sm-nazev">Název</label>
+        <input type="text" id="nova-sm-nazev" placeholder="např. Nájem - Holečkova 1a" />
+        <label for="nova-sm-stredisko">Středisko</label>
+        <select id="nova-sm-stredisko"></select>
+        <label for="nova-sm-typ">Typ</label>
+        <select id="nova-sm-typ"></select>
+        <label for="nova-sm-perioda">Perioda</label>
+        <select id="nova-sm-perioda"></select>
+        <label for="nova-sm-castka">Očekávaná částka (nepovinné)</label>
+        <input type="number" id="nova-sm-castka" step="0.01" />
+        <label for="nova-sm-od">Platnost od (nepovinné)</label>
+        <input type="date" id="nova-sm-od" />
+        <label for="nova-sm-do">Platnost do (nepovinné)</label>
+        <input type="date" id="nova-sm-do" />
+        <label for="nova-sm-url">Odkaz na scan/PDF smlouvy (nepovinné, starší pole)</label>
+        <input type="text" id="nova-sm-url" placeholder="např. odkaz na Google Disk" />
+        <label for="nova-sm-poznamka">Poznámka</label>
+        <input type="text" id="nova-sm-poznamka" />
+        <button id="tlacitko-pridat-smlouvu">Přidat smlouvu</button>
+        <div id="smlouvy-zprava"></div>
+      </details>
+
+      <div class="prepinac-sekce" style="margin-top:16px">
+        <button type="button" id="sm-sekce-aktivni" class="prepinac-sekce-tlacitko aktivni" data-sekce="aktivni">Aktivní</button>
+        <button type="button" id="sm-sekce-neaktivni" class="prepinac-sekce-tlacitko" data-sekce="neaktivni">Neaktivní</button>
+      </div>
+
+      <div id="smlouvy-nacitani" class="nacitani" style="margin-top:12px">Načítám…</div>
+      <div id="smlouvy-seznam"></div>
     </div>
 
     <!-- EXPORT -->
@@ -367,45 +424,6 @@
         <table id="tabulka-ucty">
           <thead><tr><th>Firma</th><th>Číslo účtu</th><th>Měna</th><th>Popis</th><th>Akce</th></tr></thead>
           <tbody id="tabulka-ucty-telo"></tbody>
-        </table>
-        </div>
-      </details>
-
-      <details class="panel-skladaci">
-        <summary>Smlouvy (trvalé příkazy)</summary>
-        <p class="popis">Nájem, elektřina, leasing a podobné opakované platby, u kterých není měsíční doklad za
-          každou platbu - jen smlouva nebo roční přehled. Bankovní pohyb appka pak jde přiřadit rovnou ke smlouvě
-          v záložce Bankovní výpisy, místo párování s jednotlivým dokladem.</p>
-        <h3>Přidat smlouvu</h3>
-        <label for="nova-sm-firma">Firma</label>
-        <select id="nova-sm-firma"></select>
-        <label for="nova-sm-nazev">Název</label>
-        <input type="text" id="nova-sm-nazev" placeholder="např. Nájem - Holečkova 1a" />
-        <label for="nova-sm-stredisko">Středisko</label>
-        <select id="nova-sm-stredisko"></select>
-        <label for="nova-sm-typ">Typ</label>
-        <select id="nova-sm-typ"></select>
-        <label for="nova-sm-perioda">Perioda</label>
-        <select id="nova-sm-perioda"></select>
-        <label for="nova-sm-castka">Očekávaná částka (nepovinné)</label>
-        <input type="number" id="nova-sm-castka" step="0.01" />
-        <label for="nova-sm-od">Platnost od (nepovinné)</label>
-        <input type="date" id="nova-sm-od" />
-        <label for="nova-sm-do">Platnost do (nepovinné)</label>
-        <input type="date" id="nova-sm-do" />
-        <label for="nova-sm-url">Odkaz na scan/PDF smlouvy (nepovinné)</label>
-        <input type="text" id="nova-sm-url" placeholder="např. odkaz na Google Disk" />
-        <label for="nova-sm-poznamka">Poznámka</label>
-        <input type="text" id="nova-sm-poznamka" />
-        <button id="tlacitko-pridat-smlouvu">Přidat smlouvu</button>
-        <div id="smlouvy-zprava"></div>
-
-        <h3 style="margin-top:24px">Existující smlouvy</h3>
-        <div id="smlouvy-nacitani" class="nacitani">Načítám…</div>
-        <div style="overflow-x:auto">
-        <table id="tabulka-smlouvy">
-          <thead><tr><th>Firma</th><th>Název</th><th>Středisko</th><th>Typ</th><th>Perioda</th><th>Aktivní</th><th>Akce</th></tr></thead>
-          <tbody id="tabulka-smlouvy-telo"></tbody>
         </table>
         </div>
       </details>

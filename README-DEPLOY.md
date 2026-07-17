@@ -1149,6 +1149,132 @@ příkaz“/„Trvalý příkaz“/„Příjem přiřazen“ mají správné akc
 v Nastavení, rozšířený Přehled) a plnou regresí existujících testů -
 žádná regrese.
 
+## 35. Oprava: doklady v cizí měně se chybně zobrazovaly a nešly spárovat s bankou (v3.20)
+
+Jan nahlásil ze živého provozu (zahraniční účtenky, typicky nabíjení Tesly
+mimo ČR - "Tesla Motors Austria GmbH", "Tesla Hrvatska d.o.o." apod.):
+doklad v cizí měně appka v seznamu Dokladů zobrazovala s naprosto
+zavádějícím popiskem (např. účtenka na "9.43 EUR" se ukázala jako
+"9,43 Kč"), a takový doklad se navíc nikdy nespároval s odpovídajícím
+bankovním pohybem, přestože platba v bance evidentně existovala.
+
+**Příčina - dvě oddělené věci:**
+
+1. **Zobrazení**: appka odjakživa umí u dokladu vytáhnout i pole `Mena`
+   (Gemini extrakce, `lib/gemini.js`), ale řádek dokladu v seznamu
+   (`vytvorRadekDoklad` v `public/app.js`) volal obecnou `formatCastka()`,
+   která na částku vždycky napevno připojí " Kč" bez ohledu na skutečnou
+   měnu dokladu.
+2. **Párování s bankou**: appka dostává bankovní pohyb z George Business
+   exportu vždy už přepočtený bankou na Kč (měna účtu), ne v původní měně
+   platby na zahraniční účtence. Párovací funkce `navrhniShodu`
+   (`lib/bankHelpers.js`) ale u všech dokladů vyžadovala přesnou shodu
+   čísel (tolerance 1 Kč) - u cizoměnového dokladu (např. 9.43 EUR) proti
+   Kč částce pohybu (např. 235 Kč) to logicky nikdy neprošlo, takže takový
+   doklad zůstával navždy "Nespárováno s bankou".
+
+**Oprava:**
+
+- Nová funkce `formatCastkaSMenou(hodnota, mena)` v `public/app.js` -
+  zobrazí skutečnou měnu dokladu (`d.Mena`), a jen když je prázdná nebo
+  `CZK`, chová se jako dřív (" Kč"). Použita v seznamu Dokladů i ve
+  Vydaných fakturách (obě mají vlastní pole Mena).
+- `navrhniShodu` v `lib/bankHelpers.js` teď u dokladu s cizí měnou (pole
+  `Mena` vyplněné a jiné než `CZK`) místo přesné shody čísel jen ověří, že
+  přepočtená Kč částka odpovídá hrubě rozumnému kurzu (mezi 5 a 60 Kč za
+  jednotku cizí měny - s rezervou pokrývá běžné měny jako EUR/USD/GBP), a
+  navíc u cizí měny (na rozdíl od Kč) rovnou vyžaduje shodu jména
+  dodavatele/protistrany - samotná přibližná částka by byla příliš
+  slabý/nespolehlivý signál kvůli širokému možnému rozptylu kurzu. Doklady
+  v Kč (pole Mena prázdné nebo `CZK`) se chovají úplně stejně jako dřív -
+  žádná regrese.
+- Beze změny zůstává: appka po opravě páruje jen doklady, u kterých se
+  poprvé podaří najít odpovídající pohyb (`Navrženo`, ne rovnou
+  `Potvrzeno`) - stejně jako u Kč dokladů čeká na ruční potvrzení účetní.
+
+**Neřešeno touto opravou (vědomě, mimo rozsah hlášeného problému):**
+Přehled (`dashboard.js`) a Export dál sčítají částky dokladů napříč
+firmou/kategorií/měsícem bez ohledu na měnu (u malého počtu drobných
+cizoměnových položek jde o zanedbatelnou nepřesnost, ale principiálně by
+šlo o skládání Kč a cizí měny dohromady) - oprava by vyžadovala buď
+napojení na kurzovní lístek, nebo použití skutečné Kč částky ze
+spárovaného bankovního pohybu jako zdroje pravdy pro souhrny. Zatím
+odloženo, dokud by o to Jan stál.
+
+Ověřeno novým backendovým testem (`test_navrhniShodu_cizi_mena.js` -
+cizoměnový doklad se najde jen se shodou jména a v rozumném rozmezí
+kurzu, CZK chování beze změny) a novým Playwright UI testem
+(`ui_test_doklady_cizi_mena.js` - cizoměnový doklad zobrazuje svou
+skutečnou měnu, CZK doklad dál zobrazuje "Kč") i plnou regresí (31
+backendových + 16 UI testů, žádná regrese). Není potřeba znovu spouštět
+`/api/setup` - jde jen o změnu chování/zobrazení, ne o nové sloupce.
+
+## 36. Smlouvy jako vlastní záložka, AI vytěžení smlouvy a registr příloh (v3.21)
+
+Jan nahlásil: "není vidět všechny údaje ze smlouvy, navrhuji rozšířit
+řádek o chybějící položky, a dále doplnit vytěžení smlouvy AI + zavést
+registr smluv, tedy i s přílohou." Panel Nastavení → Smlouvy skutečně
+uměl zobrazit/upravit jen `Firma/Nazev/Stredisko/Typ/Perioda/Aktivni` -
+`Ocekavana_castka/Platnost_od/Platnost_do/Poznamka` šly nastavit jen při
+založení, pak už appka neuměla ukázat ani upravit. Tři propojené změny:
+
+**A) Smlouvy jako vlastní hlavní záložka.** Appka povýšila Smlouvy z
+podpanelu v Nastavení na samostatnou záložku **„Smlouvy"** v hlavní
+navigaci (`public/index.html`/`app.js`), viditelnou pro role `admin` i
+`ucetni` (stejná viditelnost jako Bankovní výpisy/Export). Skládací řádek
+smlouvy (stejný vzor jako u Dokladů) po rozkliknutí teď ukáže a nechá
+upravit VŠECHNA pole - Název, Firma, Středisko, Typ, Perioda, Očekávaná
+částka, Platnost od/do, Poznámka, Aktivní.
+
+**B) AI vytěžení smlouvy ze souboru.** Nahrání smlouvy appka řeší
+dvoufázově, stejný vzor jako u Dokladů (`netlify/functions/
+smlouvy-upload.js` fáze 1 - bezpečně uloží soubor + založí placeholder se
+`Stav: "Zpracovává se"`; `smlouvy-upload-dokoncit.js` fáze 2 - stáhne
+soubor zpátky z Drive a zavolá Gemini, `lib/gemini.js` →
+`extrahujDataZeSmlouvy`). AI se pokusí odhadnout Typ/Periodu/Očekávanou
+částku/Platnost (objektivně vyčitatelná pole ze skenu/PDF), ale i
+Firmu/Středisko/Název - všechno ale appka vždycky jen PŘEDVYPLNÍ jako
+návrh do běžných editovatelných polí, nikde automaticky nepotvrzuje ani
+jinde nepoužije bez toho, aby si to Jan/účetní otevřeli a zkontrolovali v
+záložce Smlouvy (stejná zásada jako u AI odhadu Firmy/Kategorie u
+Dokladů). Když se AI zpracování nepovede (Gemini dočasně přetížené),
+smlouva zůstává bezpečně jako "Zpracovává se" a jde ji dokončit tlačítkem
+„Dokončit zpracování" bez nutnosti cokoli nahrávat znovu - stejná
+odolnost jako u Dokladů. `lib/gemini.js` appka při té příležitosti
+refaktorovala - společné jádro volání/fallbacku/opakování mezi modely
+(`zavolejGeminiJson`) teď sdílí extrakce Dokladu i Smlouvy, ať appka
+nemá dvě kopie téhle logiky.
+
+**C) Registr příloh - víc souborů na smlouvu.** Nový list
+**„Smlouvy_Prilohy"** (`lib/smlouvyPrilohySchema.js`,
+`netlify/functions/smlouvy-prilohy.js` pro smazání jedné přílohy) appka
+zavedla, protože jedna smlouva má typicky víc souvisejících souborů -
+samotnou smlouvu a pak každoroční vyúčtování zvlášť. V detailu smlouvy je
+teď sekce „Přílohy" se seznamem nahraných souborů a tlačítkem „Přidat
+přílohu" (nahrání dalšího souboru k JIŽ existující smlouvě, bez AI -
+appka jen uloží soubor a přidá řádek do Smlouvy_Prilohy). Smazání celé
+smlouvy appka cascade smaže i všechny její přílohy (appka soubory na
+Disku neodstraňuje, stejná konvence jako u smazání Dokladu). Starší pole
+`Zdrojovy_soubor_URL/Zdrojovy_soubor_ID` na Smlouvě zůstávají jen jako
+LEGACY (appka je novým UI/uploadem už neplní, ale starší ručně vložený
+odkaz appka dál zobrazí, pokud existuje).
+
+Appka po nasazení potřebuje spustit `/api/setup` znovu (viz krok 6 níže) -
+doplní nový list `Smlouvy_Prilohy` a nové sloupce `Stav`/`Nahral_uzivatel`
+do listu `Smlouvy`, nic existujícího se tím nemaže ani nepřepisuje.
+
+Ověřeno novými backendovými testy (`test_gemini_smlouva.js` - AI extrakce
+smlouvy; `test_smlouvy_upload.js` - dvoufázové nahrání včetně selhání a
+opakování fáze 2, přidání přílohy k existující smlouvě, přístupová práva
+k placeholder smlouvě; `test_smlouvy_prilohy.js` - GET /smlouvy vrací i
+přílohy jen viditelných smluv, smazání jedné přílohy i cascade smazání
+všech příloh při smazání celé smlouvy) a novým Playwright UI testem
+(`ui_test_smlouvy_zalozka.js` - nová hlavní záložka nahrazuje starý
+podpanel, detail smlouvy zobrazuje všechna pole, přílohy se zobrazí/dají
+přidat/smazat, placeholder "Zpracovává se" nabídne dokončení zpracování
+místo editace, přepínač sekcí Aktivní/Neaktivní, ruční přidání i nahrání
+s AI) i plnou regresí (34 backendových + 16 UI testů, žádná regrese).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

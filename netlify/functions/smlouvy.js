@@ -7,18 +7,25 @@
  * Bankovních výpisů (netlify/functions/banka.js), protože Smlouvy jsou
  * s bankovními pohyby úzce propojené (viz Bankovni_pohyby.Smlouva_ID).
  *
- * GET    ?firma=Nazev  -> { smlouvy: [...] } smluv dané firmy
- * GET    (bez firma)   -> { smlouvy: [...] } všech smluv viditelných
- *                         uživateli (admin vše, účetní jen firmy, které má
- *                         přiřazené) - používá se v Nastavení pro přehled.
+ * GET    ?firma=Nazev  -> { smlouvy: [...], prilohy: [...] } smluv dané
+ *                         firmy + jejich přílohy (Smlouvy_Prilohy, od
+ *                         v3.21 - viz lib/smlouvyPrilohySchema.js).
+ * GET    (bez firma)   -> totéž pro všechny smlouvy viditelné uživateli
+ *                         (admin vše, účetní jen firmy, které má přiřazené) -
+ *                         používá se v hlavní záložce Smlouvy.
  * POST   { Firma, Nazev, Stredisko?, Typ?, Perioda?, Ocekavana_castka?,
  *          Platnost_od?, Platnost_do?, Zdrojovy_soubor_URL?, Poznamka?,
- *          Aktivni? } -> založí novou smlouvu (Aktivni výchozí "ANO")
+ *          Aktivni? } -> založí novou smlouvu ručně, bez souboru/AI
+ *          (Aktivni výchozí "ANO"). Založení PŘES nahraný soubor + AI
+ *          vytěžení appka řeší samostatně, viz smlouvy-upload.js a
+ *          smlouvy-upload-dokoncit.js.
  * PATCH  { id, zmeny } -> úprava libovolných polí smlouvy
  * DELETE ?id=X -> smazání smlouvy; appka zároveň "odpojí" bankovní pohyby
  *          napojené na smazanou smlouvu (Bankovni_pohyby.Smlouva_ID == id),
- *          vrátí je do stavu "Nespárováno" - stejný vzor jako u smazání
- *          Dokladu (viz netlify/functions/doklady.js).
+ *          vrátí je do stavu "Nespárováno" (stejný vzor jako u smazání
+ *          Dokladu, viz netlify/functions/doklady.js), a smaže i všechny
+ *          přílohy smlouvy ze Smlouvy_Prilohy (appka soubory samotné na
+ *          Drive neodstraňuje, stejná konvence jako u smazání Dokladu).
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -53,13 +60,37 @@ exports.handler = async (event) => {
       const firma = (event.queryStringParameters || {}).firma;
       const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy');
 
+      // Placeholder smlouva "Zpracovává se" ještě nemá potvrzenou Firmu -
+      // appka ji přesto appka ukáže tomu, kdo ji nahrál (nebo adminovi),
+      // stejná logika jako u placeholder Dokladů (viz doklady.js).
+      const viditelnostSmlouvy = (r) =>
+        (r.Firma && maPristupKFirme(uzivatel, r.Firma)) ||
+        (!r.Firma && (uzivatel.role === 'admin' || r.Nahral_uzivatel === uzivatel.jmeno));
+
+      let viditelne;
       if (firma) {
         if (!maPristupKFirme(uzivatel, firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
-        return json(200, { smlouvy: rows.filter((r) => r.Firma === firma) });
+        viditelne = rows.filter((r) => r.Firma === firma || (!r.Firma && viditelnostSmlouvy(r)));
+      } else {
+        viditelne = rows.filter(viditelnostSmlouvy);
       }
 
-      const viditelne = rows.filter((r) => maPristupKFirme(uzivatel, r.Firma));
-      return json(200, { smlouvy: viditelne });
+      // Přílohy appka vrací rovnou spolu se smlouvami (ne jako samostatný
+      // dotaz na smlouvu) - frontend si je seskupí podle Smlouva_ID lokálně,
+      // stejný vzor jako u ostatních 1:N vztahů v appce (např. propojený
+      // doklad u bankovního pohybu). List Smlouvy_Prilohy nemusí ještě
+      // existovat na starší appce bez znovu spuštěného /api/setup.
+      let prilohy = [];
+      try {
+        const viditelnaId = new Set(viditelne.map((r) => r.ID));
+        const { rows: prilohyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy_Prilohy');
+        prilohy = prilohyVsechny.filter((p) => viditelnaId.has(p.Smlouva_ID));
+      } catch (e) {
+        // List Smlouvy_Prilohy zatím neexistuje - appka jen vrátí prázdné
+        // pole, ať appka nespadne, dokud se znovu nespustí /api/setup.
+      }
+
+      return json(200, { smlouvy: viditelne, prilohy });
     }
 
     if (event.httpMethod === 'POST') {
@@ -130,6 +161,24 @@ exports.handler = async (event) => {
       } catch (e) {
         // List Bankovni_pohyby nemusí existovat - smazání smlouvy se kvůli
         // tomu nemá zastavit.
+      }
+
+      // Cascade (od v3.21): appka smaže i všechny přílohy smlouvy ze
+      // Smlouvy_Prilohy (soubory samotné appka na Drive neodstraňuje,
+      // stejná konvence jako u smazání Dokladu). Maže od NEJVYŠŠÍHO čísla
+      // řádku k nejnižšímu, ať mazání jednoho řádku neposune čísla řádků
+      // těch, které appka teprve má smazat.
+      try {
+        const { rows: prilohyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy_Prilohy');
+        const prilohyKSmazani = prilohyVsechny
+          .filter((p) => p.Smlouva_ID === id)
+          .sort((a, b) => b._row - a._row);
+        for (const priloha of prilohyKSmazani) {
+          await deleteRow(sheets, spreadsheetId, 'Smlouvy_Prilohy', priloha._row);
+        }
+      } catch (e) {
+        // List Smlouvy_Prilohy nemusí existovat (starší appka bez znovu
+        // spuštěného /api/setup) - smazání smlouvy se kvůli tomu nemá zastavit.
       }
 
       return json(200, { ok: true });

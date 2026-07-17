@@ -114,6 +114,7 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .stav-schvaleno { background: #e8f7f0; color: var(--barva-uspech); }
 .stav-duplicita { background: #fdecea; color: var(--barva-chyba); }
 .stav-zpracovava { background: #eaf0ff; color: var(--barva-primarni); }
+.stav-neaktivni { background: #dde1e8; color: var(--barva-text-tlumena); }
 
 /* Přepínač sekcí (od v3.7) - Doklady: Ke schválení / Schválené. Jde o
    výběr JEDNOHO ze dvou pohledů na stejná data (ne dvě nezávislá
@@ -148,6 +149,26 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .doklad-radek.radek-stav-schvaleno { background: #f1faf6; border-left: 3px solid var(--barva-uspech); }
 .doklad-radek.radek-stav-duplicita { background: #fdf1f0; border-left: 3px solid var(--barva-chyba); }
 .doklad-radek.radek-stav-zpracovava { background: #f0f3ff; border-left: 3px solid var(--barva-primarni); }
+
+/* Smlouvy (registr trvalých příkazů, od v3.21) - stejný skládací vzor jako
+   Doklady/Bankovní výpisy výše (.doklad-radek/.banka-radek), samostatná
+   sada tříd podle zavedené konvence appky (každý seznam má vlastní
+   pojmenování, i když je vzhled shodný). */
+.smlouva-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; overflow: hidden; font-size: 13px; }
+.smlouva-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
+.smlouva-radek-hlava:hover { filter: brightness(0.97); }
+.smlouva-radek-hlava .nazev-smlouvy { font-weight: 600; }
+.smlouva-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
+.smlouva-radek.rozbaleno .smlouva-radek-detail { display: block; }
+.smlouva-radek.rozbaleno .smlouva-sipka { transform: rotate(90deg); }
+.smlouva-sipka { display: inline-block; transition: transform 0.15s; }
+.smlouva-radek-detail .radek-akci { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.smlouva-radek.radek-stav-zpracovava { background: #f0f3ff; border-left: 3px solid var(--barva-primarni); }
+.smlouva-radek.radek-stav-neaktivni { background: #f4f5f7; border-left: 3px solid var(--barva-text-tlumena); }
+.priloha-smlouvy-seznam { list-style: none; padding: 0; margin: 6px 0; font-size: 12.5px; }
+.priloha-smlouvy-seznam li { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--barva-hranice); }
+.priloha-smlouvy-seznam li:last-child { border-bottom: none; }
+.priloha-smlouvy-seznam .smazat-prilohu { margin-left: auto; }
 
 .mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .polozka-souhrn { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 13px; }
@@ -287,11 +308,14 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .badge-navrzeno,
 :root[data-motiv="tmavy"] .stav-zpracovava,
 :root[data-motiv="tmavy"] .doklad-radek.radek-stav-zpracovava,
+:root[data-motiv="tmavy"] .smlouva-radek.radek-stav-zpracovava,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-navrzeno { background: #22314f; color: var(--barva-primarni-tmava); }
 :root[data-motiv="tmavy"] .stav-ke-kontrole,
 :root[data-motiv="tmavy"] .doklad-radek.radek-stav-ke-kontrole,
 :root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-neuhrazeno { background: #3a3220; color: var(--barva-varovani); }
 :root[data-motiv="tmavy"] .badge-bezdokladu,
+:root[data-motiv="tmavy"] .stav-neaktivni,
+:root[data-motiv="tmavy"] .smlouva-radek.radek-stav-neaktivni,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-bezdokladu { background: #2a2e38; color: var(--barva-text-tlumena); }
 :root[data-motiv="tmavy"] .badge-trvalyprikaz,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-trvalyprikaz { background: #2f2440; color: #c6a6f5; }

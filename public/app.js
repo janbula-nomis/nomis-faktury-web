@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.19 – 2026-07-17';
+const APP_VERZE = 'v3.21 – 2026-07-17';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -160,13 +160,14 @@ function zobrazApp() {
   const jeUcetniNeboAdmin = stav.role === 'admin' || stav.role === 'ucetni';
   document.getElementById('nav-nastaveni').classList.toggle('skryto', !jeAdmin);
   document.getElementById('nav-banka').classList.toggle('skryto', !jeUcetniNeboAdmin);
+  document.getElementById('nav-smlouvy').classList.toggle('skryto', !jeUcetniNeboAdmin);
   document.getElementById('nav-export').classList.toggle('skryto', !jeUcetniNeboAdmin);
 
   prepniZalozku('nahrat');
 }
 
 function prepniZalozku(nazev) {
-  ['nahrat', 'doklady', 'prehled', 'vydane-faktury', 'banka', 'export', 'nastaveni'].forEach((n) => {
+  ['nahrat', 'doklady', 'prehled', 'vydane-faktury', 'banka', 'smlouvy', 'export', 'nastaveni'].forEach((n) => {
     document.getElementById('zalozka-' + n).classList.toggle('skryto', n !== nazev);
   });
   document.querySelectorAll('nav.zalozky button').forEach((btn) => {
@@ -176,13 +177,13 @@ function prepniZalozku(nazev) {
   if (nazev === 'prehled') nactiPrehled();
   if (nazev === 'vydane-faktury') inicializujZalozkuVydaneFaktury();
   if (nazev === 'banka') inicializujZalozkuBanka();
+  if (nazev === 'smlouvy') nactiSmlouvy();
   if (nazev === 'export') inicializujZalozkuExport();
   if (nazev === 'nastaveni') {
     nactiUzivatele();
     nactiFirmy();
     nactiAuta();
     nactiUcty();
-    nactiSmlouvyNastaveni();
   }
 }
 
@@ -424,7 +425,11 @@ async function nactiDoklady() {
 
 function prepniDokladySekci(sekce) {
   dokladySekce = sekce;
-  document.querySelectorAll('.prepinac-sekce-tlacitko').forEach((btn) => {
+  // Scoped jen na tuhle záložku (#zalozka-doklady) - od v3.21 mají stejnou
+  // CSS třídu ".prepinac-sekce-tlacitko" i přepínače v záložce Smlouvy
+  // (Aktivní/Neaktivní), obecný dotaz přes celou stránku by jim omylem
+  // sebral zvýraznění výběru.
+  document.querySelectorAll('#zalozka-doklady .prepinac-sekce-tlacitko').forEach((btn) => {
     btn.classList.toggle('aktivni', btn.dataset.sekce === sekce);
   });
   vykresliDoklady(dokladySeznamAktualni);
@@ -434,10 +439,14 @@ function prepniDokladySekci(sekce) {
 // se sebemenší překlep (velká/malá písmena, mezera navíc, „&“ vs. „and“...)
 // projevil jako appka nenajde odpovídající doklady při párování bankovního
 // výpisu (banka.js hledá kandidáty přes přesnou shodu názvu firmy).
-function moznostiFirmy(vybranaFirma) {
-  const zname = firmyProVyberDokladu.includes(vybranaFirma);
+// Vytáhnuto (v3.21) do vlastní funkce se seznamem firem jako parametrem -
+// stejnou logiku appka teď potřebuje i pro výběr Firmy u Smlouvy (viz
+// vytvorDetailSmlouva níž), který má vlastní seznam firem
+// (firmyProVyberSmlouvy), ne firmyProVyberDokladu.
+function moznostiFirmySeznam(seznamFirem, vybranaFirma) {
+  const zname = seznamFirem.includes(vybranaFirma);
   let html = '<option value="">— vyberte firmu —</option>';
-  firmyProVyberDokladu.forEach((nazev) => {
+  seznamFirem.forEach((nazev) => {
     const oznaceno = nazev === vybranaFirma ? ' selected' : '';
     html += '<option value="' + escapeAttr(nazev) + '"' + oznaceno + '>' + escapeHtml(nazev) + '</option>';
   });
@@ -445,6 +454,10 @@ function moznostiFirmy(vybranaFirma) {
     html += '<option value="' + escapeAttr(vybranaFirma) + '" selected>' + escapeHtml(vybranaFirma) + ' (není v seznamu Firmy)</option>';
   }
   return html;
+}
+
+function moznostiFirmy(vybranaFirma) {
+  return moznostiFirmySeznam(firmyProVyberDokladu, vybranaFirma);
 }
 
 // Číselník Středisko - konkrétní auta a nemovitosti skupiny Nomis Group
@@ -629,7 +642,7 @@ function vytvorRadekDoklad(d) {
       escapeHtml(d.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (d.Dodavatel || '(bez dodavatele)')) +
     '</span>' +
     '<span>' + escapeHtml(d.Datum_dokladu || '') + '</span>' +
-    '<span class="castka">' + (d.Stav === 'Zpracovává se' ? '' : formatCastka(d.Castka)) + '</span>';
+    '<span class="castka">' + (d.Stav === 'Zpracovává se' ? '' : formatCastkaSMenou(d.Castka, d.Mena)) + '</span>';
 
   const detail = document.createElement('div');
   detail.className = 'doklad-radek-detail';
@@ -952,6 +965,19 @@ function formatCastka(hodnota) {
   return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 2 }).format(parsujCastkuZListu(hodnota)) + ' Kč';
 }
 
+// Doklady i Vydané faktury mají vlastní pole Mena (appka u dokladu umí
+// z účtenky vytáhnout i cizí měnu, např. EUR u zahraničních účtenek - viz
+// gemini.js) - formatCastka() vždycky připojovala "Kč" bez ohledu na
+// skutečnou měnu dokladu, takže cizoměnová účtenka (např. "9.43 EUR") se
+// v seznamu chybně zobrazovala jako "9,43 Kč". Tahle funkce použije
+// skutečnou měnu dokladu, a jen když je prázdná/CZK, chová se jako dřív.
+function formatCastkaSMenou(hodnota, mena) {
+  const cislo = new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 2 }).format(parsujCastkuZListu(hodnota));
+  const menaText = String(mena || '').trim();
+  if (!menaText || menaText.toUpperCase() === 'CZK') return cislo + ' Kč';
+  return cislo + ' ' + menaText;
+}
+
 // ---------- EXPORT (přehledy pro účetní, od v3.8) ----------
 // Zatím jen přehled na obrazovce (souhrn nákladů podle firmy, filtrovaný
 // firmou/měsícem/rokem/střediskem) - stahovatelný export přímo ve formátu
@@ -1170,7 +1196,7 @@ function vykresliVydaneFaktury() {
       '<td data-label="Zákazník">' + escapeHtml(f.Zakaznik || '') + '</td>' +
       '<td data-label="Vystaveno">' + escapeHtml(f.Datum_vystaveni || '') + '</td>' +
       '<td data-label="Splatnost">' + escapeHtml(f.Datum_splatnosti || '') + '</td>' +
-      '<td data-label="Částka">' + formatCastka(f.Castka) + '</td>' +
+      '<td data-label="Částka">' + formatCastkaSMenou(f.Castka, f.Mena) + '</td>' +
       '<td data-label="Stav">' + escapeHtml(vfStavText(f)) + '</td>' +
       '<td data-label="Akce"></td>';
 
@@ -2437,21 +2463,39 @@ async function smazUcet(row, cisloUctu, tlacitko) {
   }
 }
 
-// ---------- ADMIN: SMLOUVY (trvalé příkazy, od v3.19) ----------
+// ---------- SMLOUVY (trvalé příkazy, od v3.19) ----------
+// Od v3.21 (Janovo zadání "není vidět všechny údaje ze smlouvy... doplnit
+// vytěžení smlouvy AI + zavést registr smluv, tedy i s přílohou") appka
+// Smlouvy povýšila z podpanelu v Nastavení na vlastní hlavní záložku
+// (viditelnou pro admin i účetní, stejně jako Bankovní výpisy/Export) a
+// přidala: (1) VŠECHNA pole smlouvy v detailu řádku (dřív šlo z appky
+// upravit jen Firma/Název/Středisko/Typ/Perioda/Aktivní, ne Ocekavana_castka/
+// Platnost_od/Platnost_do/Poznámka), (2) nahrání smlouvy se soborem + AI
+// vytěžení údajů (stejný dvoufázový vzor jako u Dokladů, viz
+// netlify/functions/smlouvy-upload.js/-dokoncit.js), (3) registr příloh -
+// jedna smlouva může mít víc souborů (smlouva samotná + každoroční
+// vyúčtování), viz lib/smlouvyPrilohySchema.js a netlify/functions/
+// smlouvy-prilohy.js.
 
-async function nactiSmlouvyNastaveni() {
+let smlouvySeznamAktualni = [];
+let prilohySeznamAktualni = [];
+let smlouvySekce = 'aktivni';
+let firmyProVyberSmlouvy = [];
+
+async function nactiSmlouvy() {
   const nacitani = document.getElementById('smlouvy-nacitani');
+  const kontejner = document.getElementById('smlouvy-seznam');
   nacitani.classList.remove('skryto');
   nacitani.textContent = 'Načítám…';
+  kontejner.innerHTML = '';
 
   try {
     const [dataSmlouvy, dataFirmy] = await Promise.all([
       zavolejApi('/smlouvy', { method: 'GET' }),
       zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
     ]);
-    const firmyDostupne = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
-    nacitani.classList.add('skryto');
-    vyplnVyberFirem('nova-sm-firma', firmyDostupne);
+    firmyProVyberSmlouvy = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
+    vyplnVyberFirem('nova-sm-firma', firmyProVyberSmlouvy);
     if (!document.getElementById('nova-sm-stredisko').dataset.naplneno) {
       document.getElementById('nova-sm-stredisko').innerHTML = moznostiStrediska('');
       document.getElementById('nova-sm-stredisko').dataset.naplneno = '1';
@@ -2464,83 +2508,444 @@ async function nactiSmlouvyNastaveni() {
       document.getElementById('nova-sm-perioda').innerHTML = moznostiPeriodaSmlouvy('');
       document.getElementById('nova-sm-perioda').dataset.naplneno = '1';
     }
-    vykresliSmlouvyNastaveni(dataSmlouvy.smlouvy || []);
+    nacitani.classList.add('skryto');
+    vykresliSmlouvy(dataSmlouvy.smlouvy || [], dataSmlouvy.prilohy || []);
   } catch (e) {
     nacitani.textContent = 'Nepodařilo se načíst smlouvy: ' + e.message;
   }
 }
 
-function vykresliSmlouvyNastaveni(smlouvy) {
-  const telo = document.getElementById('tabulka-smlouvy-telo');
-  telo.innerHTML = '';
+function prepniSmlouvySekci(sekce) {
+  smlouvySekce = sekce;
+  document.getElementById('sm-sekce-aktivni').classList.toggle('aktivni', sekce === 'aktivni');
+  document.getElementById('sm-sekce-neaktivni').classList.toggle('aktivni', sekce === 'neaktivni');
+  vykresliSmlouvy(smlouvySeznamAktualni, prilohySeznamAktualni);
+}
 
-  smlouvy.forEach((s) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td data-label="Firma"></td>' +
-      '<td data-label="Název"></td>' +
-      '<td data-label="Středisko"></td>' +
-      '<td data-label="Typ"></td>' +
-      '<td data-label="Perioda"></td>' +
-      '<td data-label="Aktivní"></td>' +
-      '<td data-label="Akce"></td>';
+// Smlouva "Zpracovává se" (placeholder hned po nahrání souboru, AI vytěžení
+// ještě neproběhlo) appka počítá jako "aktivní" (Aktivni u ní defaultuje na
+// ANO, viz smlouvy-upload.js) - jinak čerstvě nahraná smlouva při běžném
+// pohledu "Aktivní" zmizí, dokud appka nedokončí zpracování.
+function jeSmlouvaNeaktivni(s) {
+  return s.Stav !== 'Zpracovává se' && String(s.Aktivni || 'ANO').trim() === 'NE';
+}
 
-    tr.children[0].textContent = s.Firma || '';
+function stavTridaSmlouva(s) {
+  if (s.Stav === 'Zpracovává se') return 'stav-zpracovava';
+  if (jeSmlouvaNeaktivni(s)) return 'stav-neaktivni';
+  return 'stav-schvaleno';
+}
 
-    const vstupNazev = document.createElement('input');
-    vstupNazev.type = 'text';
-    vstupNazev.value = s.Nazev || '';
-    vstupNazev.style.fontSize = '13px';
-    tr.children[1].appendChild(vstupNazev);
+function stavTextSmlouva(s) {
+  if (s.Stav === 'Zpracovává se') return 'Zpracovává se';
+  if (jeSmlouvaNeaktivni(s)) return 'Neaktivní';
+  return 'Aktivní';
+}
 
-    const vyberStredisko = document.createElement('select');
-    vyberStredisko.innerHTML = moznostiStrediska(s.Stredisko || '');
-    vyberStredisko.style.fontSize = '13px';
-    tr.children[2].appendChild(vyberStredisko);
+function vykresliSmlouvy(smlouvy, prilohy) {
+  smlouvySeznamAktualni = smlouvy;
+  prilohySeznamAktualni = prilohy;
+  const kontejner = document.getElementById('smlouvy-seznam');
 
-    const vyberTyp = document.createElement('select');
-    vyberTyp.innerHTML = moznostiTypSmlouvy(s.Typ || '');
-    vyberTyp.style.fontSize = '13px';
-    tr.children[3].appendChild(vyberTyp);
+  const neaktivniPocet = smlouvy.filter(jeSmlouvaNeaktivni).length;
+  document.getElementById('sm-sekce-aktivni').textContent = 'Aktivní (' + (smlouvy.length - neaktivniPocet) + ')';
+  document.getElementById('sm-sekce-neaktivni').textContent = 'Neaktivní (' + neaktivniPocet + ')';
 
-    const vyberPerioda = document.createElement('select');
-    vyberPerioda.innerHTML = moznostiPeriodaSmlouvy(s.Perioda || '');
-    vyberPerioda.style.fontSize = '13px';
-    tr.children[4].appendChild(vyberPerioda);
+  const filtrovane = smlouvy.filter((s) => (smlouvySekce === 'neaktivni' ? jeSmlouvaNeaktivni(s) : !jeSmlouvaNeaktivni(s)));
+  const serazene = filtrovane.slice().sort((a, b) => (a.Nazev || '').localeCompare(b.Nazev || '', 'cs'));
 
-    const vyberAktivni = document.createElement('select');
-    vyberAktivni.innerHTML =
-      '<option value="ANO"' + (String(s.Aktivni || 'ANO').trim() !== 'NE' ? ' selected' : '') + '>Ano</option>' +
-      '<option value="NE"' + (String(s.Aktivni || '').trim() === 'NE' ? ' selected' : '') + '>Ne</option>';
-    vyberAktivni.style.fontSize = '13px';
-    tr.children[5].appendChild(vyberAktivni);
+  kontejner.innerHTML = '';
+  serazene.forEach((s) => {
+    const prilohyTeto = prilohy.filter((p) => p.Smlouva_ID === s.ID);
+    kontejner.appendChild(vytvorRadekSmlouva(s, prilohyTeto));
+  });
 
-    const tlacitkoUlozit = document.createElement('button');
-    tlacitkoUlozit.className = 'maly sekundarni';
-    tlacitkoUlozit.textContent = 'Uložit';
-    tlacitkoUlozit.onclick = () => ulozSmlouvu(s.ID, {
-      Nazev: vstupNazev.value.trim(),
-      Stredisko: vyberStredisko.value,
-      Typ: vyberTyp.value,
-      Perioda: vyberPerioda.value,
-      Aktivni: vyberAktivni.value,
-    }, tlacitkoUlozit);
-    tr.children[6].appendChild(tlacitkoUlozit);
+  if (serazene.length === 0) {
+    kontejner.innerHTML = '<div class="nacitani">' +
+      (smlouvySekce === 'neaktivni' ? 'Žádné neaktivní smlouvy.' : 'Zatím žádné aktivní smlouvy.') +
+      '</div>';
+  }
+}
+
+// Skládací řádek Smlouvy - stejný vzor jako vytvorRadekDoklad výš.
+function vytvorRadekSmlouva(s, prilohyTeto) {
+  const radek = document.createElement('div');
+  radek.className = 'smlouva-radek radek-' + stavTridaSmlouva(s);
+
+  const hlava = document.createElement('div');
+  hlava.className = 'smlouva-radek-hlava';
+  hlava.innerHTML =
+    '<span class="smlouva-sipka">▶</span>' +
+    '<span class="stav-chip ' + stavTridaSmlouva(s) + '">' + escapeHtml(stavTextSmlouva(s)) + '</span>' +
+    '<span class="nazev-smlouvy">' +
+      escapeHtml(s.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (s.Nazev || '(bez názvu)')) +
+    '</span>' +
+    '<span>' + escapeHtml(s.Firma || '') + '</span>' +
+    '<span>' + escapeHtml(s.Stredisko || '') + '</span>' +
+    '<span class="castka">' + (s.Ocekavana_castka !== undefined && s.Ocekavana_castka !== '' ? formatCastka(s.Ocekavana_castka) : '') + '</span>';
+
+  const detail = document.createElement('div');
+  detail.className = 'smlouva-radek-detail';
+
+  hlava.addEventListener('click', () => {
+    radek.classList.toggle('rozbaleno');
+    if (radek.classList.contains('rozbaleno') && !radek.dataset.naplneno) {
+      radek.dataset.naplneno = '1';
+      detail.appendChild(vytvorDetailSmlouva(s, prilohyTeto));
+    }
+  });
+
+  radek.appendChild(hlava);
+  radek.appendChild(detail);
+  return radek;
+}
+
+// Sekce příloh v detailu smlouvy (od v3.21) - seznam souborů (smlouva samotná
+// + případné roční vyúčtování apod.) s možností přidat další/smazat
+// jednotlivou přílohu, viz netlify/functions/smlouvy-upload.js (s
+// smlouva_id) a smlouvy-prilohy.js.
+function vytvorPrilohySekce(s, prilohyTeto) {
+  const wrap = document.createElement('div');
+  wrap.style.marginTop = '14px';
+
+  const nadpis = document.createElement('div');
+  nadpis.innerHTML = '<strong>Přílohy</strong>';
+  wrap.appendChild(nadpis);
+
+  const seznam = document.createElement('ul');
+  seznam.className = 'priloha-smlouvy-seznam';
+  prilohyTeto.forEach((p) => {
+    const li = document.createElement('li');
+    const odkaz = document.createElement('a');
+    odkaz.href = p.Zdrojovy_soubor_URL || '#';
+    odkaz.target = '_blank';
+    odkaz.rel = 'noopener';
+    odkaz.textContent = p.Nazev_souboru || '(soubor bez názvu)';
+    li.appendChild(odkaz);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni smazat-prilohu';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.onclick = () => smazPrilohuSmlouvy(p.ID, p.Nazev_souboru, tlacitkoSmazat);
+    li.appendChild(tlacitkoSmazat);
+
+    seznam.appendChild(li);
+  });
+  wrap.appendChild(seznam);
+
+  if (prilohyTeto.length === 0) {
+    const prazdno = document.createElement('div');
+    prazdno.className = 'popis';
+    prazdno.textContent = 'Zatím žádné přílohy.';
+    wrap.appendChild(prazdno);
+  }
+
+  // Starší (legacy) ručně vložená URL appka zobrazí, pokud existuje, i když
+  // ji nové UI/upload už nevyplňuje (viz lib/smlouvySchema.js).
+  if (s.Zdrojovy_soubor_URL) {
+    const legacy = document.createElement('div');
+    legacy.className = 'popis';
+    legacy.innerHTML = 'Starší odkaz na soubor: <a href="' + escapeAttr(s.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>';
+    wrap.appendChild(legacy);
+  }
+
+  const tlacitkoPridat = document.createElement('button');
+  tlacitkoPridat.className = 'maly sekundarni';
+  tlacitkoPridat.style.marginTop = '6px';
+  tlacitkoPridat.textContent = '📁 Přidat přílohu';
+  const poleSoubor = document.createElement('input');
+  poleSoubor.type = 'file';
+  poleSoubor.accept = 'image/*,application/pdf';
+  poleSoubor.className = 'skryto';
+  poleSoubor.addEventListener('change', (e) => {
+    const soubor = e.target.files[0];
+    poleSoubor.value = '';
+    if (soubor) pridatPrilohuKSmlouve(s.ID, soubor, tlacitkoPridat);
+  });
+  tlacitkoPridat.addEventListener('click', () => poleSoubor.click());
+  wrap.appendChild(tlacitkoPridat);
+  wrap.appendChild(poleSoubor);
+
+  return wrap;
+}
+
+function vytvorDetailSmlouva(s, prilohyTeto) {
+  const wrap = document.createElement('div');
+
+  // Smlouva ve fázi 1 (soubor uložený, AI zpracování ještě neproběhlo/se
+  // nepovedlo) - appka místo editace prázdných polí rovnou nabídne
+  // dokončení zpracování (stejný vzor jako u Dokladu, viz vytvorDetailDoklad).
+  if (s.Stav === 'Zpracovává se') {
+    const info = document.createElement('div');
+    info.className = 'zprava info';
+    info.textContent =
+      'Soubor je bezpečně uložený, AI zpracování údajů ještě neproběhlo (nebo se dřív nepovedlo kvůli ' +
+      'dočasnému přetížení). Dokončete ho tlačítkem níž - nic nemusíte nahrávat znovu.';
+    wrap.appendChild(info);
+
+    const akce = document.createElement('div');
+    akce.className = 'radek-akci';
+    const tlacitkoDokoncit = document.createElement('button');
+    tlacitkoDokoncit.className = 'maly';
+    tlacitkoDokoncit.textContent = 'Dokončit zpracování';
+    tlacitkoDokoncit.onclick = () => dokoncitZpracovaniSmlouvy(s.ID, tlacitkoDokoncit);
+    akce.appendChild(tlacitkoDokoncit);
 
     const tlacitkoSmazat = document.createElement('button');
     tlacitkoSmazat.className = 'maly sekundarni';
     tlacitkoSmazat.textContent = 'Smazat';
-    tlacitkoSmazat.style.marginLeft = '6px';
-    tlacitkoSmazat.onclick = () => smazSmlouvu(s.ID, s.Nazev, tlacitkoSmazat);
-    tr.children[6].appendChild(tlacitkoSmazat);
+    tlacitkoSmazat.onclick = () => smazSmlouvu(s.ID, s.Nazev || '(bez názvu)', tlacitkoSmazat);
+    akce.appendChild(tlacitkoSmazat);
+    wrap.appendChild(akce);
 
-    telo.appendChild(tr);
-  });
+    wrap.appendChild(vytvorPrilohySekce(s, prilohyTeto));
+    return wrap;
+  }
 
-  if (smlouvy.length === 0) {
-    telo.innerHTML = '<tr><td colspan="7" class="nacitani">Zatím žádné smlouvy.</td></tr>';
+  // AI vytěžené (nebo ručně zadané) údaje appka ukazuje jako běžně
+  // editovatelná pole - Jan si je zkontroluje/opraví a uloží, appka žádný
+  // odhad AI nikdy sama nepotvrzuje/nepoužije jinde bez týhle kontroly.
+  const labelNazev = document.createElement('label');
+  labelNazev.textContent = 'Název';
+  const vstupNazev = document.createElement('input');
+  vstupNazev.type = 'text';
+  vstupNazev.value = s.Nazev || '';
+  wrap.appendChild(labelNazev);
+  wrap.appendChild(vstupNazev);
+
+  const labelFirma = document.createElement('label');
+  labelFirma.textContent = 'Firma';
+  const vstupFirma = document.createElement('select');
+  vstupFirma.innerHTML = moznostiFirmySeznam(firmyProVyberSmlouvy, s.Firma || '');
+  wrap.appendChild(labelFirma);
+  wrap.appendChild(vstupFirma);
+
+  const labelStredisko = document.createElement('label');
+  labelStredisko.textContent = 'Středisko';
+  const vstupStredisko = document.createElement('select');
+  vstupStredisko.innerHTML = moznostiStrediska(s.Stredisko || '');
+  wrap.appendChild(labelStredisko);
+  wrap.appendChild(vstupStredisko);
+
+  const labelTyp = document.createElement('label');
+  labelTyp.textContent = 'Typ';
+  const vstupTyp = document.createElement('select');
+  vstupTyp.innerHTML = moznostiTypSmlouvy(s.Typ || '');
+  wrap.appendChild(labelTyp);
+  wrap.appendChild(vstupTyp);
+
+  const labelPerioda = document.createElement('label');
+  labelPerioda.textContent = 'Perioda';
+  const vstupPerioda = document.createElement('select');
+  vstupPerioda.innerHTML = moznostiPeriodaSmlouvy(s.Perioda || '');
+  wrap.appendChild(labelPerioda);
+  wrap.appendChild(vstupPerioda);
+
+  const labelCastka = document.createElement('label');
+  labelCastka.textContent = 'Očekávaná částka';
+  const vstupCastka = document.createElement('input');
+  vstupCastka.type = 'number';
+  vstupCastka.step = '0.01';
+  vstupCastka.value = s.Ocekavana_castka !== undefined && s.Ocekavana_castka !== '' ? parsujCastkuZListu(s.Ocekavana_castka) : '';
+  wrap.appendChild(labelCastka);
+  wrap.appendChild(vstupCastka);
+
+  const labelOd = document.createElement('label');
+  labelOd.textContent = 'Platnost od';
+  const vstupOd = document.createElement('input');
+  vstupOd.type = 'date';
+  vstupOd.value = s.Platnost_od || '';
+  wrap.appendChild(labelOd);
+  wrap.appendChild(vstupOd);
+
+  const labelDo = document.createElement('label');
+  labelDo.textContent = 'Platnost do';
+  const vstupDo = document.createElement('input');
+  vstupDo.type = 'date';
+  vstupDo.value = s.Platnost_do || '';
+  wrap.appendChild(labelDo);
+  wrap.appendChild(vstupDo);
+
+  const labelPoznamka = document.createElement('label');
+  labelPoznamka.textContent = 'Poznámka';
+  const vstupPoznamka = document.createElement('input');
+  vstupPoznamka.type = 'text';
+  vstupPoznamka.value = s.Poznamka || '';
+  wrap.appendChild(labelPoznamka);
+  wrap.appendChild(vstupPoznamka);
+
+  const labelAktivni = document.createElement('label');
+  labelAktivni.style.display = 'flex';
+  labelAktivni.style.alignItems = 'center';
+  labelAktivni.style.gap = '8px';
+  const vstupAktivni = document.createElement('input');
+  vstupAktivni.type = 'checkbox';
+  vstupAktivni.checked = String(s.Aktivni || 'ANO').trim() !== 'NE';
+  labelAktivni.appendChild(vstupAktivni);
+  labelAktivni.appendChild(document.createTextNode('Aktivní'));
+  wrap.appendChild(labelAktivni);
+
+  function ziskejZmeny() {
+    return {
+      Nazev: vstupNazev.value.trim(),
+      Firma: vstupFirma.value.trim(),
+      Stredisko: vstupStredisko.value.trim(),
+      Typ: vstupTyp.value.trim(),
+      Perioda: vstupPerioda.value.trim(),
+      Ocekavana_castka: vstupCastka.value,
+      Platnost_od: vstupOd.value,
+      Platnost_do: vstupDo.value,
+      Poznamka: vstupPoznamka.value.trim(),
+      Aktivni: vstupAktivni.checked ? 'ANO' : 'NE',
+    };
+  }
+
+  const akce = document.createElement('div');
+  akce.className = 'radek-akci';
+
+  const tlacitkoUlozit = document.createElement('button');
+  tlacitkoUlozit.className = 'maly sekundarni';
+  tlacitkoUlozit.textContent = 'Uložit';
+  tlacitkoUlozit.onclick = () => ulozSmlouvu(s.ID, ziskejZmeny(), tlacitkoUlozit);
+  akce.appendChild(tlacitkoUlozit);
+
+  const tlacitkoSmazat = document.createElement('button');
+  tlacitkoSmazat.className = 'maly sekundarni';
+  tlacitkoSmazat.textContent = 'Smazat';
+  tlacitkoSmazat.onclick = () => smazSmlouvu(s.ID, s.Nazev || '(bez názvu)', tlacitkoSmazat);
+  akce.appendChild(tlacitkoSmazat);
+
+  wrap.appendChild(akce);
+  wrap.appendChild(vytvorPrilohySekce(s, prilohyTeto));
+
+  return wrap;
+}
+
+// ---------- NAHRÁVÁNÍ SMLOUVY (dvoufázově, stejný vzor jako Doklady - viz
+// pripravSouborKNahrani/zmensiObrazek/souborNaBase64 výš, znovu použité) ----------
+
+let vybranySouborSmlouva = null;
+
+async function zpracujVybranySouborSmlouva(soubor) {
+  const zprava = document.getElementById('sm-nahrat-zprava');
+  const info = document.getElementById('sm-vybrany-soubor-info');
+  zprava.innerHTML = '';
+  document.getElementById('sm-tlacitko-nahrat').disabled = true;
+
+  if (!soubor) {
+    vybranySouborSmlouva = null;
+    info.textContent = '';
+    return;
+  }
+
+  try {
+    vybranySouborSmlouva = await pripravSouborKNahrani(soubor);
+    info.textContent = 'Vybráno: ' + soubor.name;
+    document.getElementById('sm-tlacitko-nahrat').disabled = false;
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">Soubor se nepodařilo zpracovat: ' + escapeHtml(e.message) + '</div>';
   }
 }
+
+async function nahratSmlouvu() {
+  const zprava = document.getElementById('sm-nahrat-zprava');
+  const tlacitko = document.getElementById('sm-tlacitko-nahrat');
+  if (!vybranySouborSmlouva) return;
+
+  tlacitko.disabled = true;
+  zprava.innerHTML = '<div class="zprava">Nahrávám soubor…</div>';
+
+  let smlouva;
+  try {
+    const odpoved = await zavolejApi('/smlouvy-upload', {
+      method: 'POST',
+      body: JSON.stringify({
+        filename: vybranySouborSmlouva.nazev,
+        mimeType: vybranySouborSmlouva.mimeType,
+        dataBase64: vybranySouborSmlouva.data,
+      }),
+    });
+    smlouva = odpoved.smlouva;
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">Soubor se nepodařilo nahrát: ' + escapeHtml(e.message) + '</div>';
+    tlacitko.disabled = !vybranySouborSmlouva;
+    return;
+  }
+
+  document.getElementById('sm-pole-soubor').value = '';
+  document.getElementById('sm-pole-foto').value = '';
+  document.getElementById('sm-vybrany-soubor-info').textContent = '';
+  vybranySouborSmlouva = null;
+  tlacitko.disabled = true;
+
+  zprava.innerHTML = '<div class="zprava">Soubor nahrán, appka na pozadí čte údaje pomocí AI (může trvat několik vteřin)…</div>';
+  try {
+    await zavolejApi('/smlouvy-upload-dokoncit', { method: 'POST', body: JSON.stringify({ id: smlouva.ID }) });
+    zprava.innerHTML = '<div class="zprava uspech">Smlouva byla nahrána a zpracována AI. Zkontrolujte vytažené údaje v seznamu níž a případně je opravte.</div>';
+  } catch (e) {
+    zprava.innerHTML =
+      '<div class="zprava info">Soubor byl bezpečně nahrán, ale zpracování údajů pomocí AI se teď nepovedlo ' +
+      '(' + escapeHtml(e.message) + '). Nic jste neztratili - smlouvu najdete v seznamu níž se stavem ' +
+      '„Zpracovává se“ a zpracování jde odtud kdykoli zopakovat tlačítkem „Dokončit zpracování“, ' +
+      'bez nutnosti cokoliv nahrávat znovu.</div>';
+  } finally {
+    tlacitko.disabled = !vybranySouborSmlouva;
+    await nactiSmlouvy();
+  }
+}
+
+async function dokoncitZpracovaniSmlouvy(id, tlacitko) {
+  tlacitko.disabled = true;
+  const puvodniText = tlacitko.textContent;
+  tlacitko.textContent = 'Zpracovávám…';
+  try {
+    await zavolejApi('/smlouvy-upload-dokoncit', { method: 'POST', body: JSON.stringify({ id }) });
+    await nactiSmlouvy();
+  } catch (e) {
+    alert(
+      'Zpracování se zatím nepovedlo (' + e.message + '). Soubor zůstává bezpečně uložený, zkuste to prosím ' +
+      'za chvíli znovu.'
+    );
+    tlacitko.disabled = false;
+    tlacitko.textContent = puvodniText;
+  }
+}
+
+// ---------- PŘÍLOHY SMLOUVY (registr, od v3.21) ----------
+
+async function pridatPrilohuKSmlouve(smlouvaId, soubor, tlacitko) {
+  if (tlacitko) tlacitko.disabled = true;
+  try {
+    const pripraveny = await pripravSouborKNahrani(soubor);
+    await zavolejApi('/smlouvy-upload', {
+      method: 'POST',
+      body: JSON.stringify({
+        filename: pripraveny.nazev,
+        mimeType: pripraveny.mimeType,
+        dataBase64: pripraveny.data,
+        smlouva_id: smlouvaId,
+      }),
+    });
+    await nactiSmlouvy();
+  } catch (e) {
+    alert('Nepodařilo se přidat přílohu: ' + e.message);
+    if (tlacitko) tlacitko.disabled = false;
+  }
+}
+
+async function smazPrilohuSmlouvy(id, nazevSouboru, tlacitko) {
+  if (!confirm('Opravdu smazat přílohu „' + (nazevSouboru || '(bez názvu)') + '“? Appka soubor smaže jen z evidence, na Disku zůstane.')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/smlouvy-prilohy?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    await nactiSmlouvy();
+  } catch (e) {
+    alert('Nepodařilo se smazat přílohu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+// ---------- SMLOUVY: RUČNÍ PŘIDÁNÍ / ÚPRAVA / SMAZÁNÍ ----------
 
 async function pridatSmlouvu() {
   const zprava = document.getElementById('smlouvy-zprava');
@@ -2580,7 +2985,7 @@ async function pridatSmlouvu() {
     document.getElementById('nova-sm-do').value = '';
     document.getElementById('nova-sm-url').value = '';
     document.getElementById('nova-sm-poznamka').value = '';
-    await nactiSmlouvyNastaveni();
+    await nactiSmlouvy();
   } catch (e) {
     zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
   }
@@ -2590,7 +2995,7 @@ async function ulozSmlouvu(id, zmeny, tlacitko) {
   tlacitko.disabled = true;
   try {
     await zavolejApi('/smlouvy', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
-    await nactiSmlouvyNastaveni();
+    await nactiSmlouvy();
   } catch (e) {
     alert('Nepodařilo se uložit smlouvu: ' + e.message);
     tlacitko.disabled = false;
@@ -2598,11 +3003,11 @@ async function ulozSmlouvu(id, zmeny, tlacitko) {
 }
 
 async function smazSmlouvu(id, nazev, tlacitko) {
-  if (!confirm('Opravdu smazat smlouvu „' + nazev + '“? Bankovní pohyby na ni napojené se vrátí do stavu "Nespárováno".')) return;
+  if (!confirm('Opravdu smazat smlouvu „' + nazev + '“? Bankovní pohyby na ni napojené se vrátí do stavu "Nespárováno" a smažou se i všechny přílohy smlouvy.')) return;
   tlacitko.disabled = true;
   try {
     await zavolejApi('/smlouvy?id=' + encodeURIComponent(id), { method: 'DELETE' });
-    await nactiSmlouvyNastaveni();
+    await nactiSmlouvy();
   } catch (e) {
     alert('Nepodařilo se smazat smlouvu: ' + e.message);
     tlacitko.disabled = false;
@@ -2640,6 +3045,13 @@ document.getElementById('tlacitko-pridat-firmu').addEventListener('click', prida
 document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridatAuto);
 document.getElementById('tlacitko-pridat-ucet').addEventListener('click', pridatUcet);
 document.getElementById('tlacitko-pridat-smlouvu').addEventListener('click', pridatSmlouvu);
+document.getElementById('sm-tlacitko-vyfotit').addEventListener('click', () => document.getElementById('sm-pole-foto').click());
+document.getElementById('sm-tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('sm-pole-soubor').click());
+document.getElementById('sm-pole-foto').addEventListener('change', (e) => zpracujVybranySouborSmlouva(e.target.files[0]));
+document.getElementById('sm-pole-soubor').addEventListener('change', (e) => zpracujVybranySouborSmlouva(e.target.files[0]));
+document.getElementById('sm-tlacitko-nahrat').addEventListener('click', nahratSmlouvu);
+document.getElementById('sm-sekce-aktivni').addEventListener('click', () => prepniSmlouvySekci('aktivni'));
+document.getElementById('sm-sekce-neaktivni').addEventListener('click', () => prepniSmlouvySekci('neaktivni'));
 document.getElementById('tlacitko-pripojit-google').addEventListener('click', () => {
   if (!stav || !stav.token) return;
   window.open('/.netlify/functions/google-oauth-start?token=' + encodeURIComponent(stav.token), '_blank');

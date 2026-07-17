@@ -29,6 +29,7 @@ const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { UCTY_HEADERS } = require('../../lib/uctySchema');
 const { SMLOUVY_HEADERS } = require('../../lib/smlouvySchema');
+const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
 const { json } = require('../../lib/http');
 
 const LISTY = [
@@ -65,6 +66,14 @@ const LISTY = [
     // a claude/nomis-faktury-backlog.md (od v3.19).
     nazev: 'Smlouvy',
     hlavicky: SMLOUVY_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Registr souborů (scan/PDF smlouvy, roční vyúčtování) napojených na
+    // smlouvu - vztah 1:N, víc souborů na jednu smlouvu (od v3.21, viz
+    // lib/smlouvyPrilohySchema.js).
+    nazev: 'Smlouvy_Prilohy',
+    hlavicky: SMLOUVY_PRILOHY_HEADERS,
     ukazka: [],
   },
   { nazev: 'Log', hlavicky: ['Cas', 'Uzivatel', 'Akce', 'Doklad_ID', 'Detail'], ukazka: [] },
