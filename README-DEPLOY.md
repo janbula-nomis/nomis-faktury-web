@@ -910,6 +910,44 @@ další akce potřeba). V rámci každé skupiny appka dál řadí podle data
 Ověřeno Playwright UI testem se 6 pohyby ve všech 4 stavech a různými
 daty - appka je seřadí přesně v očekávaném pořadí.
 
+## 29. Víc účtenek na jednom scanu = víc samostatných dokladů (v3.14)
+
+Jan se ptal, jestli appka umí vyřešit situaci, kdy je vyfocených/
+naskenovaných víc účtenek najednou na jeden list papíru (běžné třeba
+u drobných účtenek za pohonné hmoty nebo nákupy). Appka dřív z jednoho
+nahraného souboru vždycky udělala jen JEDEN doklad - Gemini dostal pokyn
+vytáhnout data jednoho dokladu, takže by u víc účtenek na scanu buď vzal
+jen tu nejvýraznější, nebo si data různých účtenek popletl dohromady.
+
+**Řešení**: prompt pro Gemini (`lib/gemini.js`) teď navíc žádá pole
+`dalsi_doklady` - pokud AI na fotce/scanu pozná víc SAMOSTATNÝCH dokladů
+vedle sebe, první/nejvýraznější popíše v běžných polích (beze změny) a
+KAŽDÝ DALŠÍ vrátí jako samostatný objekt v tomhle poli, se stejnou
+strukturou. `netlify/functions/upload-dokoncit.js` pak první doklad zapíše
+do původního (placeholder) řádku jako dřív, a z KAŽDÉHO DALŠÍHO založí
+zbrusu nový samostatný řádek v Doklady - se stejným zdrojovým souborem
+(scan/foto je pro všechny společné, takže "otevřít scan" funguje u
+každého z nich), vlastním ID, a projde stejnou kontrolou duplicity/
+historie dodavatele jako běžný doklad (i mezi doklady vzniklými z
+JEDNOHO tohohle zpracování navzájem, ne jen proti už dřív existujícím).
+Appka po dokončení zpracování zobrazí srozumitelnou hlášku, kolik dokladů
+celkem z jednoho souboru vzniklo, a všechny se rovnou objeví v seznamu
+Doklady bez nutnosti cokoli obnovovat.
+
+Appka nikdy doklady nevymýšlí - u jedné běžné účtenky/faktury na scanu se
+chová přesně jako dřív (pole `dalsi_doklady` zůstane prázdné, žádná změna
+chování). AI odhad ale není neomylný - u fotek s víc účtenkami doporučuje
+appka po nahrání zkontrolovat, že se skutečně vytvořil očekávaný počet
+dokladů a že se navzájem nesmíchaly (viz Poznámka u každého takového
+dokladu: „Appka tenhle doklad rozpoznala jako jeden z víc dokladů na
+společném scanu.“).
+
+Ověřeno novým testem (`netlify/functions/upload-dokoncit.js` se 3 doklady
+z jednoho scanu - appka správně aktualizuje placeholder prvním dokladem,
+založí 2 nové řádky se stejným zdrojovým souborem, vlastním ID a
+vysvětlující poznámkou) a Playwright UI testem, že appka zobrazí
+srozumitelnou hlášku a všechny doklady se objeví v seznamu.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.13 – 2026-07-16';
+const APP_VERZE = 'v3.14 – 2026-07-17';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -265,6 +265,23 @@ function zmensiObrazek(soubor, maxRozmer, kvalita) {
 // "Zpracovává se" a jde ho tam kdykoli dokončit tlačítkem "Dokončit
 // zpracování" (viz dokoncitZpracovaniDokladu níž), bez nutnosti cokoliv
 // nahrávat znovu.
+// Sestaví hlášku po dokončení AI zpracování (viz upload-dokoncit.js, v3.14
+// "dalsi_doklady") - appka umí z jedné fotky/scanu s víc účtenkami vedle
+// sebe vytvořit víc samostatných dokladů, tahle funkce o tom uživatele
+// srozumitelně informuje, ať ho nepřekvapí, že v Dokladech najednou přibylo
+// víc položek, než sám nahrál souborů.
+function zpravaPoZpracovaniDokladu(odpoved) {
+  const dalsi = (odpoved && odpoved.dalsiDoklady) || [];
+  if (dalsi.length === 0) {
+    return 'Doklad byl nahrán a zpracován. Zkontrolujte ho v záložce Doklady.';
+  }
+  return (
+    'Appka si všimla, že je na téhle fotce/scanu víc dokladů vedle sebe - ' +
+    'našla jich celkem ' + (dalsi.length + 1) + ' a založila je jako ' + (dalsi.length + 1) +
+    ' samostatné položky. Zkontrolujte je prosím všechny v záložce Doklady.'
+  );
+}
+
 async function nahratDoklad() {
   const zprava = document.getElementById('nahrat-zprava');
   const tlacitko = document.getElementById('tlacitko-nahrat');
@@ -300,8 +317,9 @@ async function nahratDoklad() {
 
   zprava.innerHTML = '<div class="zprava">Soubor nahrán, appka na pozadí čte údaje pomocí AI (může trvat několik vteřin)…</div>';
   try {
-    await zavolejApi('/upload-dokoncit', { method: 'POST', body: JSON.stringify({ id: doklad.ID }) });
-    zprava.innerHTML = '<div class="zprava uspech">Doklad byl nahrán a zpracován. Zkontrolujte ho v záložce Doklady.</div>';
+    const odpovedDokonceni = await zavolejApi('/upload-dokoncit', { method: 'POST', body: JSON.stringify({ id: doklad.ID }) });
+    zprava.innerHTML =
+      '<div class="zprava uspech">' + zpravaPoZpracovaniDokladu(odpovedDokonceni) + '</div>';
   } catch (e) {
     zprava.innerHTML =
       '<div class="zprava info">Soubor byl bezpečně nahrán, ale zpracování údajů pomocí AI se teď nepovedlo ' +
@@ -323,8 +341,12 @@ async function dokoncitZpracovaniDokladu(id, tlacitko) {
     if (idx !== -1) {
       Object.assign(dokladySeznamAktualni[idx], odpoved.doklad);
     }
+    // v3.14 - appka mohla z jedné fotky/scanu založit i další samostatné
+    // doklady (viz zpravaPoZpracovaniDokladu výš) - appka je připojí do
+    // aktuálního seznamu, ať se rovnou zobrazí bez nutnosti ručně obnovit.
+    ((odpoved && odpoved.dalsiDoklady) || []).forEach((d) => dokladySeznamAktualni.push(d));
     vykresliDoklady(dokladySeznamAktualni);
-    zobrazZpravuDoklady('Zpracování dokladu dokončeno.');
+    zobrazZpravuDoklady(zpravaPoZpracovaniDokladu(odpoved));
   } catch (e) {
     alert(
       'Zpracování se zatím nepovedlo (' + e.message + '). Soubor zůstává bezpečně uložený, zkuste to prosím ' +
