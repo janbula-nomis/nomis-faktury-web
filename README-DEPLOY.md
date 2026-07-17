@@ -1010,6 +1010,145 @@ Playwright UI testem se všemi 4 variantami badge u schválených dokladů a
 kontrolou, že se badge vůbec nezobrazí u dokladu, který ještě není
 schválený.
 
+## 32. Oprava: poškozená data od Gemini appku zastavila syrovou chybou (v3.17)
+
+Jan nahlásil ze živé appky (screenshot): u jednoho dokladu appka po
+kliknutí na „Dokončit zpracování“ skončila hláškou „Zpracování se zatím
+nepovedlo (Expected ',' or '}' after property value in JSON at position
+446 (line 17 column 22))“ - syrová chyba parsování místo srozumitelné
+zprávy, i když soubor zůstal bezpečně uložený (appka i tak nabídla
+zkusit to znovu tlačítkem, díky odolnosti proti chybě 504 z v3.9).
+
+**Příčina**: appka posílá Gemini požadavek s `responseMimeType:
+'application/json'`, ale i tak se občas stane, že model vrátí HTTP 200
+s textem, který NENÍ platný JSON (nedokončená/poškozená struktura -
+u složitějších dokladů nebo víc účtenek na jednom scanu o něco
+pravděpodobnější). Appka do téhle verze zkoušela další model ze seznamu
+(`gemini-flash-latest` → `gemini-flash-lite-latest` → `gemini-pro-latest`)
+JEN při síťové/HTTP chybě (503 apod.) - pokud první model vrátil HTTP 200,
+ale s nepoužitelným textem uvnitř, appka to brala jako definitivní
+výsledek a nechala syrovou chybu parsování spadnout rovnou uživateli,
+místo aby zkusila další model.
+
+**Oprava** (`lib/gemini.js`): appka teď bere neplatný/nezpracovatelný JSON
+ve výsledku jako STEJNOU kategorii přechodné chyby jako síťové 503 -
+zkusí další model ze seznamu, místo aby rovnou vzdala celé zpracování.
+Pokud selžou úplně všechny modely (i tak výjimečný případ), appka vrátí
+srozumitelnou českou zprávu s pokynem zkusit to za chvíli znovu tlačítkem
+„Dokončit zpracování“ (soubor zůstává bezpečně uložený, nic není potřeba
+nahrávat znovu) - místo syrové JS chyby parsování.
+
+Ověřeno novým testem (`lib/gemini.js` - poškozený JSON na prvním modelu
+appka automaticky přeskočí a zotaví se na druhém, beze změny navenek;
+pokud poškozený JSON vrátí úplně všechny modely, appka vyhodí
+srozumitelnou zprávu, ne obecnou hlášku o síťové nedostupnosti) a plnou
+regresí existujících testů (Gemini fallback na 503, neopakovatelná chyba
+400 appku pořád zastaví hned bez zkoušení dalších modelů - beze změny).
+Čistě backendová oprava (`lib/gemini.js`) - žádný nový sloupec v Sheets,
+není potřeba `/api/setup`.
+
+## 33. Oprava nabídky „vyberte doklad“ u ručního přiřazení k bankovnímu pohybu (v3.18)
+
+Jan nahlásil ze živé appky tři propojené problémy s rozbalovací nabídkou
+„vyberte doklad“ (Bankovní výpisy → ruční přiřazení dokladu k pohybu):
+schválený doklad v nabídce nenašel, appka nabízela i doklady, které se
+tam vůbec nehodí, a samotná nabídka byla příliš malá na to, aby v ní
+šlo všechny doklady pohodlně najít.
+
+**Řešení** (`public/app.js`, `public/style.css`):
+- Appka nabídku rozšířila na víc řádků najednou (atribut `size` u
+  `<select>`, max. 8) - nejde už o malé sbalené menu, které je potřeba
+  rozklikávat a scrollovat, ale rovnou viditelný seznam.
+- Appka z nabídky teď navíc VYŘAZUJE doklady, které se do párování s
+  bankou nehodí: doklady hrazené mimo účet (hotově/soukromou kartou -
+  appka u nich protějšek v bance záměrně nehledá, viz badge „Mimo účet“
+  z v3.16) a placeholder doklady čekající na dokončení AI zpracování
+  (stav „Zpracovává se“ - ještě nemají vytaženou částku ani dodavatele).
+  Doklady už přiřazené k jinému pohybu appka nenabízela už dřív, tohle
+  zůstává beze změny.
+- Zbylé doklady appka řadí tak, aby schválené byly úplně první (a jsou
+  hned vidět, protože jde o nejčastější případ - doklad je hotový, jen
+  čeká na spárování), teprve za nimi doklady „Ke kontrole“ a „Možná
+  duplicita“. Každá položka v nabídce navíc rovnou ukazuje stav dokladu
+  (✅ u schválených, `[Ke kontrole]` apod. u ostatních), ať je na první
+  pohled jasné, co je hotové.
+
+Čistě frontendová oprava - žádný nový sloupec v Sheets, není potřeba
+`/api/setup`. Ověřeno novým Playwright UI testem (schválený doklad je
+v nabídce vidět a je řazený před dokladem „Ke kontrole“, doklad hrazený
+mimo účet i placeholder doklad se nenabízí, už přiřazený doklad k
+jinému pohybu se pořád nenabízí, `<select>` má `size` > 1) a plnou
+regresí existujících testů - žádná regrese.
+
+## 34. Trvalé příkazy (Smlouvy), příjmy se střediskem/účtem, čistý tok v Přehledu, auto-párování dokladu s bankou (v3.19)
+
+Velká dávka změn ze zápisu s Janem 2026-07-17 (viz `claude/nomis-faktury-
+backlog.md`) - čtyři propojené položky:
+
+**A) Auto-párování dokladu s bankou hned po vytvoření.** Dřív appka
+zkoušela najít odpovídající bankovní pohyb jen při IMPORTU výpisu nebo na
+ruční tlačítko „Spustit kontrolu dokladů“ - doklad nahraný AŽ PO importu
+výpisu (běžné u víceúčtenkových scanů, kterými se zpracovává starší
+nahromaděná hromádka účtenek) zůstával v Bankovních výpisech nesprávně
+„Nespárováno“, dokud si toho někdo nevšiml. Appka teď po dokončení
+zpracování KAŽDÉHO dokladu (hlavního i každého dalšího z multi-scanu,
+`netlify/functions/upload-dokoncit.js`) rovnou zkusí najít odpovídající
+„Nespárováno“ pohyb stejné firmy a NAVRHNE shodu (`Stav_parovani` =
+„Navrženo“) - pořád čeká na potvrzení účetní, appka nic nepotvrzuje sama.
+Doklady hrazené mimo účet appka s bankou vůbec nepáruje (stejně jako dřív).
+
+**B) Smlouvy (trvalé příkazy) - nájem, elektřina, leasing.** Appka dostala
+nový samostatný list **„Smlouvy“** (`lib/smlouvySchema.js`,
+`netlify/functions/smlouvy.js`) - pole `ID, Firma, Nazev, Stredisko, Typ`
+(vlastní menší číselník Nájem/Energie/Leasing/Ostatní), `Perioda`
+(Měsíčně/Čtvrtletně/Ročně/Jednorázově), `Ocekavana_castka, Platnost_od,
+Platnost_do, Zdrojovy_soubor_URL, Zdrojovy_soubor_ID, Poznamka, Aktivni`.
+Bankovní pohyb appka teď jde přiřadit rovnou ke smlouvě (nové pole
+`Bankovni_pohyby.Smlouva_ID`, nová hodnota `Stav_parovani` = „Trvalý
+příkaz“) místo párování s jednotlivým dokladem - appka takový pohyb
+NEPOVAŽUJE za chybějící doklad. Appka navíc po RUČNÍM potvrzení přiřazení
+rovnou zkusí auto-navrhnout (`Stav_parovani` = „Navrženo - trvalý příkaz“,
+čeká na potvrzení/zamítnutí) i další dosud nespárované pohyby stejné firmy
+se stejnou protistranou a podobnou částkou (tolerance kvůli kolísání u
+energií) - u opakovaných plateb tak stačí přiřadit ručně jen ten první.
+Smlouvy appka spravuje v novém panelu **Nastavení → Smlouvy** (přidání/
+úprava/smazání - smazání odpojí (cascade) napojené bankovní pohyby zpátky
+na „Nespárováno“, stejně jako u smazání Dokladu).
+
+**C) Příjmy - středisko a firemní účet.** U příchozích plateb (typicky
+přijaté nájemné) appka teď v detailu bankovního pohybu (místo výběru
+dokladu, který u příjmů nedává smysl) nabídne výběr **Střediska** (stejný
+číselník jako u Dokladů) a **firemního účtu** (`Cislo_uctu_vlastni`, teď
+ručně editovatelné/vybíratelné z listu Ucty, ne jen automaticky
+dopočítané z importu) - nová hodnota `Stav_parovani` = „Příjem přiřazen“,
+odlišná od obyčejného „Bez dokladu“ (to appka dál používá pro příjmy,
+kterým středisko vůbec přiřazovat nebude, např. mzdy).
+
+**D) Přehled - příjmy i výdaje pohromadě.** Záložka Přehled dostala
+novou sekci „Čistý tok“ (Příjmy celkem / Výdaje celkem / Rozdíl) a dvě
+nové grid sekce („Příjmy podle střediska“, „Příjmy podle měsíce“).
+Výdajové souhrny (podle firmy/kategorie/měsíce) appka rozšířila o
+pohyby přiřazené ke Smlouvě (trvalé příkazy) - ty dřív do Přehledu vůbec
+nevstupovaly, protože nemají vlastní Doklad (`netlify/functions/
+dashboard.js` teď čte i `Bankovni_pohyby`/`Smlouvy` napříč firmami podle
+přístupu uživatele).
+
+Appka po nasazení potřebuje spustit `/api/setup` znovu (viz krok 6 níže) -
+doplní nový list Smlouvy a nové sloupce `Smlouva_ID`/`Stredisko` do
+Bankovni_pohyby, nic existujícího se tím nemaže ani nepřepisuje.
+
+Ověřeno novými backendovými testy (auto-párování při dokončení dokladu
+včetně multi-scanu a vynechání dokladů hrazených mimo účet; CRUD Smluv
+včetně přístupových práv; validace přiřazení ke smlouvě jiné firmy;
+auto-návrh podobných pohybů po ručním potvrzení, včetně kontroly, že se
+appka nedotkne už rozhodnutých pohybů; cascade při smazání smlouvy;
+přiřazení střediska/účtu u příjmu; rozšířený dashboard s příjmy/výdaji/
+čistým tokem) a Playwright UI testy (Bankovní výpisy nabízí „Přiřadit ke
+smlouvě“ u výdajů a středisko/účet u příjmů, stavy „Navrženo - trvalý
+příkaz“/„Trvalý příkaz“/„Příjem přiřazen“ mají správné akce, panel Smlouvy
+v Nastavení, rozšířený Přehled) a plnou regresí existujících testů -
+žádná regrese.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

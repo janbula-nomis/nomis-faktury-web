@@ -193,12 +193,24 @@ input[type="file"] { margin-top: 8px; }
 .banka-radek.stav-radek-navrzeno { background: #e8f0fe; }
 .banka-radek.stav-radek-potvrzeno { background: #e8f7f0; }
 .banka-radek.stav-radek-bezdokladu { background: #eef0f4; }
+/* Trvalý příkaz (smlouva) a příjem přiřazený středisku (od v3.19) mají
+   VLASTNÍ odlišné barvy, ať je v seznamu hned poznat, že jde o jiný druh
+   "vyřízeno" než obyčejné potvrzení dokladu. */
+.banka-radek.stav-radek-trvalyprikaz { background: #f1e9fb; }
+.banka-radek.stav-radek-prijemprirazen { background: #e6f7f5; }
 
 .badge-chybi { background: #f7d9d5; color: var(--barva-chyba); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
 .badge-navrzeno { background: #d7e3fc; color: var(--barva-primarni-tmava); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
 .badge-potvrzeno { background: #d3efe0; color: var(--barva-uspech); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
 .badge-bezdokladu { background: #dde1e8; color: var(--barva-text-tlumena); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-trvalyprikaz { background: #e4d6f7; color: #6a3fb3; font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
+.badge-prijemprirazen { background: #cdf0ea; color: #157a6c; font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
 .banka-radek-detail .radek-akci { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+/* Nabídka "vyberte doklad" (v3.18) je záměrně vícořádková (viz atribut
+   size v public/app.js), ať appka ukáže rovnou víc dokladů najednou bez
+   nutnosti rozklikávat malou nabídku - flex-basis: 100% ji dá na vlastní
+   řádek nad tlačítky, ať se s nimi neplete do jedné úzké řady. */
+.vyber-doklad-listbox { flex-basis: 100%; width: 100%; margin-bottom: 4px; }
 .banka-radek-detail dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 12px; margin: 0; }
 .banka-radek-detail dt { color: var(--barva-text-tlumena); }
 .banka-radek-detail dd { margin: 0; }
@@ -281,5 +293,9 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-neuhrazeno { background: #3a3220; color: var(--barva-varovani); }
 :root[data-motiv="tmavy"] .badge-bezdokladu,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-bezdokladu { background: #2a2e38; color: var(--barva-text-tlumena); }
+:root[data-motiv="tmavy"] .badge-trvalyprikaz,
+:root[data-motiv="tmavy"] .banka-radek.stav-radek-trvalyprikaz { background: #2f2440; color: #c6a6f5; }
+:root[data-motiv="tmavy"] .badge-prijemprirazen,
+:root[data-motiv="tmavy"] .banka-radek.stav-radek-prijemprirazen { background: #163832; color: #4fd0bf; }
 :root[data-motiv="tmavy"] .prepinac-sekce-tlacitko.aktivni { color: #14161c; }
 :root[data-motiv="tmavy"] input[type="date"] { color-scheme: dark; }

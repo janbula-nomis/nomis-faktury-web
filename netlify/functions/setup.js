@@ -28,6 +28,7 @@ const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { UCTY_HEADERS } = require('../../lib/uctySchema');
+const { SMLOUVY_HEADERS } = require('../../lib/smlouvySchema');
 const { json } = require('../../lib/http');
 
 const LISTY = [
@@ -59,6 +60,13 @@ const LISTY = [
   },
   { nazev: 'Bankovni_pohyby', hlavicky: BANKOVNI_HEADERS, ukazka: [] },
   { nazev: 'Vydane_faktury', hlavicky: VYDANE_FAKTURY_HEADERS, ukazka: [] },
+  {
+    // Trvalé příkazy (nájem/elektřina/leasing) - viz lib/smlouvySchema.js
+    // a claude/nomis-faktury-backlog.md (od v3.19).
+    nazev: 'Smlouvy',
+    hlavicky: SMLOUVY_HEADERS,
+    ukazka: [],
+  },
   { nazev: 'Log', hlavicky: ['Cas', 'Uzivatel', 'Akce', 'Doklad_ID', 'Detail'], ukazka: [] },
   {
     nazev: 'Uzivatele',

@@ -19,6 +19,17 @@
  * zapíše do původního (placeholder) řádku a KAŽDÝ DALŠÍ založí jako nový
  * samostatný řádek se stejným zdrojovým souborem - odpověď pak navíc
  * obsahuje `dalsiDoklady` (pole nově založených dokladů).
+ *
+ * Od v3.19: appka se hned po dokončení zpracování (u hlavního dokladu i
+ * KAŽDÉHO dalšího z multi-scanu) rovnou pokusí najít odpovídající dosud
+ * "Nespárováno" bankovní pohyb stejné firmy - dřív appka párování zkoušela
+ * jen při IMPORTU výpisu nebo na ruční tlačítko "Spustit kontrolu dokladů"
+ * (banka.js, `prepocitatShody`), takže doklad nahraný AŽ PO importu výpisu
+ * zůstával v Bankovních výpisech nesprávně "Nespárováno", dokud si toho
+ * někdo nevšiml a nekliknul na kontrolu ručně (viz claude/nomis-faktury-
+ * backlog.md, diagnóza z 2026-07-17). Appka najdenou shodu jen NAVRHNE
+ * (Stav_parovani = "Navrženo"), stejně jako u ostatních cest párování -
+ * pořád čeká na potvrzení účetní, appka nic nepotvrzuje sama.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
@@ -26,9 +37,61 @@ const { readSheetObjects, updateRow, appendRows } = require('../../lib/sheetsHel
 const { extrahujDataZDokladu } = require('../../lib/gemini');
 const { isMoznaDuplicita } = require('../../lib/duplicity');
 const { najdiHistorickouShodu } = require('../../lib/dokladyHistorie');
+const { navrhniShodu, parsujCastkuZListu } = require('../../lib/bankHelpers');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
+const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
+
+// Zkusí k právě dokončenému dokladu najít odpovídající "Nespárováno"
+// bankovní pohyb stejné firmy a navrhnout shodu (viz komentář výš, v3.19).
+// Nekritické - pokud cokoli selže (list Bankovni_pohyby neexistuje, appka
+// běží bez zapnuté Banky apod.), appka zpracování dokladu kvůli tomu
+// nemá shodit, jen návrh přeskočí.
+async function zkusAutomatickySparovatSBankou(sheets, spreadsheetId, doklad) {
+  try {
+    const firma = doklad.Firma_potvrzena || doklad.Firma_AI_odhad;
+    if (!firma) return;
+    // Doklad hrazený mimo účet (hotově) nemá s bankou co párovat - viz
+    // stejná logika u nabídky "vyberte doklad" (v3.18).
+    if (String(doklad.Hrazeno_mimo_ucet || '').trim() === 'ANO') return;
+
+    const { rows: pohybyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
+    const nesparovaneFirmy = pohybyVsechny.filter((p) => p.Firma === firma && p.Stav_parovani === 'Nespárováno');
+    if (nesparovaneFirmy.length === 0) return;
+
+    // navrhniShodu bere JEDEN pohyb a seznam kandidátních DOKLADŮ - appka
+    // tu logiku použije obráceně (jeden nový doklad, víc kandidátních
+    // pohybů), ať se chování přesně shoduje s prepocitatShody v banka.js.
+    let nejlepsiPohyb = null;
+    let nejlepsiSkore = 0;
+    nesparovaneFirmy.forEach((pohyb) => {
+      const pProNavrh = {
+        castka: parsujCastkuZListu(pohyb.Castka),
+        protistrana: pohyb.Protistrana || pohyb.Popis || '',
+        popis: pohyb.Popis || '',
+        variabilni_symbol: pohyb.Variabilni_symbol || '',
+        datum: pohyb.Datum || '',
+      };
+      const navrh = navrhniShodu(pProNavrh, [doklad]);
+      if (navrh && navrh.skore >= 2 && navrh.skore > nejlepsiSkore) {
+        nejlepsiSkore = navrh.skore;
+        nejlepsiPohyb = pohyb;
+      }
+    });
+
+    if (nejlepsiPohyb) {
+      await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, nejlepsiPohyb._row, {
+        ...nejlepsiPohyb,
+        Doklad_ID: doklad.ID,
+        Stav_parovani: 'Navrženo',
+      });
+    }
+  } catch (e) {
+    // List Bankovni_pohyby nemusí existovat (appka bez zapnuté Banky) -
+    // dokončení zpracování dokladu se kvůli tomu nemá zastavit.
+  }
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return json(200, {});
@@ -176,6 +239,16 @@ exports.handler = async (event) => {
 
     if (noveDoklady.length > 0) {
       await appendRows(sheets, process.env.SPREADSHEET_ID, 'Doklady', DOKLADY_HEADERS, noveDoklady);
+    }
+
+    // v3.19: appka zkusí rovnou navrhnout spárování s bankou pro hlavní
+    // doklad i pro každý další z multi-scanu - postupně (ne najednou), ať
+    // appka nemůže omylem navrhnout STEJNÝ bankovní pohyb dvěma různým
+    // dokladům z jednoho zpracování (každé volání čte Bankovni_pohyby
+    // znovu, takže vidí i změnu z právě předchozího volání).
+    await zkusAutomatickySparovatSBankou(sheets, process.env.SPREADSHEET_ID, aktualizovany);
+    for (const novy of noveDoklady) {
+      await zkusAutomatickySparovatSBankou(sheets, process.env.SPREADSHEET_ID, novy);
     }
 
     return json(200, { ok: true, doklad: aktualizovany, dalsiDoklady: noveDoklady });

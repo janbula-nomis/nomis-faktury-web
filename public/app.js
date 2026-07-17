@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.16 – 2026-07-17';
+const APP_VERZE = 'v3.19 – 2026-07-17';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -182,6 +182,7 @@ function prepniZalozku(nazev) {
     nactiFirmy();
     nactiAuta();
     nactiUcty();
+    nactiSmlouvyNastaveni();
   }
 }
 
@@ -554,6 +555,39 @@ function moznostiKategorie(vybrane) {
   return html;
 }
 
+// Číselník Typ/Perioda u Smluv (trvalé příkazy, od v3.19) - VLASTNÍ menší
+// číselník, ne stejný jako MOZNOSTI_KATEGORIE výš - smlouvy mají jiný
+// charakter (souhrnné/opakované platby), viz lib/smlouvySchema.js na
+// backendu (appka appka tenhle seznam duplikuje na obou místech stejně
+// jako u MOZNOSTI_STREDISKA/MOZNOSTI_KATEGORIE - žádný build krok/sdílený
+// modul mezi frontendem a backendem).
+const MOZNOSTI_TYP_SMLOUVY = ['Nájem', 'Energie', 'Leasing', 'Ostatní'];
+const MOZNOSTI_PERIODA_SMLOUVY = ['Měsíčně', 'Čtvrtletně', 'Ročně', 'Jednorázově'];
+
+function moznostiTypSmlouvy(vybrane) {
+  let html = '<option value="">— vyberte typ —</option>';
+  MOZNOSTI_TYP_SMLOUVY.forEach((t) => {
+    const oznaceno = t === vybrane ? ' selected' : '';
+    html += '<option value="' + escapeAttr(t) + '"' + oznaceno + '>' + escapeHtml(t) + '</option>';
+  });
+  if (vybrane && !MOZNOSTI_TYP_SMLOUVY.includes(vybrane)) {
+    html += '<option value="' + escapeAttr(vybrane) + '" selected>' + escapeHtml(vybrane) + '</option>';
+  }
+  return html;
+}
+
+function moznostiPeriodaSmlouvy(vybrane) {
+  let html = '<option value="">— vyberte periodu —</option>';
+  MOZNOSTI_PERIODA_SMLOUVY.forEach((p) => {
+    const oznaceno = p === vybrane ? ' selected' : '';
+    html += '<option value="' + escapeAttr(p) + '"' + oznaceno + '>' + escapeHtml(p) + '</option>';
+  });
+  if (vybrane && !MOZNOSTI_PERIODA_SMLOUVY.includes(vybrane)) {
+    html += '<option value="' + escapeAttr(vybrane) + '" selected>' + escapeHtml(vybrane) + '</option>';
+  }
+  return html;
+}
+
 function vykresliDoklady(doklady) {
   dokladySeznamAktualni = doklady;
   const kontejner = document.getElementById('doklady-seznam');
@@ -856,6 +890,26 @@ async function nactiPrehled() {
     vykresliSouhrn('souhrn-firmy', data.souhrnPodleFirmy);
     vykresliSouhrn('souhrn-kategorie', data.souhrnPodleKategorie);
     vykresliSouhrn('souhrn-mesic', data.souhrnPodleMesice);
+
+    // Od v3.19 - čistý tok (příjmy - výdaje) a příjmy podle střediska/měsíce
+    // (viz netlify/functions/dashboard.js). Appka počítá s tím, že starší
+    // appka (bez zapnuté Banky) tahle pole nemusí vůbec vrátit - defaultuje
+    // na 0/prázdné objekty, ať Přehled dál funguje jako dřív.
+    const cistyTok = document.getElementById('souhrn-cisty-tok');
+    cistyTok.innerHTML = '';
+    [
+      ['Příjmy celkem', data.prijmyCelkem || 0],
+      ['Výdaje celkem', data.vydajeCelkem || 0],
+      ['Rozdíl', (data.prijmyCelkem || 0) - (data.vydajeCelkem || 0)],
+    ].forEach(([popisek, hodnota]) => {
+      const div = document.createElement('div');
+      div.className = 'polozka-souhrn';
+      div.innerHTML = '<span>' + escapeHtml(popisek) + '</span><strong>' + formatCastka(hodnota) + '</strong>';
+      cistyTok.appendChild(div);
+    });
+
+    vykresliSouhrn('souhrn-prijmy-stredisko', data.souhrnPrijmyPodleStrediska);
+    vykresliSouhrn('souhrn-prijmy-mesic', data.souhrnPrijmyPodleMesice);
   } catch (e) {
     nacitani.textContent = 'Nepodařilo se načíst přehled: ' + e.message;
   }
@@ -1196,6 +1250,8 @@ let bankaFirmySeznam = [];
 let bankaAktivniFirma = '';
 let bankaPohybySeznam = [];
 let bankaDokladySeznam = [];
+let bankaSmlouvySeznam = []; // od v3.19 - trvalé příkazy dané firmy
+let bankaUctySeznam = []; // od v3.19 - vlastní účty dané firmy (pro ruční doplnění u příjmů)
 
 async function inicializujZalozkuBanka() {
   const vyber = document.getElementById('banka-vyber-firmy');
@@ -1233,14 +1289,18 @@ async function nactiBankovniPohyby() {
   }
 
   try {
-    const [dataPohyby, dataDoklady] = await Promise.all([
+    const [dataPohyby, dataDoklady, dataSmlouvy, dataUcty] = await Promise.all([
       zavolejApi('/banka?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }),
       zavolejApi('/doklady', { method: 'GET' }),
+      zavolejApi('/smlouvy?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }).catch(() => ({ smlouvy: [] })),
+      zavolejApi('/ucty', { method: 'GET' }).catch(() => ({ ucty: [] })),
     ]);
     bankaPohybySeznam = dataPohyby.pohyby || [];
     bankaDokladySeznam = (dataDoklady.doklady || []).filter(
       (d) => (d.Firma_potvrzena || d.Firma_AI_odhad) === bankaAktivniFirma
     );
+    bankaSmlouvySeznam = dataSmlouvy.smlouvy || [];
+    bankaUctySeznam = (dataUcty.ucty || []).filter((u) => u.Firma === bankaAktivniFirma);
     nacitani.classList.add('skryto');
     vykresliBankovniPohyby();
   } catch (e) {
@@ -1256,6 +1316,11 @@ function bankaStavBadge(stav) {
   if (stav === 'Potvrzeno') return '<span class="badge-potvrzeno">Potvrzeno</span>';
   if (stav === 'Navrženo') return '<span class="badge-navrzeno">Navrženo</span>';
   if (stav === 'Bez dokladu') return '<span class="badge-bezdokladu">Bez dokladu</span>';
+  // Od v3.19 - trvalé příkazy (Smlouvy) a příjmy se středisko/účtem mají
+  // VLASTNÍ barvu/badge, odlišnou od výdajových stavů výš (viz backlog).
+  if (stav === 'Trvalý příkaz') return '<span class="badge-trvalyprikaz">Trvalý příkaz</span>';
+  if (stav === 'Navrženo - trvalý příkaz') return '<span class="badge-navrzeno">Navrženo (smlouva)</span>';
+  if (stav === 'Příjem přiřazen') return '<span class="badge-prijemprirazen">Příjem přiřazen</span>';
   return '<span class="badge-chybi">Chybí doklad</span>';
 }
 
@@ -1264,18 +1329,32 @@ function bankaStavBadge(stav) {
 // PO "Navrženo" (i když u něj appka žádný tip nenabízí) - "Navrženo" totiž
 // vyžaduje jen rychlé potvrzení/zamítnutí, zatímco "Nespárováno" obvykle
 // vyžaduje víc práce (dohledat/nahrát doklad, nebo ho ručně přiřadit).
+// "Navrženo - trvalý příkaz" (od v3.19) appka řadí do stejné naléhavostní
+// skupiny jako "Navrženo" - obojí čeká jen na rychlé potvrzení/zamítnutí.
 function bankaStavRazeniPriorita(stav) {
-  if (stav === 'Navrženo') return 0;
+  if (stav === 'Navrženo' || stav === 'Navrženo - trvalý příkaz') return 0;
   if (stav === 'Nespárováno') return 1;
-  return 2; // Potvrzeno, Bez dokladu - vyřízeno, patří na konec
+  return 2; // Potvrzeno, Bez dokladu, Trvalý příkaz, Příjem přiřazen - vyřízeno
 }
 
-// Třída pro probarvení celého řádku podle stavu spárování - stejné čtyři
-// stavy jako bankaStavBadge, jen jako modifikátor na .banka-radek.
+// Pořadí důležitosti stavů dokladu v nabídce "vyberte doklad" u ručního
+// přiřazení k bankovnímu pohybu (v3.18) - schválené doklady appka dává
+// první, protože to je nejčastější případ (doklad je hotový, jen čeká na
+// spárování), "Ke kontrole" a "Možná duplicita" appka řadí až za ně.
+function dokladVyberRazeniPriorita(stav) {
+  if (stav === 'Schváleno') return 0;
+  if (stav === 'Ke kontrole') return 1;
+  return 2; // Možná duplicita apod.
+}
+
+// Třída pro probarvení celého řádku podle stavu spárování - stejné stavy
+// jako bankaStavBadge, jen jako modifikátor na .banka-radek.
 function bankaStavRadekTrida(stav) {
   if (stav === 'Potvrzeno') return 'stav-radek-potvrzeno';
-  if (stav === 'Navrženo') return 'stav-radek-navrzeno';
+  if (stav === 'Navrženo' || stav === 'Navrženo - trvalý příkaz') return 'stav-radek-navrzeno';
   if (stav === 'Bez dokladu') return 'stav-radek-bezdokladu';
+  if (stav === 'Trvalý příkaz') return 'stav-radek-trvalyprikaz';
+  if (stav === 'Příjem přiřazen') return 'stav-radek-prijemprirazen';
   return 'stav-radek-chybi';
 }
 
@@ -1288,13 +1367,24 @@ function vykresliBankovniPohyby() {
   const navrzeno = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Navrženo').length;
   const chybi = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Nespárováno').length;
   const bezDokladu = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Bez dokladu').length;
+  const trvalePrikazy = bankaPohybySeznam.filter(
+    (p) => p.Stav_parovani === 'Trvalý příkaz' || p.Stav_parovani === 'Navrženo - trvalý příkaz'
+  ).length;
+  const prijmyPrirazene = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Příjem přiřazen').length;
   souhrn.textContent =
     potvrzeno + ' potvrzeno, ' + navrzeno + ' navrženo, ' + chybi + ' chybí, ' + bezDokladu +
-    ' bez dokladu (celkem ' + bankaPohybySeznam.length + ')';
+    ' bez dokladu, ' + trvalePrikazy + ' trvalých příkazů, ' + prijmyPrirazene +
+    ' příjmů přiřazeno (celkem ' + bankaPohybySeznam.length + ')';
 
   const jenChybejici = document.getElementById('banka-jen-chybejici').getAttribute('aria-pressed') === 'true';
   const serazene = bankaPohybySeznam
-    .filter((p) => !jenChybejici || p.Stav_parovani === 'Nespárováno' || p.Stav_parovani === 'Navrženo')
+    .filter(
+      (p) =>
+        !jenChybejici ||
+        p.Stav_parovani === 'Nespárováno' ||
+        p.Stav_parovani === 'Navrženo' ||
+        p.Stav_parovani === 'Navrženo - trvalý příkaz'
+    )
     .slice()
     .sort((a, b) => {
       // Řazení primárně podle toho, kolik pozornosti pohyb ještě potřebuje
@@ -1413,21 +1503,150 @@ function vytvorDetailBanka(p) {
     akce.appendChild(
       tlacitkoBanka('Zrušit potvrzení', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Doklad_ID: '' }, e.target))
     );
+  } else if (p.Stav_parovani === 'Navrženo - trvalý příkaz') {
+    // Od v3.19 - appka auto-navrhla přiřazení ke stejné Smlouvě jako u
+    // jiného už dřív ručně potvrzeného pohybu (podobná protistrana/
+    // podobná částka) - stejný princip jako "Navrženo" u dokladů, pořád
+    // čeká na potvrzení/zamítnutí účetní.
+    const smlouvaNavrzena = bankaSmlouvySeznam.find((s) => s.ID === p.Smlouva_ID);
+    const infoSmlouva = document.createElement('div');
+    infoSmlouva.className = 'popis';
+    infoSmlouva.style.marginBottom = '6px';
+    infoSmlouva.textContent = smlouvaNavrzena
+      ? 'Appka navrhuje přiřadit ke smlouvě „' + smlouvaNavrzena.Nazev + '“ (podobná protistrana/částka jako u jiného už přiřazeného pohybu).'
+      : 'Appka navrhuje přiřadit ke smlouvě, kterou v seznamu nenašla (možná byla mezitím smazána).';
+    akce.appendChild(infoSmlouva);
+    akce.appendChild(
+      tlacitkoBanka('Potvrdit trvalý příkaz', (e) => ulozZmenuBanka({ Stav_parovani: 'Trvalý příkaz' }, e.target))
+    );
+    akce.appendChild(
+      tlacitkoBanka('Zamítnout návrh', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Smlouva_ID: '' }, e.target))
+    );
+  } else if (p.Stav_parovani === 'Trvalý příkaz') {
+    // Pohyb ručně (nebo z návrhu) potvrzený jako součást trvalého příkazu -
+    // appka ho NEPOVAŽUJE za chybějící doklad (viz lib/bankSchema.js).
+    const smlouvaPotvrzena = bankaSmlouvySeznam.find((s) => s.ID === p.Smlouva_ID);
+    const infoSmlouvaPotvrzena = document.createElement('div');
+    infoSmlouvaPotvrzena.className = 'popis';
+    infoSmlouvaPotvrzena.style.marginBottom = '6px';
+    infoSmlouvaPotvrzena.textContent = smlouvaPotvrzena
+      ? 'Přiřazeno ke smlouvě „' + smlouvaPotvrzena.Nazev + '“' + (smlouvaPotvrzena.Typ ? ' (' + smlouvaPotvrzena.Typ + ')' : '') + '.'
+      : 'Přiřazeno ke smlouvě, kterou appka v seznamu nenašla (možná byla mezitím smazána).';
+    akce.appendChild(infoSmlouvaPotvrzena);
+    akce.appendChild(
+      tlacitkoBanka('Zrušit přiřazení ke smlouvě', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Smlouva_ID: '' }, e.target))
+    );
+  } else if (p.Stav_parovani === 'Příjem přiřazen') {
+    // Příchozí platba, které appka/účetní přiřadila Středisko a/nebo účet
+    // (od v3.19) - appka nabídne rovnou i změnu přiřazení, ne jen zrušení.
+    const infoPrijem = document.createElement('div');
+    infoPrijem.className = 'popis';
+    infoPrijem.style.marginBottom = '6px';
+    infoPrijem.textContent =
+      'Příjem přiřazen' + (p.Stredisko ? ' – středisko: ' + p.Stredisko : '') +
+      (p.Cislo_uctu_vlastni ? ', účet: ' + p.Cislo_uctu_vlastni : '') + '.';
+    akce.appendChild(infoPrijem);
+    akce.appendChild(
+      tlacitkoBanka('Zrušit přiřazení příjmu', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Stredisko: '' }, e.target))
+    );
+  } else if (parsujCastkuZListu(p.Castka) > 0) {
+    // PŘÍJEM (Nespárováno / Bez dokladu, kladná částka) - appka od v3.19
+    // nabízí přiřazení na Středisko a firemní účet místo výběru dokladu
+    // (u příjmů appka doklady vůbec nepáruje, viz lib/bankHelpers.js).
+    const vyberStrediskoPrijem = document.createElement('select');
+    vyberStrediskoPrijem.style.fontSize = '13px';
+    vyberStrediskoPrijem.innerHTML = moznostiStrediska(p.Stredisko || '');
+
+    const vyberUcetPrijem = document.createElement('select');
+    vyberUcetPrijem.style.fontSize = '13px';
+    let ucetHtml = '<option value="">— bez účtu —</option>';
+    bankaUctySeznam.forEach((u) => {
+      const oznaceno = u.Cislo_uctu === p.Cislo_uctu_vlastni ? ' selected' : '';
+      ucetHtml += '<option value="' + escapeAttr(u.Cislo_uctu) + '"' + oznaceno + '>' + escapeHtml(u.Cislo_uctu) +
+        (u.Popis ? ' (' + escapeHtml(u.Popis) + ')' : '') + '</option>';
+    });
+    if (p.Cislo_uctu_vlastni && !bankaUctySeznam.some((u) => u.Cislo_uctu === p.Cislo_uctu_vlastni)) {
+      ucetHtml += '<option value="' + escapeAttr(p.Cislo_uctu_vlastni) + '" selected>' + escapeHtml(p.Cislo_uctu_vlastni) + '</option>';
+    }
+    vyberUcetPrijem.innerHTML = ucetHtml;
+
+    const popisekStredisko = document.createElement('span');
+    popisekStredisko.className = 'popis';
+    popisekStredisko.style.marginRight = '4px';
+    popisekStredisko.textContent = 'Středisko:';
+    const popisekUcet = document.createElement('span');
+    popisekUcet.className = 'popis';
+    popisekUcet.style.margin = '0 4px 0 10px';
+    popisekUcet.textContent = 'Účet:';
+
+    akce.appendChild(popisekStredisko);
+    akce.appendChild(vyberStrediskoPrijem);
+    akce.appendChild(popisekUcet);
+    akce.appendChild(vyberUcetPrijem);
+    akce.appendChild(
+      tlacitkoBanka('Přiřadit příjem', (e) => {
+        if (!vyberStrediskoPrijem.value) {
+          alert('Vyberte středisko.');
+          return;
+        }
+        ulozZmenuBanka(
+          { Stredisko: vyberStrediskoPrijem.value, Cislo_uctu_vlastni: vyberUcetPrijem.value, Stav_parovani: 'Příjem přiřazen' },
+          e.target
+        );
+      })
+    );
+
+    if (p.Stav_parovani !== 'Bez dokladu') {
+      akce.appendChild(
+        tlacitkoBanka('Označit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu' }, e.target))
+      );
+    } else {
+      akce.appendChild(tlacitkoBanka('Zrušit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno' }, e.target)));
+    }
   } else {
     const vyberDokladu = document.createElement('select');
     vyberDokladu.style.fontSize = '13px';
+    vyberDokladu.className = 'vyber-doklad-listbox';
     const jizPouzite = new Set(
       bankaPohybySeznam.filter((pp) => pp.Doklad_ID && pp.ID !== p.ID).map((pp) => pp.Doklad_ID)
     );
-    const volneDoklady = bankaDokladySeznam.filter((d) => !jizPouzite.has(d.ID));
+    // Oprava (Jan nahlásil, že se mu schválený doklad v nabídce ztrácel a
+    // že appka nabízí i doklady, které se sem vůbec nehodí):
+    // - doklady hrazené mimo účet appka nenabízí vůbec - u těch se
+    //   protějšek v bance záměrně nehledá (viz badge "Mimo účet", v3.16),
+    //   nabízet je jako kandidáty by appku jen zbytečně zaplevelovalo.
+    // - placeholder doklady čekající na AI zpracování ("Zpracovává se")
+    //   ještě nemají vytaženou částku/dodavatele - appka je jako
+    //   kandidáty nenabízí, dokud nejsou dokončené.
+    // - zbylé doklady appka řadí tak, aby schválené byly první a hned
+    //   viditelné (nejčastější případ výběru), a u každého rovnou ukáže
+    //   stav, ať je jasné, co je hotové a co ještě čeká na kontrolu.
+    const volneDoklady = bankaDokladySeznam
+      .filter((d) => !jizPouzite.has(d.ID))
+      .filter((d) => String(d.Hrazeno_mimo_ucet || '').trim() !== 'ANO')
+      .filter((d) => d.Stav !== 'Zpracovává se')
+      .slice()
+      .sort((a, b) => {
+        const prioritaA = dokladVyberRazeniPriorita(a.Stav);
+        const prioritaB = dokladVyberRazeniPriorita(b.Stav);
+        if (prioritaA !== prioritaB) return prioritaA - prioritaB;
+        return String(b.Datum_dokladu || '').localeCompare(String(a.Datum_dokladu || ''));
+      });
+    // Appka zobrazí rovnou víc řádků najednou (ne jen sbalenou nabídku),
+    // ať jsou všechny dostupné doklady vidět bez nutnosti rozklikávat
+    // a scrollovat v malém okně prohlížeče.
+    vyberDokladu.size = Math.min(8, volneDoklady.length + 1);
     vyberDokladu.innerHTML =
-      '<option value="">— vyberte doklad —</option>' +
+      '<option value="">— vyberte doklad (' + volneDoklady.length + ') —</option>' +
       volneDoklady
         .map(
           (d) =>
             '<option value="' + escapeAttr(d.ID) + '">' +
+            (d.Stav === 'Schváleno' ? '✅ ' : '') +
             escapeHtml(d.Dodavatel || '(bez dodavatele)') + ' – ' + escapeHtml(String(parsujCastkuZListu(d.Castka))) + ' ' +
-            escapeHtml(d.Mena || '') + ' (' + escapeHtml(d.Datum_dokladu || '') + ')</option>'
+            escapeHtml(d.Mena || '') + ' (' + escapeHtml(d.Datum_dokladu || '') + ')' +
+            (d.Stav !== 'Schváleno' ? ' [' + escapeHtml(d.Stav || '') + ']' : '') +
+            '</option>'
         )
         .join('');
     akce.appendChild(vyberDokladu);
@@ -1471,6 +1690,38 @@ function vytvorDetailBanka(p) {
     });
     akce.appendChild(tlNahratNovy);
     akce.appendChild(poleNovySoubor);
+
+    // Od v3.19 - opakované platby (nájem, elektřina, leasing) appka umí
+    // párovat s JEDNÍM souhrnným dokladem/smlouvou místo účtenky za KAŽDOU
+    // jednotlivou platbu (viz claude/nomis-faktury-backlog.md) - appka
+    // nabídne jen AKTIVNÍ smlouvy dané firmy; pokud žádná neexistuje,
+    // appka odkáže na založení v Nastavení → Smlouvy.
+    const aktivniSmlouvyFirmy = bankaSmlouvySeznam.filter((s) => String(s.Aktivni || 'ANO').trim() !== 'NE');
+    if (aktivniSmlouvyFirmy.length > 0) {
+      const vyberSmlouvy = document.createElement('select');
+      vyberSmlouvy.style.fontSize = '13px';
+      vyberSmlouvy.innerHTML =
+        '<option value="">— přiřadit ke smlouvě (trvalý příkaz) —</option>' +
+        aktivniSmlouvyFirmy
+          .map((s) => '<option value="' + escapeAttr(s.ID) + '">' + escapeHtml(s.Nazev) +
+            (s.Typ ? ' (' + escapeHtml(s.Typ) + ')' : '') + '</option>')
+          .join('');
+      akce.appendChild(vyberSmlouvy);
+      akce.appendChild(
+        tlacitkoBanka('Přiřadit ke smlouvě', (e) => {
+          if (!vyberSmlouvy.value) {
+            alert('Nejdřív vyberte smlouvu.');
+            return;
+          }
+          ulozZmenuBanka({ Smlouva_ID: vyberSmlouvy.value, Stav_parovani: 'Trvalý příkaz', Doklad_ID: '' }, e.target);
+        })
+      );
+    } else {
+      const infoZadneSmlouvy = document.createElement('span');
+      infoZadneSmlouvy.className = 'popis';
+      infoZadneSmlouvy.textContent = 'Žádná smlouva zatím není založená - pro trvalý příkaz (nájem/elektřina/leasing) ji založte v Nastavení → Smlouvy.';
+      akce.appendChild(infoZadneSmlouvy);
+    }
 
     if (p.Stav_parovani !== 'Bez dokladu') {
       akce.appendChild(
@@ -2186,6 +2437,178 @@ async function smazUcet(row, cisloUctu, tlacitko) {
   }
 }
 
+// ---------- ADMIN: SMLOUVY (trvalé příkazy, od v3.19) ----------
+
+async function nactiSmlouvyNastaveni() {
+  const nacitani = document.getElementById('smlouvy-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  try {
+    const [dataSmlouvy, dataFirmy] = await Promise.all([
+      zavolejApi('/smlouvy', { method: 'GET' }),
+      zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+    ]);
+    const firmyDostupne = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
+    nacitani.classList.add('skryto');
+    vyplnVyberFirem('nova-sm-firma', firmyDostupne);
+    if (!document.getElementById('nova-sm-stredisko').dataset.naplneno) {
+      document.getElementById('nova-sm-stredisko').innerHTML = moznostiStrediska('');
+      document.getElementById('nova-sm-stredisko').dataset.naplneno = '1';
+    }
+    if (!document.getElementById('nova-sm-typ').dataset.naplneno) {
+      document.getElementById('nova-sm-typ').innerHTML = moznostiTypSmlouvy('');
+      document.getElementById('nova-sm-typ').dataset.naplneno = '1';
+    }
+    if (!document.getElementById('nova-sm-perioda').dataset.naplneno) {
+      document.getElementById('nova-sm-perioda').innerHTML = moznostiPeriodaSmlouvy('');
+      document.getElementById('nova-sm-perioda').dataset.naplneno = '1';
+    }
+    vykresliSmlouvyNastaveni(dataSmlouvy.smlouvy || []);
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst smlouvy: ' + e.message;
+  }
+}
+
+function vykresliSmlouvyNastaveni(smlouvy) {
+  const telo = document.getElementById('tabulka-smlouvy-telo');
+  telo.innerHTML = '';
+
+  smlouvy.forEach((s) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td data-label="Firma"></td>' +
+      '<td data-label="Název"></td>' +
+      '<td data-label="Středisko"></td>' +
+      '<td data-label="Typ"></td>' +
+      '<td data-label="Perioda"></td>' +
+      '<td data-label="Aktivní"></td>' +
+      '<td data-label="Akce"></td>';
+
+    tr.children[0].textContent = s.Firma || '';
+
+    const vstupNazev = document.createElement('input');
+    vstupNazev.type = 'text';
+    vstupNazev.value = s.Nazev || '';
+    vstupNazev.style.fontSize = '13px';
+    tr.children[1].appendChild(vstupNazev);
+
+    const vyberStredisko = document.createElement('select');
+    vyberStredisko.innerHTML = moznostiStrediska(s.Stredisko || '');
+    vyberStredisko.style.fontSize = '13px';
+    tr.children[2].appendChild(vyberStredisko);
+
+    const vyberTyp = document.createElement('select');
+    vyberTyp.innerHTML = moznostiTypSmlouvy(s.Typ || '');
+    vyberTyp.style.fontSize = '13px';
+    tr.children[3].appendChild(vyberTyp);
+
+    const vyberPerioda = document.createElement('select');
+    vyberPerioda.innerHTML = moznostiPeriodaSmlouvy(s.Perioda || '');
+    vyberPerioda.style.fontSize = '13px';
+    tr.children[4].appendChild(vyberPerioda);
+
+    const vyberAktivni = document.createElement('select');
+    vyberAktivni.innerHTML =
+      '<option value="ANO"' + (String(s.Aktivni || 'ANO').trim() !== 'NE' ? ' selected' : '') + '>Ano</option>' +
+      '<option value="NE"' + (String(s.Aktivni || '').trim() === 'NE' ? ' selected' : '') + '>Ne</option>';
+    vyberAktivni.style.fontSize = '13px';
+    tr.children[5].appendChild(vyberAktivni);
+
+    const tlacitkoUlozit = document.createElement('button');
+    tlacitkoUlozit.className = 'maly sekundarni';
+    tlacitkoUlozit.textContent = 'Uložit';
+    tlacitkoUlozit.onclick = () => ulozSmlouvu(s.ID, {
+      Nazev: vstupNazev.value.trim(),
+      Stredisko: vyberStredisko.value,
+      Typ: vyberTyp.value,
+      Perioda: vyberPerioda.value,
+      Aktivni: vyberAktivni.value,
+    }, tlacitkoUlozit);
+    tr.children[6].appendChild(tlacitkoUlozit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.style.marginLeft = '6px';
+    tlacitkoSmazat.onclick = () => smazSmlouvu(s.ID, s.Nazev, tlacitkoSmazat);
+    tr.children[6].appendChild(tlacitkoSmazat);
+
+    telo.appendChild(tr);
+  });
+
+  if (smlouvy.length === 0) {
+    telo.innerHTML = '<tr><td colspan="7" class="nacitani">Zatím žádné smlouvy.</td></tr>';
+  }
+}
+
+async function pridatSmlouvu() {
+  const zprava = document.getElementById('smlouvy-zprava');
+  zprava.innerHTML = '';
+
+  const firma = document.getElementById('nova-sm-firma').value;
+  const nazev = document.getElementById('nova-sm-nazev').value.trim();
+  if (!firma) {
+    zprava.innerHTML = '<div class="zprava chyba">Vyberte firmu.</div>';
+    return;
+  }
+  if (!nazev) {
+    zprava.innerHTML = '<div class="zprava chyba">Název smlouvy je povinný.</div>';
+    return;
+  }
+
+  try {
+    await zavolejApi('/smlouvy', {
+      method: 'POST',
+      body: JSON.stringify({
+        Firma: firma,
+        Nazev: nazev,
+        Stredisko: document.getElementById('nova-sm-stredisko').value,
+        Typ: document.getElementById('nova-sm-typ').value,
+        Perioda: document.getElementById('nova-sm-perioda').value,
+        Ocekavana_castka: document.getElementById('nova-sm-castka').value,
+        Platnost_od: document.getElementById('nova-sm-od').value,
+        Platnost_do: document.getElementById('nova-sm-do').value,
+        Zdrojovy_soubor_URL: document.getElementById('nova-sm-url').value.trim(),
+        Poznamka: document.getElementById('nova-sm-poznamka').value.trim(),
+      }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Smlouva přidána.</div>';
+    document.getElementById('nova-sm-nazev').value = '';
+    document.getElementById('nova-sm-castka').value = '';
+    document.getElementById('nova-sm-od').value = '';
+    document.getElementById('nova-sm-do').value = '';
+    document.getElementById('nova-sm-url').value = '';
+    document.getElementById('nova-sm-poznamka').value = '';
+    await nactiSmlouvyNastaveni();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function ulozSmlouvu(id, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/smlouvy', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
+    await nactiSmlouvyNastaveni();
+  } catch (e) {
+    alert('Nepodařilo se uložit smlouvu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazSmlouvu(id, nazev, tlacitko) {
+  if (!confirm('Opravdu smazat smlouvu „' + nazev + '“? Bankovní pohyby na ni napojené se vrátí do stavu "Nespárováno".')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/smlouvy?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    await nactiSmlouvyNastaveni();
+  } catch (e) {
+    alert('Nepodařilo se smazat smlouvu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
 // ---------- POMOCNÉ ----------
 
 function escapeHtml(text) {
@@ -2216,6 +2639,7 @@ document.getElementById('tlacitko-pridat-uzivatele').addEventListener('click', p
 document.getElementById('tlacitko-pridat-firmu').addEventListener('click', pridatFirmu);
 document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridatAuto);
 document.getElementById('tlacitko-pridat-ucet').addEventListener('click', pridatUcet);
+document.getElementById('tlacitko-pridat-smlouvu').addEventListener('click', pridatSmlouvu);
 document.getElementById('tlacitko-pripojit-google').addEventListener('click', () => {
   if (!stav || !stav.token) return;
   window.open('/.netlify/functions/google-oauth-start?token=' + encodeURIComponent(stav.token), '_blank');

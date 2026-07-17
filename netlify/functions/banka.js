@@ -20,14 +20,27 @@
  *             všechny dosud "Nespárováno" pohyby dané firmy proti aktuálním
  *             dokladům, beze změny už rozhodnutých pohybů (Navrženo/
  *             Potvrzeno/Bez dokladu appka nechává být).
- * PATCH  { id, zmeny: { Doklad_ID?, Stav_parovani?, Poznamka? } }
+ * PATCH  { id, zmeny: { Doklad_ID?, Stav_parovani?, Poznamka?, Smlouva_ID?,
+ *          Stredisko?, Cislo_uctu_vlastni? } }
  *          -> potvrzení/zamítnutí návrhu, ruční přiřazení dokladu,
- *             označení "Bez dokladu", poznámka
+ *             označení "Bez dokladu", poznámka, přiřazení ke Smlouvě
+ *             (trvalý příkaz), přiřazení Střediska/účtu u příjmů (od
+ *             v3.19, viz claude/nomis-faktury-backlog.md)
  *
  * Firma může mít víc bankovních účtů (od v3.6, viz list "Ucty" a
  * lib/uctySchema.js) - kontrola shody účtu při importu ("ucet_nesedi")
  * hlídá shodu s KTERÝMKOLI známým účtem firmy (Ucty + starší legacy pole
  * Firmy.Bankovni_ucet), ne jen jedním.
+ *
+ * Od v3.19: PATCH s neprázdným Smlouva_ID (jiným, než pohyb dosud měl)
+ * appka ověří, že smlouva existuje a patří stejné firmě jako pohyb. Pokud
+ * appka zároveň dostane Stav_parovani = "Trvalý příkaz" (ruční POTVRZENÉ
+ * přiřazení, ne jen návrh), rovnou zkusí najít DALŠÍ dosud "Nespárováno"
+ * pohyby stejné firmy se stejnou protistranou a podobnou částkou (tolerance
+ * kvůli kolísání u opakovaných plateb, viz lib/bankHelpers.js,
+ * jePodobnaShodaSmlouvy) a navrhne (nepotvrdí) jim stejnou smlouvu - ať
+ * účetní nemusí u pravidelných plateb (nájem, elektřina, leasing)
+ * přiřazovat každý měsíc znovu ručně.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -35,7 +48,13 @@ const { readSheetObjects, appendRow, appendRows, updateRow } = require('../../li
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { UCTY_HEADERS } = require('../../lib/uctySchema');
-const { parsujGeorgeExport, jeBezDokladu, navrhniShodu, parsujCastkuZListu } = require('../../lib/bankHelpers');
+const {
+  parsujGeorgeExport,
+  jeBezDokladu,
+  navrhniShodu,
+  jePodobnaShodaSmlouvy,
+  parsujCastkuZListu,
+} = require('../../lib/bankHelpers');
 const { parsujCsvVypis, parsujXlsxVypis } = require('../../lib/bankImportTabular');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
@@ -295,10 +314,55 @@ exports.handler = async (event) => {
       if (!pohyb) return json(404, { error: 'Pohyb nenalezen.' });
       if (!maPristupKFirme(uzivatel, pohyb.Firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
 
-      const aktualizovany = Object.assign({}, pohyb, zmeny || {});
+      const zmenyBezpecne = Object.assign({}, zmeny || {});
+
+      // Nové přiřazení ke Smlouvě (v3.19) - appka ověří, že smlouva
+      // existuje a patří STEJNÉ firmě jako pohyb, ať omylem nevznikne
+      // propojení napříč firmami.
+      let noveSmlouvaId = null;
+      if (
+        zmenyBezpecne.Smlouva_ID !== undefined &&
+        zmenyBezpecne.Smlouva_ID !== '' &&
+        zmenyBezpecne.Smlouva_ID !== pohyb.Smlouva_ID
+      ) {
+        const { rows: smlouvyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy');
+        const smlouva = smlouvyVsechny.find((s) => s.ID === zmenyBezpecne.Smlouva_ID);
+        if (!smlouva) return json(404, { error: 'Smlouva nenalezena.' });
+        if (smlouva.Firma !== pohyb.Firma) return json(400, { error: 'Vybraná smlouva patří jiné firmě.' });
+        noveSmlouvaId = smlouva.ID;
+      }
+
+      const aktualizovany = Object.assign({}, pohyb, zmenyBezpecne);
       await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, aktualizovany);
 
-      return json(200, { ok: true });
+      // Auto-návrh dalších pohybů ke stejné smlouvě (v3.19) - jen při
+      // RUČNÍM potvrzení (Stav_parovani "Trvalý příkaz", ne jen návrhu),
+      // ať appka nezačne řetězit návrhy z návrhů.
+      let autoNavrzenoDalsich = 0;
+      if (noveSmlouvaId && zmenyBezpecne.Stav_parovani === 'Trvalý příkaz') {
+        const vzor = {
+          castka: parsujCastkuZListu(pohyb.Castka),
+          protistrana: pohyb.Protistrana || pohyb.Popis || '',
+        };
+        const ostatniNesparovane = rows.filter(
+          (r) => r.Firma === pohyb.Firma && r.ID !== pohyb.ID && r.Stav_parovani === 'Nespárováno'
+        );
+        for (const kandidat of ostatniNesparovane) {
+          const kProNavrh = {
+            castka: parsujCastkuZListu(kandidat.Castka),
+            protistrana: kandidat.Protistrana || kandidat.Popis || '',
+          };
+          if (!jePodobnaShodaSmlouvy(vzor, kProNavrh)) continue;
+          await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, kandidat._row, {
+            ...kandidat,
+            Smlouva_ID: noveSmlouvaId,
+            Stav_parovani: 'Navrženo - trvalý příkaz',
+          });
+          autoNavrzenoDalsich += 1;
+        }
+      }
+
+      return json(200, { ok: true, autoNavrzenoDalsich });
     }
 
     return json(405, { error: 'Method not allowed' });

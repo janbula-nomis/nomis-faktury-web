@@ -79,16 +79,26 @@
 
     <!-- PŘEHLED -->
     <div id="zalozka-prehled" class="karta skryto">
-      <h2>Přehled nákladů</h2>
+      <h2>Přehled nákladů a příjmů</h2>
       <div id="prehled-nacitani" class="nacitani">Načítám…</div>
       <div id="prehled-obsah" class="skryto">
         <p><strong id="prehled-pocet"></strong></p>
-        <h2>Podle firmy</h2>
+
+        <h2>Čistý tok</h2>
+        <p class="popis">Výdaje zahrnují i trvalé příkazy (nájem/elektřina/leasing přiřazené ke smlouvě) - viz
+          záložka Bankovní výpisy. Příjmy appka počítá jen z plateb, kterým bylo přiřazeno středisko.</p>
+        <div class="mriz-souhrn" id="souhrn-cisty-tok"></div>
+
+        <h2 style="margin-top:20px">Výdaje podle firmy</h2>
         <div class="mriz-souhrn" id="souhrn-firmy"></div>
-        <h2 style="margin-top:20px">Podle kategorie</h2>
+        <h2 style="margin-top:20px">Výdaje podle kategorie</h2>
         <div class="mriz-souhrn" id="souhrn-kategorie"></div>
-        <h2 style="margin-top:20px">Podle měsíce</h2>
+        <h2 style="margin-top:20px">Výdaje podle měsíce</h2>
         <div class="mriz-souhrn" id="souhrn-mesic"></div>
+        <h2 style="margin-top:20px">Příjmy podle střediska</h2>
+        <div class="mriz-souhrn" id="souhrn-prijmy-stredisko"></div>
+        <h2 style="margin-top:20px">Příjmy podle měsíce</h2>
+        <div class="mriz-souhrn" id="souhrn-prijmy-mesic"></div>
       </div>
     </div>
 
@@ -357,6 +367,45 @@
         <table id="tabulka-ucty">
           <thead><tr><th>Firma</th><th>Číslo účtu</th><th>Měna</th><th>Popis</th><th>Akce</th></tr></thead>
           <tbody id="tabulka-ucty-telo"></tbody>
+        </table>
+        </div>
+      </details>
+
+      <details class="panel-skladaci">
+        <summary>Smlouvy (trvalé příkazy)</summary>
+        <p class="popis">Nájem, elektřina, leasing a podobné opakované platby, u kterých není měsíční doklad za
+          každou platbu - jen smlouva nebo roční přehled. Bankovní pohyb appka pak jde přiřadit rovnou ke smlouvě
+          v záložce Bankovní výpisy, místo párování s jednotlivým dokladem.</p>
+        <h3>Přidat smlouvu</h3>
+        <label for="nova-sm-firma">Firma</label>
+        <select id="nova-sm-firma"></select>
+        <label for="nova-sm-nazev">Název</label>
+        <input type="text" id="nova-sm-nazev" placeholder="např. Nájem - Holečkova 1a" />
+        <label for="nova-sm-stredisko">Středisko</label>
+        <select id="nova-sm-stredisko"></select>
+        <label for="nova-sm-typ">Typ</label>
+        <select id="nova-sm-typ"></select>
+        <label for="nova-sm-perioda">Perioda</label>
+        <select id="nova-sm-perioda"></select>
+        <label for="nova-sm-castka">Očekávaná částka (nepovinné)</label>
+        <input type="number" id="nova-sm-castka" step="0.01" />
+        <label for="nova-sm-od">Platnost od (nepovinné)</label>
+        <input type="date" id="nova-sm-od" />
+        <label for="nova-sm-do">Platnost do (nepovinné)</label>
+        <input type="date" id="nova-sm-do" />
+        <label for="nova-sm-url">Odkaz na scan/PDF smlouvy (nepovinné)</label>
+        <input type="text" id="nova-sm-url" placeholder="např. odkaz na Google Disk" />
+        <label for="nova-sm-poznamka">Poznámka</label>
+        <input type="text" id="nova-sm-poznamka" />
+        <button id="tlacitko-pridat-smlouvu">Přidat smlouvu</button>
+        <div id="smlouvy-zprava"></div>
+
+        <h3 style="margin-top:24px">Existující smlouvy</h3>
+        <div id="smlouvy-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-smlouvy">
+          <thead><tr><th>Firma</th><th>Název</th><th>Středisko</th><th>Typ</th><th>Perioda</th><th>Aktivní</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-smlouvy-telo"></tbody>
         </table>
         </div>
       </details>
