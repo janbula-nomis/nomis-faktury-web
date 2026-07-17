@@ -948,6 +948,68 @@ založí 2 nové řádky se stejným zdrojovým souborem, vlastním ID a
 vysvětlující poznámkou) a Playwright UI testem, že appka zobrazí
 srozumitelnou hlášku a všechny doklady se objeví v seznamu.
 
+## 30. Číselník kategorií u dokladu místo volného textu (v3.15)
+
+Jan chtěl, aby se kategorie u dokladu vybírala z předem daného seznamu, ne
+psala volným textem (kvůli překlepům a nejednotnému pojmenování mezi
+doklady). Pole „Kategorie“ v detailu dokladu je teď `<select>` s pevným
+číselníkem (Palivo, Servis a opravy vozidla, Pojištění, Energie
+(elektřina, plyn, voda), Nájem, Opravy a údržba nemovitosti,
+Telekomunikace a internet, Kancelářské potřeby, Software a IT služby,
+Účetní a právní služby, Bankovní poplatky, Daně a poplatky, Cestovné,
+Marketing a reklama, Služby, Ostatní) - stejný vzor jako existující
+číselník Středisko.
+
+Appka žádná stará data nezahazuje: pokud má doklad kategorii, která v
+číselníku není (starší doklad, nebo AI dřív odhadla něco mimo seznam),
+appka ji zachová jako dodatečnou volbu „(není v seznamu)“ navíc k
+číselníku, takže se hodnota nikdy neztratí ani se tiše nepřepíše.
+
+Prompt pro Gemini (`lib/gemini.js`) appka upravila tak, aby AI při
+zpracování nového dokladu odhadovala kategorii POKUD MOŽNO přesně podle
+stejného číselníku (aby většina dokladů rovnou seděla do výběru a
+nevznikala nová „dodatečná“ hodnota zbytečně) - úplně novou kategorii AI
+vymýšlí jen ve skutečně výjimečném případě, kdy se doklad nehodí do žádné
+z nabízených.
+
+Ověřeno Playwright UI testem, že se pole zobrazí jako `<select>` se
+správným číselníkem, že se u existující kategorie z číselníku správně
+předvybere, a že starší kategorie mimo číselník zůstane zachovaná jako
+dodatečná volba.
+
+## 31. Badge spárování s bankou u schválených dokladů (v3.16)
+
+Jan chtěl u schválených dokladů rovnou vidět, jestli k nim appka (nebo
+účetní) už našla odpovídající bankovní pohyb, aniž by musel kvůli
+kontrole přeskakovat do záložky Bankovní výpisy a ručně dohledávat podle
+částky/data. Appka teď u KAŽDÉHO schváleného dokladu v záložce Doklady
+zobrazí barevný badge se stavem:
+
+- **Spárováno s bankou** – appka našla odpovídající pohyb a účetní ho
+  potvrdila (zelený badge, stejný styl jako u pohybů).
+- **Navrženo spárování** – appka pohyb navrhla, ale ještě čeká na
+  potvrzení/zamítnutí v Bankovních výpisech (modrý badge).
+- **Nespárováno s bankou** – appka zatím k tomuhle dokladu žádný
+  odpovídající pohyb nenašla.
+- **Mimo účet** – doklad je označený jako hrazený mimo účet (hotově/
+  soukromou kartou), takže appka u něj protějšek v bance záměrně
+  nehledá a badge „Nespárováno“ by byl matoucí.
+
+Badge appka počítá jen za běhu (v odpovědi `GET /doklady`), podle listu
+Bankovni_pohyby - nejde o nový sloupec v Doklady, nic se tím v Sheets
+neukládá ani neduplikuje. Pokud list Bankovni_pohyby v appce ještě
+neexistuje (appka bez zapnuté Banky), appka to bezpečně ignoruje a
+doklady se dál načítají normálně, jen bez badge. Badge se zobrazuje
+POUZE u dokladů ve stavu „Schváleno“ - u dokladů čekajících na kontrolu
+appka badge nezobrazuje (spárování dává smysl řešit až u vyřízeného
+dokladu).
+
+Ověřeno backendovým testem (`GET /doklady` správně dopočítá stav podle
+Bankovni_pohyby pro doklad s potvrzeným/navrženým/žádným pohybem) a
+Playwright UI testem se všemi 4 variantami badge u schválených dokladů a
+kontrolou, že se badge vůbec nezobrazí u dokladu, který ještě není
+schválený.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

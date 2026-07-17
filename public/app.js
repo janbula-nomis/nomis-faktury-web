@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.14 – 2026-07-17';
+const APP_VERZE = 'v3.16 – 2026-07-17';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -366,6 +366,31 @@ function stavTrida(stavText) {
   return 'stav-ke-kontrole';
 }
 
+// Badge u SCHVÁLENÉHO dokladu, jestli k němu appka našla/potvrdila
+// odpovídající bankovní pohyb (v3.16) - appka pole `Stav_parovani_bankou`
+// dopočítá na backendu při GET /doklady (viz netlify/functions/doklady.js),
+// porovnáním s listem Bankovni_pohyby. U dokladů hrazených mimo účet
+// (hotově/soukromou kartou) appka záměrně neukazuje "Nespárováno" - takový
+// doklad protějšek v bance nikdy mít nebude, takže by to jen zbytečně
+// vypadalo jako problém. U nechválených dokladů appka badge vůbec
+// nezobrazuje - párování dává smysl kontrolovat až u vyřízených dokladů.
+// Znovupoužívá stejné CSS třídy jako badge u Bankovních výpisů
+// (badge-potvrzeno/navrzeno/chybi/bezdokladu), ať appka vizuálně nezavádí
+// další paletu barev jen pro tohle.
+function bankSparovaniBadge(d) {
+  if (d.Stav !== 'Schváleno') return '';
+  if (String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO') {
+    return '<span class="badge-bezdokladu" title="Doklad je označený jako hrazený mimo účet - appka u něj protějšek v bance nehledá">Mimo účet</span>';
+  }
+  if (d.Stav_parovani_bankou === 'Potvrzeno') {
+    return '<span class="badge-potvrzeno" title="Appka našla a účetní potvrdila odpovídající bankovní pohyb">Spárováno s bankou</span>';
+  }
+  if (d.Stav_parovani_bankou === 'Navrženo') {
+    return '<span class="badge-navrzeno" title="Appka navrhla odpovídající bankovní pohyb, čeká na potvrzení v záložce Bankovní výpisy">Navrženo spárování</span>';
+  }
+  return '<span class="badge-chybi" title="K tomuhle dokladu appka zatím nenašla odpovídající bankovní pohyb v Bankovních výpisech">Nespárováno s bankou</span>';
+}
+
 let firmyProVyberDokladu = [];
 
 // Doklady jsou rozdělené na dvě sekce (od v3.7) - "Ke schválení" (Ke
@@ -488,6 +513,47 @@ function moznostiStrediska(vybrane) {
   return html;
 }
 
+// Číselník Kategorie (od v3.15) - Kategorie byla dřív obyčejné textové pole
+// (ruční opis, nebo AI odhad), což u součtů v Přehledu snadno vedlo k tomu,
+// že stejný typ nákladu skončil pod víc mírně odlišnými řetězci (např.
+// "Palivo" vs. "palivo" vs. "Pohonné hmoty") a rozpadl se tak v souhrnu na
+// víc řádků místo jednoho. Appka teď nabízí pevný seznam - stejný vzor jako
+// MOZNOSTI_STREDISKA výš (viz moznostiKategorie níž): pokud už existující
+// doklad má kategorii, která v číselníku není (starší/ruční zápis), appka ji
+// pořád zobrazí jako dodatečnou možnost, ať se žádná stará data neztratí.
+// Prompt pro Gemini (lib/gemini.js) dostává TENTÝŽ seznam, ať AI odhad
+// rovnou padne do číselníku a nevzniká zbytečně "cizí" hodnota navíc.
+const MOZNOSTI_KATEGORIE = [
+  'Palivo',
+  'Servis a opravy vozidla',
+  'Pojištění',
+  'Energie (elektřina, plyn, voda)',
+  'Nájem',
+  'Opravy a údržba nemovitosti',
+  'Telekomunikace a internet',
+  'Kancelářské potřeby',
+  'Software a IT služby',
+  'Účetní a právní služby',
+  'Bankovní poplatky',
+  'Daně a poplatky',
+  'Cestovné',
+  'Marketing a reklama',
+  'Služby',
+  'Ostatní',
+];
+
+function moznostiKategorie(vybrane) {
+  let html = '<option value="">— vyberte kategorii —</option>';
+  MOZNOSTI_KATEGORIE.forEach((k) => {
+    const oznaceno = k === vybrane ? ' selected' : '';
+    html += '<option value="' + escapeAttr(k) + '"' + oznaceno + '>' + escapeHtml(k) + '</option>';
+  });
+  if (vybrane && !MOZNOSTI_KATEGORIE.includes(vybrane)) {
+    html += '<option value="' + escapeAttr(vybrane) + '" selected>' + escapeHtml(vybrane) + ' (není v seznamu)</option>';
+  }
+  return html;
+}
+
 function vykresliDoklady(doklady) {
   dokladySeznamAktualni = doklady;
   const kontejner = document.getElementById('doklady-seznam');
@@ -524,6 +590,7 @@ function vytvorRadekDoklad(d) {
   hlava.innerHTML =
     '<span class="doklad-sipka">▶</span>' +
     '<span class="stav-chip ' + stavTrida(d.Stav) + '">' + escapeHtml(d.Stav || '') + '</span>' +
+    bankSparovaniBadge(d) +
     '<span class="dodavatel">' +
       escapeHtml(d.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (d.Dodavatel || '(bez dodavatele)')) +
     '</span>' +
@@ -635,9 +702,8 @@ function vytvorDetailDoklad(d) {
 
   const labelKategorie = document.createElement('label');
   labelKategorie.textContent = 'Kategorie';
-  const vstupKategorie = document.createElement('input');
-  vstupKategorie.type = 'text';
-  vstupKategorie.value = d.Kategorie || '';
+  const vstupKategorie = document.createElement('select');
+  vstupKategorie.innerHTML = moznostiKategorie(d.Kategorie || '');
   wrap.appendChild(labelKategorie);
   wrap.appendChild(vstupKategorie);
 

@@ -41,6 +41,33 @@ exports.handler = async (event) => {
     try {
       const { rows } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Doklady');
       const viditelne = rows.filter((r) => maPristupKDokladu(uzivatel, r));
+
+      // Doplněk v3.16: appka u KAŽDÉHO dokladu dopočítá, jestli k němu už
+      // našla (nebo účetní potvrdila) odpovídající bankovní pohyb - Jan
+      // chtěl tohle vidět přímo v záložce Doklady (hlavně u schválených),
+      // ať nemusí kvůli kontrole přeskakovat do Bankovních výpisů a ručně
+      // dohledávat. Pole `Stav_parovani_bankou` appka jen DOPOČÍTÁ pro
+      // odpověď - nejde o skutečný sloupec v listu Doklady, nic se tím
+      // neukládá. Pokud je k dokladu napojených víc pohybů (neobvyklé, ale
+      // teoreticky možné), appka upřednostní "Potvrzeno" před "Navrženo".
+      try {
+        const { rows: pohyby } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Bankovni_pohyby');
+        const stavParovaniPodleDokladu = {};
+        pohyby.forEach((p) => {
+          if (!p.Doklad_ID) return;
+          const dosavadni = stavParovaniPodleDokladu[p.Doklad_ID];
+          if (dosavadni === 'Potvrzeno') return; // už máme silnější signál, nepřepisovat
+          stavParovaniPodleDokladu[p.Doklad_ID] = p.Stav_parovani || '';
+        });
+        viditelne.forEach((d) => {
+          d.Stav_parovani_bankou = stavParovaniPodleDokladu[d.ID] || '';
+        });
+      } catch (e) {
+        // List Bankovni_pohyby nemusí existovat (appka bez zapnuté Banky) -
+        // appka jen nechá Stav_parovani_bankou nevyplněné, doklady samotné
+        // se kvůli tomu nemají přestat načítat.
+      }
+
       return json(200, { doklady: viditelne });
     } catch (e) {
       return json(500, { error: e.message });
