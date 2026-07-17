@@ -1352,6 +1352,65 @@ vedle sebe s rozpadem podle střediska a upozorněními;
 zpracování, badge a potvrzení návrhu spárování v Bankovních výpisech) i
 plnou regresí (37 backendových + 18 UI testů, žádná regrese).
 
+## 38. Oprava: špatné párování vydaných faktur s výpisem + uhrazené faktury se nepropisovaly do dashboardu (v4.0)
+
+Jan nahlásil ze živého provozu dva propojené problémy krátce po nasazení
+v3.22: „špatně se párují vydané uhrazené faktury s výpisem" a „uhrazené se
+nepropisuje do dashboardu". Obě chyby appka měla ve stejné oblasti
+(párování příjmů s Vydanými fakturami, v3.22) a obě appka opravila v
+rámci týhle verze - kvůli rozsahu a dopadu na reálná data appka tuhle
+verzi očísluje jako **v4.0**, ne jako drobnou opravnou v3.23.
+
+**A) Špatné párování (`lib/bankHelpers.js`, `navrhniShoduPrijem`).**
+Appka do teď vyžadovala shodu jména zákazníka jen u ČÁSTEČNÉ platby - u
+PLNÉ shody částky stačilo, že se částka trefila a datum bylo do 30 dnů od
+vystavení faktury, BEZ OHLEDU na jméno. U opakujících se/shodných částek
+(typicky nájmy více bytů za stejnou sumu) appka tak mohla navrhnout
+platbu ke ŠPATNÉ faktuře jiného zákazníka jen kvůli náhodně stejné
+částce. Appka teď vyžaduje shodu jména VŽDY, u plné i částečné shody -
+přesně podle původního zadání (kritérium je ČÁSTKA + JMÉNO ZÁKAZNÍKA, ne
+jen částka).
+
+Při opravě appka navíc našla druhou, související chybu: sdílená funkce
+`normalizujNazev` (používaná i pro párování Dokladů, ne jen Vydaných
+faktur) srovnávala jména BEZ ohledu na diakritiku. Bankovní pole
+"protistrana" u platby od fyzické osoby appka z Georgu často dostává BEZ
+diakritiky (např. "Petr Novak"), zatímco Zákazník na Vydané faktuře má
+appka (ručně/AI vytěžením) obvykle SE správnou diakritikou ("Petr
+Novák") - beze srovnání tolerantního vůči diakritice by nová přísnější
+kontrola jména běžné shody vůbec nenašla. Appka teď jména před
+porovnáním nejdřív zbaví diakritiky (rozklad přes Unicode NFD).
+
+**B) Uhrazené vydané faktury se nepropisovaly do žádného přehledu.**
+Appka zjistila, že jak nová záložka Dashboard (`dashboard-firmy.js`), tak
+stávající Přehled plateb (`dashboard.js`) počítaly příjmy jen z
+bankovních pohybů ve stavu "Příjem přiřazen" (v3.19) - ale potvrzená
+platba Vydané faktury (v3.22) má úplně jiný stav, "Spárováno - vydaná
+faktura", který appka v příjmech ani jednoho přehledu vůbec nesčítala.
+Uhrazená faktura se tak nikde neprojevila jako příjem, ani v celkovém
+součtu, ani v rozpadu podle střediska. Appka teď oba endpointy rozšířila,
+aby platby v tomhle stavu počítaly - jako "středisko" u rozpadu příjmů
+appka použije pole `Jednotka` z napárované Vydané faktury (stejný princip
+jako `Smlouvy.Stredisko` u trvalých příkazů na výdajové straně).
+
+Obě opravy jsou čistě v logice/výpočtu (`lib/bankHelpers.js`,
+`netlify/functions/dashboard.js`, `netlify/functions/dashboard-firmy.js`)
+- žádný nový sloupec v Sheets, není potřeba znovu spouštět `/api/setup`.
+Appka NEOPRAVUJE automaticky už dřív špatně navržené/potvrzené spárování
+uložené v datech (mohlo by jít i o už ručně potvrzené shody) - pokud si
+Jan všiml konkrétní faktury spárované se špatnou platbou, je potřeba
+spárování v Bankovních výpisech ručně zrušit/opravit, nová logika se
+uplatní jen na nové návrhy od teď dál (tlačítko „Spustit kontrolu
+dokladů" appka spustí přepočet i na dosud nerozhodnutých pohybech).
+
+Ověřeno rozšířenými backendovými testy (`test_banka_vydana_faktura.js` -
+nový klíčový regresní test na přesně nahlášený scénář: platba se STEJNOU
+částkou jako existující faktura a blízkým datem, ale JINÝM jménem, se už
+nesmí navrhnout; `test_dashboard_firmy.js`/`test_dashboard_prijmy_vydaje.js`
+- platba spárovaná s Vydanou fakturou se teď počítá do příjmů obou
+přehledů, rozpadlá podle Jednotky) i plnou regresí (37 backendových + 18
+UI testů, žádná regrese).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

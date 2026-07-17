@@ -20,8 +20,14 @@
  * přiřazené jako trvalý příkaz ke Smlouvě (Stav_parovani == "Trvalý
  * příkaz") - středisko u těch appka bere ze samotné Smlouvy
  * (lib/smlouvySchema.js, pole Stredisko), protože pohyb sám středisko
- * nenese. Příjmy appka počítá z bankovních pohybů se Stav_parovani ==
- * "Příjem přiřazen" (příchozí platba, které účetní přiřadila středisko).
+ * nenese. Příjmy appka počítá ze DVOU zdrojů bankovních pohybů: (a)
+ * Stav_parovani == "Příjem přiřazen" (příchozí platba, které účetní ručně
+ * přiřadila středisko), a (b) OD v3.23 i Stav_parovani == "Spárováno -
+ * vydaná faktura" (příchozí platba potvrzeně spárovaná s konkrétní
+ * Vydanou fakturou, v3.22) - středisko appka u těchhle bere z pole
+ * `Jednotka` napárované faktury (lib/vydaneFakturySchema.js). Do v3.23
+ * appka tenhle druhý zdroj v Dashboardu OMYLEM vůbec nepočítala - Jan to
+ * nahlásil jako "uhrazené (vydané faktury) se nepropisuje do dashboardu".
  *
  * Appka navíc vrací globální (ne per-firma) upozornění googleAuthVarovani -
  * pokud selže i jen základní čtení listu Firmy/Doklady (typicky vypršelý/
@@ -79,19 +85,22 @@ exports.handler = async (event) => {
       .filter(Boolean)
       .filter((nazev) => uzivatel.role === 'admin' || (uzivatel.firmy || []).includes(nazev));
 
-    // Bankovní pohyby a Smlouvy appka čte odděleně - appka bez zapnuté
-    // Banky (starší appka, nebo Jan si ji zatím nezapnul) tyhle listy
-    // nemusí mít vůbec založené, Dashboard má fungovat i tak (jen bez
+    // Bankovní pohyby, Smlouvy a Vydané faktury appka čte odděleně - appka
+    // bez zapnuté Banky (starší appka, nebo Jan si ji zatím nezapnul) tyhle
+    // listy nemusí mít vůbec založené, Dashboard má fungovat i tak (jen bez
     // příjmové části a bez trvalých příkazů ve výdajích).
     let pohybyVsechny = [];
     let smlouvyVsechny = [];
+    let fakturyVsechny = [];
     try {
-      const [{ rows: p }, { rows: s }] = await Promise.all([
+      const [{ rows: p }, { rows: s }, { rows: f }] = await Promise.all([
         readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby'),
         readSheetObjects(sheets, spreadsheetId, 'Smlouvy'),
+        readSheetObjects(sheets, spreadsheetId, 'Vydane_faktury').catch(() => ({ rows: [] })),
       ]);
       pohybyVsechny = p;
       smlouvyVsechny = s;
+      fakturyVsechny = f;
     } catch (e) {
       // Banka appka zatím nemá zapnutou - Dashboard pokračuje bez ní.
     }
@@ -99,6 +108,14 @@ exports.handler = async (event) => {
     const strediskoPodleSmlouvy = {};
     smlouvyVsechny.forEach((s) => {
       if (s.ID) strediskoPodleSmlouvy[s.ID] = s.Stredisko || '(bez střediska)';
+    });
+
+    // (v3.23) Jednotka napárované Vydané faktury appka používá jako
+    // "středisko" pro rozpad příjmů z potvrzených plateb faktur - mirror
+    // strediskoPodleSmlouvy výš.
+    const jednotkaPodleFaktury = {};
+    fakturyVsechny.forEach((f) => {
+      if (f.ID) jednotkaPodleFaktury[f.ID] = f.Jednotka || '(bez střediska)';
     });
 
     const vysledky = viditelneFirmy.map((firma) => {
@@ -136,6 +153,19 @@ exports.handler = async (event) => {
         .forEach((p) => {
           const castka = parsujCastkuZListu(p.Castka);
           const stredisko = p.Stredisko || '(bez střediska)';
+          strediskaPrijmy[stredisko] = (strediskaPrijmy[stredisko] || 0) + castka;
+          prijmyCelkem += castka;
+        });
+
+      // (v3.23) Platby potvrzeně spárované s Vydanou fakturou appka do
+      // téhle chvíle v Dashboardu vůbec nepočítala - viz komentář nahoře
+      // v hlavičce souboru ("uhrazené se nepropisuje do dashboardu").
+      pohybyTetoFirmy
+        .filter((p) => p.Stav_parovani === 'Spárováno - vydaná faktura')
+        .filter((p) => String(p.Datum || '') >= zacatekOkna)
+        .forEach((p) => {
+          const castka = parsujCastkuZListu(p.Castka);
+          const stredisko = jednotkaPodleFaktury[p.Vydana_faktura_ID] || '(bez střediska)';
           strediskaPrijmy[stredisko] = (strediskaPrijmy[stredisko] || 0) + castka;
           prijmyCelkem += castka;
         });

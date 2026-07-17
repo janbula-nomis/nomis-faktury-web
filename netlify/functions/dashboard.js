@@ -11,6 +11,11 @@
  *     těchhle souhrnů dřív vůbec nepočítaly.
  *   - NOVÉ souhrny příjmů (souhrnPrijmyPodleStrediska/Mesice) z příchozích
  *     plateb, kterým appka/účetní přiřadila Středisko ("Příjem přiřazen").
+ *   - OD v3.23 i platby potvrzeně spárované s konkrétní Vydanou fakturou
+ *     ("Spárováno - vydaná faktura", v3.22) - appka je do v3.23 v Přehledu
+ *     OMYLEM vůbec nepočítala (stejná chyba jako u nové záložky Dashboard,
+ *     viz claude/nomis-faktury-backlog.md, položka 10). "Středisko" u
+ *     těchhle appka bere z pole `Jednotka` napárované faktury.
  *   - prijmyCelkem/vydajeCelkem/rozdil - čistý tok za viditelná data.
  * List Bankovni_pohyby/Smlouvy nemusí existovat (appka bez zapnuté Banky) -
  * appka v tom případě jen nechá příjmové souhrny prázdné, Přehled dál
@@ -72,14 +77,22 @@ exports.handler = async (event) => {
     let prijmyCelkem = 0;
 
     try {
-      const [{ rows: pohybyVsechny }, { rows: smlouvyVsechny }] = await Promise.all([
+      const [{ rows: pohybyVsechny }, { rows: smlouvyVsechny }, { rows: fakturyVsechny }] = await Promise.all([
         readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Bankovni_pohyby'),
         readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Smlouvy').catch(() => ({ rows: [] })),
+        readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Vydane_faktury').catch(() => ({ rows: [] })),
       ]);
 
       const typSmlouvyPodleId = {};
       smlouvyVsechny.forEach((s) => {
         if (s.ID) typSmlouvyPodleId[s.ID] = s.Typ || '(smlouva)';
+      });
+
+      // (v3.23) Jednotka napárované Vydané faktury appka používá jako
+      // "středisko" pro rozpad příjmů z potvrzených plateb faktur.
+      const jednotkaPodleFaktury = {};
+      fakturyVsechny.forEach((f) => {
+        if (f.ID) jednotkaPodleFaktury[f.ID] = f.Jednotka || '(bez střediska)';
       });
 
       const viditelnePohyby = pohybyVsechny.filter((p) => {
@@ -103,6 +116,11 @@ exports.handler = async (event) => {
           souhrnPodleMesice[mesic] = (souhrnPodleMesice[mesic] || 0) + abs;
         } else if (castka > 0 && p.Stav_parovani === 'Příjem přiřazen') {
           const stredisko = p.Stredisko || '(bez střediska)';
+          souhrnPrijmyPodleStrediska[stredisko] = (souhrnPrijmyPodleStrediska[stredisko] || 0) + castka;
+          souhrnPrijmyPodleMesice[mesic] = (souhrnPrijmyPodleMesice[mesic] || 0) + castka;
+          prijmyCelkem += castka;
+        } else if (castka > 0 && p.Stav_parovani === 'Spárováno - vydaná faktura') {
+          const stredisko = jednotkaPodleFaktury[p.Vydana_faktura_ID] || '(bez střediska)';
           souhrnPrijmyPodleStrediska[stredisko] = (souhrnPrijmyPodleStrediska[stredisko] || 0) + castka;
           souhrnPrijmyPodleMesice[mesic] = (souhrnPrijmyPodleMesice[mesic] || 0) + castka;
           prijmyCelkem += castka;
