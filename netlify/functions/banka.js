@@ -35,12 +35,24 @@
  * Od v3.19: PATCH s neprázdným Smlouva_ID (jiným, než pohyb dosud měl)
  * appka ověří, že smlouva existuje a patří stejné firmě jako pohyb. Pokud
  * appka zároveň dostane Stav_parovani = "Trvalý příkaz" (ruční POTVRZENÉ
- * přiřazení, ne jen návrh), rovnou zkusí najít DALŠÍ dosud "Nespárováno"
+ * přiřazení, ne jen návrhu), rovnou zkusí najít DALŠÍ dosud "Nespárováno"
  * pohyby stejné firmy se stejnou protistranou a podobnou částkou (tolerance
  * kvůli kolísání u opakovaných plateb, viz lib/bankHelpers.js,
  * jePodobnaShodaSmlouvy) a navrhne (nepotvrdí) jim stejnou smlouvu - ať
  * účetní nemusí u pravidelných plateb (nájem, elektřina, leasing)
  * přiřazovat každý měsíc znovu ručně.
+ *
+ * Od v3.22 (párování PŘÍJMŮ s Vydanými fakturami, viz claude/nomis-faktury-
+ * backlog.md, položka 5B): příchozí platby appka při importu (a při
+ * "prepocitatShody") zkusí navrhnout na konkrétní Vydanou fakturu podle
+ * částky + jména zákazníka (lib/bankHelpers.js, navrhniShoduPrijem) -
+ * Stav_parovani "Navrženo - vydaná faktura". Když appka dostane PATCH
+ * s Vydana_faktura_ID a Stav_parovani = "Spárováno - vydaná faktura"
+ * (ruční POTVRZENÍ návrhu, nebo rovnou ruční přiřazení), appka navíc
+ * rovnou přepíše Vydane_faktury.Stav na "Uhrazeno" (částka platby pokryla
+ * celou fakturu) nebo "Částečně uhrazeno" (nižší platba) - appka NIKDY
+ * nic z tohohle nepotvrzuje sama, jde jen o důsledek RUČNÍHO potvrzení
+ * účetní.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -48,10 +60,12 @@ const { readSheetObjects, appendRow, appendRows, updateRow } = require('../../li
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { UCTY_HEADERS } = require('../../lib/uctySchema');
+const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
 const {
   parsujGeorgeExport,
   jeBezDokladu,
   navrhniShodu,
+  navrhniShoduPrijem,
   jePodobnaShodaSmlouvy,
   parsujCastkuZListu,
 } = require('../../lib/bankHelpers');
@@ -141,11 +155,51 @@ exports.handler = async (event) => {
           if (idx >= 0) kandidatiDoklady.splice(idx, 1);
         }
 
+        // Od v3.22: appka stejnou akcí zkusí přepočítat i PŘÍJMOVOU stranu -
+        // příchozí platby appka dřív rovnou označila "Bez dokladu" (žádné
+        // vydané faktury tehdy neexistovaly/nebyly zpracované AI), appka
+        // teď zkusí najít vydanou fakturu, i když už "Bez dokladu" pohyb
+        // v mezičase je - appka NEmění pohyby, které účetní už ručně
+        // vyřešila (Příjem přiřazen / Spárováno - vydaná faktura), jen ty,
+        // co appka sama automaticky uzavřela jako "Bez dokladu" a dosud
+        // nemají Vydana_faktura_ID.
+        const { rows: fakturyVsechnyFirmy } = await readSheetObjects(sheets, spreadsheetId, 'Vydane_faktury').catch(
+          () => ({ rows: [] })
+        );
+        const kandidatiFaktury = fakturyVsechnyFirmy.filter(
+          (f) => f.Firma === firma && (f.Stav === 'Neuhrazeno' || f.Stav === 'Částečně uhrazeno')
+        );
+
+        const prijmyKPreverovani = pohybyFirmy.filter(
+          (p) => parsujCastkuZListu(p.Castka) > 0 && p.Stav_parovani === 'Bez dokladu' && !p.Vydana_faktura_ID
+        );
+
+        let noveNavrzenoPrijmu = 0;
+        for (const pohyb of prijmyKPreverovani) {
+          const pProNavrh = {
+            castka: parsujCastkuZListu(pohyb.Castka),
+            protistrana: pohyb.Protistrana || pohyb.Popis || '',
+            popis: pohyb.Popis || '',
+            datum: pohyb.Datum || '',
+          };
+          const navrh = navrhniShoduPrijem(pProNavrh, kandidatiFaktury);
+          if (!navrh || navrh.skore < 2) continue;
+
+          await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, {
+            ...pohyb,
+            Vydana_faktura_ID: navrh.fakturaId,
+            Stav_parovani: 'Navrženo - vydaná faktura',
+          });
+          noveNavrzenoPrijmu += 1;
+        }
+
         return json(200, {
           ok: true,
           zkontrolovano: nesparovane.length,
           noveNavrzeno,
           zustavaNesparovano: nesparovane.length - noveNavrzeno,
+          zkontrolovanoPrijmu: prijmyKPreverovani.length,
+          noveNavrzenoPrijmu,
         });
       }
 
@@ -208,12 +262,23 @@ exports.handler = async (event) => {
         (d) => (d.Firma_potvrzena || d.Firma_AI_odhad) === firma && !jizPouzitaDokladId.has(d.ID)
       );
 
+      // Od v3.22: kandidáti pro spárování PŘÍJMŮ s Vydanými fakturami (viz
+      // lib/bankHelpers.js, navrhniShoduPrijem) - jen dosud neuhrazené/
+      // částečně uhrazené faktury dané firmy.
+      const { rows: fakturyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Vydane_faktury').catch(
+        () => ({ rows: [] })
+      );
+      const kandidatiFaktury = fakturyVsechny.filter(
+        (f) => f.Firma === firma && (f.Stav === 'Neuhrazeno' || f.Stav === 'Částečně uhrazeno')
+      );
+
       const datumImportu = new Date().toISOString().slice(0, 10);
       const novePohyby = [];
       let pocetDuplicit = 0;
       let pocetNavrzeno = 0;
       let pocetBezDokladu = 0;
       let pocetNesparovano = 0;
+      let pocetNavrzenoPrijmu = 0;
 
       rozpar.polozky.forEach((p) => {
         if (znameHashe.has(p.hash)) {
@@ -223,10 +288,30 @@ exports.handler = async (event) => {
 
         let stav = 'Nespárováno';
         let dokladId = '';
+        let vydanaFakturaId = '';
 
         if (p.castka > 0) {
-          stav = 'Bez dokladu';
-          pocetBezDokladu += 1;
+          // Od v3.22: dřív appka příchozí platbu rovnou označila "Bez
+          // dokladu" - teď nejdřív zkusí navrhnout konkrétní Vydanou
+          // fakturu podle částky + jména zákazníka, appka jen NAVRHUJE
+          // (Navrženo - vydaná faktura), nikdy sama nepotvrzuje.
+          const navrh = navrhniShoduPrijem(p, kandidatiFaktury);
+          if (navrh && navrh.skore >= 2) {
+            stav = 'Navrženo - vydaná faktura';
+            vydanaFakturaId = navrh.fakturaId;
+            pocetNavrzenoPrijmu += 1;
+            // ať appka v rámci jednoho importu nenabídne stejnou fakturu
+            // dvakrát dvěma různým PLNĚ pokrývajícím platbám (částečné
+            // shody appka nechává být - jedna faktura klidně může dostat
+            // víc dílčích plateb).
+            if (!navrh.castecne) {
+              const idx = kandidatiFaktury.findIndex((f) => f.ID === vydanaFakturaId);
+              if (idx >= 0) kandidatiFaktury.splice(idx, 1);
+            }
+          } else {
+            stav = 'Bez dokladu';
+            pocetBezDokladu += 1;
+          }
         } else if (jeBezDokladu(p.typ_pohybu)) {
           stav = 'Bez dokladu';
           pocetBezDokladu += 1;
@@ -264,6 +349,7 @@ exports.handler = async (event) => {
           Poznamka: '',
           Zdroj_hash: p.hash,
           Datum_importu: datumImportu,
+          Vydana_faktura_ID: vydanaFakturaId,
         });
       });
 
@@ -300,6 +386,7 @@ exports.handler = async (event) => {
         navrzeno: pocetNavrzeno,
         bezDokladu: pocetBezDokladu,
         nesparovano: pocetNesparovano,
+        navrzenoPrijmu: pocetNavrzenoPrijmu,
         detekovanyUcet: rozpar.ownerAccountNumber,
         ucetUlozenNove,
       });
@@ -332,8 +419,40 @@ exports.handler = async (event) => {
         noveSmlouvaId = smlouva.ID;
       }
 
+      // Od v3.22: RUČNÍ potvrzení (nebo rovnou ruční přiřazení) spárování
+      // příjmu s Vydanou fakturou appka pozná podle Stav_parovani
+      // "Spárováno - vydaná faktura" - appka pak rovnou přepíše
+      // Vydane_faktury.Stav na Uhrazeno/Částečně uhrazeno podle poměru
+      // částky platby k částce faktury. Appka tohle NIKDY nedělá sama u
+      // pouhého NÁVRHU ("Navrženo - vydaná faktura") - jen při ručním
+      // potvrzení účetní.
+      let fakturaKAktualizaci = null;
+      if (zmenyBezpecne.Stav_parovani === 'Spárováno - vydaná faktura') {
+        const vydanaFakturaId = zmenyBezpecne.Vydana_faktura_ID || pohyb.Vydana_faktura_ID;
+        if (!vydanaFakturaId) return json(400, { error: 'Chybí Vydana_faktura_ID pro potvrzení spárování.' });
+
+        const { rows: fakturyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Vydane_faktury');
+        const faktura = fakturyVsechny.find((f) => f.ID === vydanaFakturaId);
+        if (!faktura) return json(404, { error: 'Vydaná faktura nenalezena.' });
+        if (faktura.Firma !== pohyb.Firma) return json(400, { error: 'Vybraná vydaná faktura patří jiné firmě.' });
+
+        zmenyBezpecne.Vydana_faktura_ID = vydanaFakturaId;
+        fakturaKAktualizaci = faktura;
+      }
+
       const aktualizovany = Object.assign({}, pohyb, zmenyBezpecne);
       await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, aktualizovany);
+
+      if (fakturaKAktualizaci) {
+        const castkaPlatby = parsujCastkuZListu(aktualizovany.Castka);
+        const castkaFaktury = Math.abs(parsujCastkuZListu(fakturaKAktualizaci.Castka));
+        const plnaUhrada = castkaPlatby >= castkaFaktury - 1; // tolerance 1 Kč na zaokrouhlení
+        await updateRow(sheets, spreadsheetId, 'Vydane_faktury', VYDANE_FAKTURY_HEADERS, fakturaKAktualizaci._row, {
+          ...fakturaKAktualizaci,
+          Stav: plnaUhrada ? 'Uhrazeno' : 'Částečně uhrazeno',
+          Datum_uhrady: aktualizovany.Datum || new Date().toISOString().slice(0, 10),
+        });
+      }
 
       // Auto-návrh dalších pohybů ke stejné smlouvě (v3.19) - jen při
       // RUČNÍM potvrzení (Stav_parovani "Trvalý příkaz", ne jen návrhu),
@@ -362,7 +481,7 @@ exports.handler = async (event) => {
         }
       }
 
-      return json(200, { ok: true, autoNavrzenoDalsich });
+      return json(200, { ok: true, autoNavrzenoDalsich, fakturaAktualizovana: !!fakturaKAktualizaci });
     }
 
     return json(405, { error: 'Method not allowed' });

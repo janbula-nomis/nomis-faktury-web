@@ -75,10 +75,12 @@ exports.handler = async (event) => {
     const aktualizovana = Object.assign({}, smlouva, {
       Firma: extrakce.firma_odhad || '',
       Nazev: extrakce.nazev || priloha.Nazev_souboru || 'Nová smlouva',
+      Druha_strana: extrakce.druha_strana || '',
       Stredisko: extrakce.stredisko_odhad || '',
       Typ: extrakce.typ || '',
       Perioda: extrakce.perioda || '',
       Ocekavana_castka: extrakce.ocekavana_castka || '',
+      Mena: extrakce.mena || 'CZK',
       Platnost_od: extrakce.platnost_od || '',
       Platnost_do: extrakce.platnost_do || '',
       Poznamka: extrakce.poznamka_ai || '',

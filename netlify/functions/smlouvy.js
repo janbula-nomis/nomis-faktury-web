@@ -13,9 +13,10 @@
  * GET    (bez firma)   -> totéž pro všechny smlouvy viditelné uživateli
  *                         (admin vše, účetní jen firmy, které má přiřazené) -
  *                         používá se v hlavní záložce Smlouvy.
- * POST   { Firma, Nazev, Stredisko?, Typ?, Perioda?, Ocekavana_castka?,
- *          Platnost_od?, Platnost_do?, Zdrojovy_soubor_URL?, Poznamka?,
- *          Aktivni? } -> založí novou smlouvu ručně, bez souboru/AI
+ * POST   { Firma, Nazev, Druha_strana?, Stredisko?, Typ?, Perioda?,
+ *          Ocekavana_castka?, Mena?, Platnost_od?, Platnost_do?,
+ *          Zdrojovy_soubor_URL?, Poznamka?, Aktivni? } -> založí novou
+ *          smlouvu ručně, bez souboru/AI
  *          (Aktivni výchozí "ANO"). Založení PŘES nahraný soubor + AI
  *          vytěžení appka řeší samostatně, viz smlouvy-upload.js a
  *          smlouvy-upload-dokoncit.js.
@@ -105,10 +106,12 @@ exports.handler = async (event) => {
         ID: crypto.randomUUID(),
         Firma: firma,
         Nazev: nazev,
+        Druha_strana: String(telo.Druha_strana || '').trim(),
         Stredisko: String(telo.Stredisko || '').trim(),
         Typ: String(telo.Typ || '').trim(),
         Perioda: String(telo.Perioda || '').trim(),
         Ocekavana_castka: telo.Ocekavana_castka !== undefined ? String(telo.Ocekavana_castka).trim() : '',
+        Mena: String(telo.Mena || 'CZK').trim() || 'CZK',
         Platnost_od: String(telo.Platnost_od || '').trim(),
         Platnost_do: String(telo.Platnost_do || '').trim(),
         Zdrojovy_soubor_URL: String(telo.Zdrojovy_soubor_URL || '').trim(),

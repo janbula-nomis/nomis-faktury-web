@@ -174,6 +174,20 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .polozka-souhrn { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 13px; }
 .polozka-souhrn:last-child { border-bottom: none; }
 
+/* Dashboard (od v3.22) - karta pro každou firmu vedle sebe (ne přepínač/
+   filtr jedné firmy jako u Přehledu plateb výše) - stejný .mriz-souhrn
+   auto-fit vzor, jen o něco širší minimum, ať se do karty vejde rozpad
+   podle střediska i řádek s upozorněními. */
+.mriz-dashboard-firmy { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.dash-firma-karta { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); padding: 12px; background: var(--barva-pozadi); }
+.dash-firma-karta h3 { margin: 0 0 8px; font-size: 13.5px; font-weight: 700; }
+.dash-firma-karta .rozdil-kladny { color: var(--barva-uspech); }
+.dash-firma-karta .rozdil-zaporny { color: var(--barva-chyba); }
+.dash-firma-karta .dash-stredisko-nadpis { font-size: 11.5px; color: var(--barva-text-tlumena); margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.02em; }
+.dash-upozorneni { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.dash-upozorneni .polozka-upozorneni { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 5px 8px; border-radius: var(--radius-sm); background: #fff4de; color: var(--barva-varovani); }
+.dash-upozorneni .polozka-upozorneni.ok { background: #e8f7f0; color: var(--barva-uspech); }
+
 .nacitani { font-size: 13px; color: var(--barva-text-tlumena); }
 
 /* Poznámka appky u dokladu (např. vysvětlení, že firma/kategorie/středisko
@@ -244,6 +258,9 @@ input[type="file"] { margin-top: 8px; }
 #tabulka-vf-telo tr.stav-radek-vf-uhrazeno { background: #f1faf6; border-left: 3px solid var(--barva-uspech); }
 #tabulka-vf-telo tr.stav-radek-vf-neuhrazeno { background: #fff9ec; border-left: 3px solid var(--barva-varovani); }
 #tabulka-vf-telo tr.stav-radek-vf-posplatnosti { background: #fdf1f0; border-left: 3px solid var(--barva-chyba); }
+/* Od v3.22 - placeholder faktura (AI zpracování) a částečná úhrada. */
+#tabulka-vf-telo tr.stav-radek-vf-zpracovava { background: #f0f3ff; border-left: 3px solid var(--barva-primarni); }
+#tabulka-vf-telo tr.stav-radek-vf-castecne { background: #eaf3ff; border-left: 3px solid var(--barva-primarni); }
 
 /* Kompaktní přepínače jako ikony (den/noc, filtr chybějících dokladů) -
    místo textového checkboxu/tlačítka jen malá kulatá ikona. Stav "zapnuto"
@@ -309,6 +326,8 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .stav-zpracovava,
 :root[data-motiv="tmavy"] .doklad-radek.radek-stav-zpracovava,
 :root[data-motiv="tmavy"] .smlouva-radek.radek-stav-zpracovava,
+:root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-zpracovava,
+:root[data-motiv="tmavy"] #tabulka-vf-telo tr.stav-radek-vf-castecne,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-navrzeno { background: #22314f; color: var(--barva-primarni-tmava); }
 :root[data-motiv="tmavy"] .stav-ke-kontrole,
 :root[data-motiv="tmavy"] .doklad-radek.radek-stav-ke-kontrole,

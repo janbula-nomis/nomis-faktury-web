@@ -1275,6 +1275,83 @@ přidat/smazat, placeholder "Zpracovává se" nabídne dokončení zpracování
 místo editace, přepínač sekcí Aktivní/Neaktivní, ruční přidání i nahrání
 s AI) i plnou regresí (34 backendových + 16 UI testů, žádná regrese).
 
+## 37. Dashboard, AI vytěžení a párování Vydaných faktur, přejmenování záložek, rozšíření Registru smluv (v3.22)
+
+Jan si nejdřív nechal sepsat backlog požadavků ("uděláme backlog
+požadavků, zatím nic nedělej") a teprve pak appku nechal implementovat
+("udělej to") čtyři propojené položky najednou:
+
+**A) Nová záložka „Dashboard".** Appka dostala úplně novou hlavní záložku
+(druhou v pořadí, hned po „Nahrát doklady") - na rozdíl od stávající
+„Přehled plateb" (dřív „Přehled" - jeden souhrn napříč všemi firmami
+dohromady) appka na Dashboardu ukáže **všechny viditelné firmy vedle
+sebe**, každou jako samostatnou kartu: příjmy/výdaje/rozdíl za
+**klouzavé okno posledních 12 měsíců**, rozpad podle střediska, plus
+**provozní upozornění** (počet dokladů čekajících na schválení, počet
+nespárovaných bankovních pohybů). Nový endpoint
+`netlify/functions/dashboard-firmy.js` (odlišný od staršího
+`dashboard.js`, který dál obsluhuje „Přehled plateb") při selhání
+připojení ke Google účtu (typicky vypršelý/odvolaný OAuth refresh token)
+vrátí HTTP 200 s varováním místo pádu celé záložky na chybu 500.
+
+**B) Vydané faktury: AI vytěžení ze souboru.** Vedle stávajícího ručního
+zadání appka nabízí i nahrání souboru s AI vytěžením - stejný dvoufázový
+vzor jako u Dokladů/Smluv (`netlify/functions/vydane-faktury-upload.js`
+fáze 1, `vydane-faktury-upload-dokoncit.js` fáze 2, nová funkce
+`extrahujDataZVydaneFaktury` v `lib/gemini.js`). Faktura ve stavu
+"Zpracovává se" (placeholder) appka zobrazuje jen tomu, kdo ji nahrál,
+nebo adminovi/účetní, dokud AI extrakce nedoběhne - stejná odolnost proti
+selhání (tlačítko „Dokončit zpracování") jako u Dokladů/Smluv.
+
+**C) Vydané faktury: párování s bankou.** Příchozí platby appka dřív
+vždycky označila rovnou „Bez dokladu". Appka teď (při importu výpisu i
+tlačítkem „Spustit kontrolu dokladů") zkusí navrhnout spárování s
+konkrétní Vydanou fakturou podle **částky + jména zákazníka** (záměrně
+NE podle variabilního symbolu - Jan zkušenost, že ho zákazníci často
+nevyplní správně) - nová funkce `navrhniShoduPrijem` v
+`lib/bankHelpers.js`, nový stav pohybu "Navrženo - vydaná faktura".
+Appka NIKDY nic nepotvrzuje sama - účetní v záložce Bankovní výpisy návrh
+buď potvrdí ("Spárováno - vydaná faktura"), nebo zamítne. Při ručním
+potvrzení appka rovnou přepíše stav faktury na **„Uhrazeno"** (platba
+pokryla celou částku) nebo nový stav **„Částečně uhrazeno"** (platba byla
+nižší). Appka záměrně NEDĚLÁ auto-návrh kaskády pro ostatní podobné
+nespárované platby po ručním potvrzení (na rozdíl od chování u Smluv) -
+čistě 1:1 párování pro tuhle první verzi.
+
+**D) Přejmenování a přeuspořádání hlavní navigace.** Beze změny
+interních `data-zalozka` ID a dat, jen popisky/pořadí: „Nahrát doklad" →
+**„Nahrát doklady"**, „Doklady" → **„Přijaté faktury"**, „Smlouvy" →
+**„Registr smluv"**, „Přehled" → **„Přehled plateb"** - pořadí teď je
+Nahrát doklady, Dashboard, Přijaté faktury, Vydané faktury, Přehled
+plateb, Bankovní výpisy, Registr smluv, Export, Nastavení.
+
+**E) Registr smluv: nová pole Druhá smluvní strana a Měna.** Jan
+nahlásil, že smlouva potřebuje evidovat i druhou smluvní stranu
+(pronajímatel/dodavatel, ne jen naši vlastní firmu) a měnu (Smlouvy do
+teď měnu vůbec nesledovaly, na rozdíl od Dokladů od v3.20). Appka přidala
+`Druha_strana` a `Mena` do `lib/smlouvySchema.js`, do ručního formuláře i
+detailu smlouvy k editaci, a AI vytěžení smlouvy (`extrahujDataZeSmlouvy`)
+se teď o obě pole taky pokusí.
+
+Appka po nasazení potřebuje spustit `/api/setup` znovu (viz krok 6 níže) -
+doplní nové sloupce `Druha_strana`/`Mena` do listu `Smlouvy`,
+`Zdrojovy_soubor_URL`/`Zdrojovy_soubor_ID`/`Nahral_uzivatel` do listu
+`Vydane_faktury` a `Vydana_faktura_ID` do listu `Bankovni_pohyby`, nic
+existujícího se tím nemaže ani nepřepisuje.
+
+Ověřeno novými backendovými testy (`test_dashboard_firmy.js` - souhrny
+podle firmy/střediska za klouzavé okno 12 měsíců i mimo něj, provozní
+upozornění; `test_vf_upload.js` - dvoufázové AI nahrání vydané faktury
+včetně selhání/opakování a přístupových práv k placeholder faktuře;
+`test_banka_vydana_faktura.js` - přepočet návrhů příjmů podle částky+jména,
+ruční i navržené potvrzení spárování s propsáním Uhrazeno/Částečně
+uhrazeno, izolace mezi firmami) a novými Playwright UI testy
+(`ui_test_dashboard_zalozka.js` - pořadí/popisky navigace, karty firem
+vedle sebe s rozpadem podle střediska a upozorněními;
+`ui_test_vf_ai_a_parovani.js` - placeholder faktura a AI dokončení
+zpracování, badge a potvrzení návrhu spárování v Bankovních výpisech) i
+plnou regresí (37 backendových + 18 UI testů, žádná regrese).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

@@ -12,6 +12,13 @@
  *
  * Přístup: role "admin" a "ucetni" vidí a spravují vše, běžný uživatel jen
  * faktury firem ze svého seznamu Firmy (stejný princip jako u Dokladů).
+ *
+ * Od v3.22: appka nabízí i AI vytěžení faktury ze souboru jako ALTERNATIVU
+ * k ručnímu zadání přes tenhle POST - viz netlify/functions/vydane-faktury-
+ * upload.js (fáze 1) a vydane-faktury-upload-dokoncit.js (fáze 2), stejný
+ * dvoufázový vzor jako u Dokladů/Smluv. Faktura ve stavu "Zpracovává se"
+ * (placeholder z fáze 1) appka zobrazuje jen tomu, kdo ji nahrál, nebo
+ * adminovi/účetní (ještě nemá potvrzenou Firmu).
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -41,7 +48,16 @@ exports.handler = async (event) => {
     if (event.httpMethod === 'GET') {
       const firmaFiltr = (event.queryStringParameters || {}).firma;
       const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Vydane_faktury');
-      const viditelne = rows.filter((r) => maPristupKFirme(uzivatel, r.Firma));
+
+      // Placeholder faktura "Zpracovává se" (od v3.22, AI vytěžení ze
+      // souboru) ještě nemá potvrzenou Firmu - appka ji přesto ukáže tomu,
+      // kdo ji nahrál (nebo adminovi/účetní), stejná logika jako u
+      // placeholder Dokladů/Smluv.
+      const viditelnostFaktury = (r) =>
+        (r.Firma && maPristupKFirme(uzivatel, r.Firma)) ||
+        (!r.Firma && (uzivatel.role === 'admin' || uzivatel.role === 'ucetni' || r.Nahral_uzivatel === uzivatel.jmeno));
+
+      const viditelne = rows.filter(viditelnostFaktury);
       const vysledek = firmaFiltr ? viditelne.filter((r) => r.Firma === firmaFiltr) : viditelne;
       return json(200, { faktury: vysledek });
     }

@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v3.21 – 2026-07-17';
+const APP_VERZE = 'v3.22 – 2026-07-17';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -167,12 +167,13 @@ function zobrazApp() {
 }
 
 function prepniZalozku(nazev) {
-  ['nahrat', 'doklady', 'prehled', 'vydane-faktury', 'banka', 'smlouvy', 'export', 'nastaveni'].forEach((n) => {
+  ['nahrat', 'dashboard', 'doklady', 'vydane-faktury', 'prehled', 'banka', 'smlouvy', 'export', 'nastaveni'].forEach((n) => {
     document.getElementById('zalozka-' + n).classList.toggle('skryto', n !== nazev);
   });
   document.querySelectorAll('nav.zalozky button').forEach((btn) => {
     btn.classList.toggle('aktivni', btn.dataset.zalozka === nazev);
   });
+  if (nazev === 'dashboard') nactiDashboard();
   if (nazev === 'doklady') nactiDoklady();
   if (nazev === 'prehled') nactiPrehled();
   if (nazev === 'vydane-faktury') inicializujZalozkuVydaneFaktury();
@@ -275,12 +276,12 @@ function zmensiObrazek(soubor, maxRozmer, kvalita) {
 function zpravaPoZpracovaniDokladu(odpoved) {
   const dalsi = (odpoved && odpoved.dalsiDoklady) || [];
   if (dalsi.length === 0) {
-    return 'Doklad byl nahrán a zpracován. Zkontrolujte ho v záložce Doklady.';
+    return 'Doklad byl nahrán a zpracován. Zkontrolujte ho v záložce Přijaté faktury.';
   }
   return (
     'Appka si všimla, že je na téhle fotce/scanu víc dokladů vedle sebe - ' +
     'našla jich celkem ' + (dalsi.length + 1) + ' a založila je jako ' + (dalsi.length + 1) +
-    ' samostatné položky. Zkontrolujte je prosím všechny v záložce Doklady.'
+    ' samostatné položky. Zkontrolujte je prosím všechny v záložce Přijaté faktury.'
   );
 }
 
@@ -325,7 +326,7 @@ async function nahratDoklad() {
   } catch (e) {
     zprava.innerHTML =
       '<div class="zprava info">Soubor byl bezpečně nahrán, ale zpracování údajů pomocí AI se teď nepovedlo ' +
-      '(' + escapeHtml(e.message) + '). Nic jste neztratili - doklad najdete v záložce Doklady se stavem ' +
+      '(' + escapeHtml(e.message) + '). Nic jste neztratili - doklad najdete v záložce Přijaté faktury se stavem ' +
       '„Zpracovává se“ a zpracování jde odtud kdykoli zopakovat tlačítkem „Dokončit zpracování“, ' +
       'bez nutnosti cokoliv nahrávat znovu.</div>';
   } finally {
@@ -426,7 +427,7 @@ async function nactiDoklady() {
 function prepniDokladySekci(sekce) {
   dokladySekce = sekce;
   // Scoped jen na tuhle záložku (#zalozka-doklady) - od v3.21 mají stejnou
-  // CSS třídu ".prepinac-sekce-tlacitko" i přepínače v záložce Smlouvy
+  // CSS třídu ".prepinac-sekce-tlacitko" i přepínače v záložce Registr smluv
   // (Aktivní/Neaktivní), obecný dotaz přes celou stránku by jim omylem
   // sebral zvýraznění výběru.
   document.querySelectorAll('#zalozka-doklady .prepinac-sekce-tlacitko').forEach((btn) => {
@@ -886,6 +887,92 @@ async function smazDoklad(id, dodavatel, tlacitko) {
   }
 }
 
+// ---------- DASHBOARD (od v3.22) ----------
+// Na rozdíl od Přehledu plateb (jeden souhrn napříč všemi firmami dohromady,
+// viz nactiPrehled níž) appka tady ukazuje VŠECHNY viditelné firmy VEDLE
+// SEBE, každou jako samostatnou kartu - viz netlify/functions/dashboard-firmy.js.
+
+function vykresliDashSouhrnStredisek(souhrn) {
+  const zaznamy = Object.entries(souhrn || {}).sort((a, b) => b[1] - a[1]);
+  if (zaznamy.length === 0) return '<div class="popis" style="margin:0">Žádná data.</div>';
+  return zaznamy
+    .map(
+      ([klic, hodnota]) =>
+        '<div class="polozka-souhrn"><span>' + escapeHtml(klic) + '</span><strong>' + formatCastka(hodnota) + '</strong></div>'
+    )
+    .join('');
+}
+
+function vytvorDashFirmaKarta(f) {
+  const karta = document.createElement('div');
+  karta.className = 'dash-firma-karta';
+
+  const rozdilTrida = f.rozdil >= 0 ? 'rozdil-kladny' : 'rozdil-zaporny';
+
+  let html =
+    '<h3>' + escapeHtml(f.firma) + '</h3>' +
+    '<div class="polozka-souhrn"><span>Příjmy (12 měsíců)</span><strong>' + formatCastka(f.prijmyCelkem) + '</strong></div>' +
+    '<div class="polozka-souhrn"><span>Výdaje (12 měsíců)</span><strong>' + formatCastka(f.vydajeCelkem) + '</strong></div>' +
+    '<div class="polozka-souhrn"><span>Rozdíl</span><strong class="' + rozdilTrida + '">' + formatCastka(f.rozdil) + '</strong></div>' +
+    '<div class="dash-stredisko-nadpis">Výdaje podle střediska</div>' +
+    vykresliDashSouhrnStredisek(f.strediskaVydaje) +
+    '<div class="dash-stredisko-nadpis">Příjmy podle střediska</div>' +
+    vykresliDashSouhrnStredisek(f.strediskaPrijmy);
+
+  const upozorneni = [];
+  if (f.dokladyKeSchvaleni > 0) {
+    upozorneni.push(
+      '<div class="polozka-upozorneni">⚠ ' + f.dokladyKeSchvaleni + '× doklad čeká na schválení</div>'
+    );
+  }
+  if (f.pohybyNesparovane > 0) {
+    upozorneni.push(
+      '<div class="polozka-upozorneni">⚠ ' + f.pohybyNesparovane + '× nespárovaný bankovní pohyb</div>'
+    );
+  }
+  if (upozorneni.length === 0) {
+    upozorneni.push('<div class="polozka-upozorneni ok">✓ Nic nečeká na vyřízení</div>');
+  }
+  html += '<div class="dash-upozorneni">' + upozorneni.join('') + '</div>';
+
+  karta.innerHTML = html;
+  return karta;
+}
+
+async function nactiDashboard() {
+  const nacitani = document.getElementById('dash-nacitani');
+  const obsah = document.getElementById('dash-obsah');
+  const varovani = document.getElementById('dash-google-varovani');
+  nacitani.textContent = 'Načítám…';
+  nacitani.classList.remove('skryto');
+  obsah.classList.add('skryto');
+  varovani.classList.add('skryto');
+
+  try {
+    const data = await zavolejApi('/dashboard-firmy', { method: 'GET' });
+    nacitani.classList.add('skryto');
+
+    if (data.googleAuthVarovani) {
+      varovani.textContent =
+        'Nepodařilo se připojit ke Google účtu appky (Sheets/Disk) - přihlašovací údaje appky možná vypršely ' +
+        'nebo byly odvolány. Dashboard prosím zkuste znovu později, případně kontaktujte administrátora ' +
+        '(viz README-DEPLOY.md, obnovení Google OAuth refresh tokenu).';
+      varovani.classList.remove('skryto');
+    }
+
+    obsah.classList.remove('skryto');
+    obsah.innerHTML = '';
+    const firmy = data.firmy || [];
+    if (firmy.length === 0 && !data.googleAuthVarovani) {
+      obsah.innerHTML = '<div class="nacitani">Zatím žádná viditelná firma.</div>';
+      return;
+    }
+    firmy.forEach((f) => obsah.appendChild(vytvorDashFirmaKarta(f)));
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst Dashboard: ' + e.message;
+  }
+}
+
 // ---------- PŘEHLED ----------
 
 async function nactiPrehled() {
@@ -1155,13 +1242,20 @@ function vfJePoSplatnosti(f) {
 }
 
 function vfStavRadekTrida(f) {
+  if (f.Stav === 'Zpracovává se') return 'stav-radek-vf-zpracovava';
   if (f.Stav === 'Uhrazeno') return 'stav-radek-vf-uhrazeno';
+  if (f.Stav === 'Částečně uhrazeno') return 'stav-radek-vf-castecne';
   if (vfJePoSplatnosti(f)) return 'stav-radek-vf-posplatnosti';
   return 'stav-radek-vf-neuhrazeno';
 }
 
 function vfStavText(f) {
+  if (f.Stav === 'Zpracovává se') return 'Zpracovává se';
   if (f.Stav === 'Uhrazeno') return 'Uhrazeno';
+  // Od v3.22 - platba spárovaná s bankou jen ČÁSTEČNĚ pokryla fakturu (viz
+  // Bankovní výpisy, návrh spárování s vydanou fakturou podle částky + jména
+  // zákazníka) - appka to appka drží jako vlastní stav, ne jen odvozeně.
+  if (f.Stav === 'Částečně uhrazeno') return 'Částečně uhrazeno';
   if (vfJePoSplatnosti(f)) return 'Po splatnosti';
   return 'Neuhrazeno';
 }
@@ -1173,22 +1267,46 @@ function vykresliVydaneFaktury() {
   telo.innerHTML = '';
 
   const filtrovane = vfFakturySeznam.filter((f) => !filtrFirma || f.Firma === filtrFirma);
+  // Placeholder faktury (AI zpracování ještě neproběhlo) appka do souhrnu
+  // uhrazeno/neuhrazeno nepočítá - ještě nemají žádnou částku.
+  const zpracovane = filtrovane.filter((f) => f.Stav !== 'Zpracovává se');
 
-  const uhrazeno = filtrovane.filter((f) => f.Stav === 'Uhrazeno').length;
-  const poSplatnosti = filtrovane.filter((f) => vfJePoSplatnosti(f)).length;
-  const neuhrazeno = filtrovane.length - uhrazeno - poSplatnosti;
-  const soucetNeuhrazeno = filtrovane
+  const uhrazeno = zpracovane.filter((f) => f.Stav === 'Uhrazeno').length;
+  const castecne = zpracovane.filter((f) => f.Stav === 'Částečně uhrazeno').length;
+  const poSplatnosti = zpracovane.filter((f) => vfJePoSplatnosti(f)).length;
+  const neuhrazeno = zpracovane.length - uhrazeno - castecne - poSplatnosti;
+  const soucetNeuhrazeno = zpracovane
     .filter((f) => f.Stav !== 'Uhrazeno')
     .reduce((soucet, f) => soucet + parsujCastkuZListu(f.Castka), 0);
   souhrn.textContent =
-    uhrazeno + ' uhrazeno, ' + neuhrazeno + ' neuhrazeno, ' + poSplatnosti + ' po splatnosti ' +
-    '(nezaplaceno celkem ' + formatCastka(soucetNeuhrazeno) + ')';
+    uhrazeno + ' uhrazeno, ' + castecne + ' částečně uhrazeno, ' + neuhrazeno + ' neuhrazeno, ' +
+    poSplatnosti + ' po splatnosti (nezaplaceno celkem ' + formatCastka(soucetNeuhrazeno) + ')';
 
   const serazene = filtrovane.slice().sort((a, b) => (b.Datum_vystaveni || '').localeCompare(a.Datum_vystaveni || ''));
 
   serazene.forEach((f) => {
     const tr = document.createElement('tr');
     tr.className = vfStavRadekTrida(f);
+
+    // Placeholder faktura (Stav "Zpracovává se") - AI zpracování ještě
+    // neproběhlo/se nepovedlo, stejný vzor jako u Dokladů/Smluv appka
+    // místo editace prázdných polí rovnou nabídne dokončení zpracování.
+    if (f.Stav === 'Zpracovává se') {
+      const td = document.createElement('td');
+      td.colSpan = 9;
+      td.innerHTML =
+        '<span class="stav-chip stav-zpracovava">Zpracovává se</span> Soubor je bezpečně uložený, AI zpracování ' +
+        'údajů ještě neproběhlo (nebo se dřív nepovedlo kvůli dočasnému přetížení). ';
+      const tlacitkoDokoncit = document.createElement('button');
+      tlacitkoDokoncit.className = 'maly';
+      tlacitkoDokoncit.textContent = 'Dokončit zpracování';
+      tlacitkoDokoncit.onclick = () => dokoncitZpracovaniVydaneFaktury(f.ID, tlacitkoDokoncit);
+      td.appendChild(tlacitkoDokoncit);
+      tr.appendChild(td);
+      telo.appendChild(tr);
+      return;
+    }
+
     tr.innerHTML =
       '<td data-label="Firma">' + escapeHtml(f.Firma || '') + '</td>' +
       '<td data-label="Číslo">' + escapeHtml(f.Cislo_faktury || '') + '</td>' +
@@ -1270,6 +1388,96 @@ async function pridatVydanouFakturu() {
   }
 }
 
+// ---------- VYDANÉ FAKTURY: NAHRÁVÁNÍ S AI VYTĚŽENÍM (od v3.22, dvoufázově -
+// stejný vzor jako Doklady/Smlouvy, viz pripravSouborKNahrani výš) ----------
+
+let vybranySouborVydanaFaktura = null;
+
+async function zpracujVybranySouborVydaneFaktury(soubor) {
+  const zprava = document.getElementById('vf-nahrat-zprava');
+  const info = document.getElementById('vf-vybrany-soubor-info');
+  zprava.innerHTML = '';
+  document.getElementById('vf-tlacitko-nahrat').disabled = true;
+
+  if (!soubor) {
+    vybranySouborVydanaFaktura = null;
+    info.textContent = '';
+    return;
+  }
+
+  try {
+    vybranySouborVydanaFaktura = await pripravSouborKNahrani(soubor);
+    info.textContent = 'Vybráno: ' + soubor.name;
+    document.getElementById('vf-tlacitko-nahrat').disabled = false;
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">Soubor se nepodařilo zpracovat: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function nahratVydanouFakturu() {
+  const zprava = document.getElementById('vf-nahrat-zprava');
+  const tlacitko = document.getElementById('vf-tlacitko-nahrat');
+  if (!vybranySouborVydanaFaktura) return;
+
+  tlacitko.disabled = true;
+  zprava.innerHTML = '<div class="zprava">Nahrávám soubor…</div>';
+
+  let faktura;
+  try {
+    const odpoved = await zavolejApi('/vydane-faktury-upload', {
+      method: 'POST',
+      body: JSON.stringify({
+        filename: vybranySouborVydanaFaktura.nazev,
+        mimeType: vybranySouborVydanaFaktura.mimeType,
+        dataBase64: vybranySouborVydanaFaktura.data,
+      }),
+    });
+    faktura = odpoved.faktura;
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">Soubor se nepodařilo nahrát: ' + escapeHtml(e.message) + '</div>';
+    tlacitko.disabled = !vybranySouborVydanaFaktura;
+    return;
+  }
+
+  document.getElementById('vf-pole-soubor').value = '';
+  document.getElementById('vf-pole-foto').value = '';
+  document.getElementById('vf-vybrany-soubor-info').textContent = '';
+  vybranySouborVydanaFaktura = null;
+  tlacitko.disabled = true;
+
+  zprava.innerHTML = '<div class="zprava">Soubor nahrán, appka na pozadí čte údaje pomocí AI (může trvat několik vteřin)…</div>';
+  try {
+    await zavolejApi('/vydane-faktury-upload-dokoncit', { method: 'POST', body: JSON.stringify({ id: faktura.ID }) });
+    zprava.innerHTML = '<div class="zprava uspech">Faktura byla nahrána a zpracována AI. Zkontrolujte vytažené údaje v seznamu níž a případně je opravte.</div>';
+  } catch (e) {
+    zprava.innerHTML =
+      '<div class="zprava info">Soubor byl bezpečně nahrán, ale zpracování údajů pomocí AI se teď nepovedlo ' +
+      '(' + escapeHtml(e.message) + '). Nic jste neztratili - fakturu najdete v seznamu níž se stavem ' +
+      '„Zpracovává se“ a zpracování jde odtud kdykoli zopakovat tlačítkem „Dokončit zpracování“, ' +
+      'bez nutnosti cokoliv nahrávat znovu.</div>';
+  } finally {
+    tlacitko.disabled = !vybranySouborVydanaFaktura;
+    await nactiVydaneFaktury();
+  }
+}
+
+async function dokoncitZpracovaniVydaneFaktury(id, tlacitko) {
+  tlacitko.disabled = true;
+  const puvodniText = tlacitko.textContent;
+  tlacitko.textContent = 'Zpracovávám…';
+  try {
+    await zavolejApi('/vydane-faktury-upload-dokoncit', { method: 'POST', body: JSON.stringify({ id }) });
+    await nactiVydaneFaktury();
+  } catch (e) {
+    alert(
+      'Zpracování se zatím nepovedlo (' + e.message + '). Soubor zůstává bezpečně uložený, zkuste to prosím ' +
+      'za chvíli znovu.'
+    );
+    tlacitko.disabled = false;
+    tlacitko.textContent = puvodniText;
+  }
+}
+
 // ---------- BANKOVNÍ VÝPISY ----------
 
 let bankaFirmySeznam = [];
@@ -1278,6 +1486,7 @@ let bankaPohybySeznam = [];
 let bankaDokladySeznam = [];
 let bankaSmlouvySeznam = []; // od v3.19 - trvalé příkazy dané firmy
 let bankaUctySeznam = []; // od v3.19 - vlastní účty dané firmy (pro ruční doplnění u příjmů)
+let bankaFakturySeznam = []; // od v3.22 - vydané faktury dané firmy (párování příjmů)
 
 async function inicializujZalozkuBanka() {
   const vyber = document.getElementById('banka-vyber-firmy');
@@ -1315,11 +1524,12 @@ async function nactiBankovniPohyby() {
   }
 
   try {
-    const [dataPohyby, dataDoklady, dataSmlouvy, dataUcty] = await Promise.all([
+    const [dataPohyby, dataDoklady, dataSmlouvy, dataUcty, dataFaktury] = await Promise.all([
       zavolejApi('/banka?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }),
       zavolejApi('/doklady', { method: 'GET' }),
       zavolejApi('/smlouvy?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }).catch(() => ({ smlouvy: [] })),
       zavolejApi('/ucty', { method: 'GET' }).catch(() => ({ ucty: [] })),
+      zavolejApi('/vydaneFaktury?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }).catch(() => ({ faktury: [] })),
     ]);
     bankaPohybySeznam = dataPohyby.pohyby || [];
     bankaDokladySeznam = (dataDoklady.doklady || []).filter(
@@ -1327,6 +1537,7 @@ async function nactiBankovniPohyby() {
     );
     bankaSmlouvySeznam = dataSmlouvy.smlouvy || [];
     bankaUctySeznam = (dataUcty.ucty || []).filter((u) => u.Firma === bankaAktivniFirma);
+    bankaFakturySeznam = dataFaktury.faktury || [];
     nacitani.classList.add('skryto');
     vykresliBankovniPohyby();
   } catch (e) {
@@ -1347,6 +1558,10 @@ function bankaStavBadge(stav) {
   if (stav === 'Trvalý příkaz') return '<span class="badge-trvalyprikaz">Trvalý příkaz</span>';
   if (stav === 'Navrženo - trvalý příkaz') return '<span class="badge-navrzeno">Navrženo (smlouva)</span>';
   if (stav === 'Příjem přiřazen') return '<span class="badge-prijemprirazen">Příjem přiřazen</span>';
+  // Od v3.22 - párování příjmů s Vydanými fakturami (viz claude/nomis-
+  // faktury-backlog.md, položka 5B).
+  if (stav === 'Navrženo - vydaná faktura') return '<span class="badge-navrzeno">Navrženo (faktura)</span>';
+  if (stav === 'Spárováno - vydaná faktura') return '<span class="badge-prijemprirazen">Spárováno s fakturou</span>';
   return '<span class="badge-chybi">Chybí doklad</span>';
 }
 
@@ -1358,9 +1573,9 @@ function bankaStavBadge(stav) {
 // "Navrženo - trvalý příkaz" (od v3.19) appka řadí do stejné naléhavostní
 // skupiny jako "Navrženo" - obojí čeká jen na rychlé potvrzení/zamítnutí.
 function bankaStavRazeniPriorita(stav) {
-  if (stav === 'Navrženo' || stav === 'Navrženo - trvalý příkaz') return 0;
+  if (stav === 'Navrženo' || stav === 'Navrženo - trvalý příkaz' || stav === 'Navrženo - vydaná faktura') return 0;
   if (stav === 'Nespárováno') return 1;
-  return 2; // Potvrzeno, Bez dokladu, Trvalý příkaz, Příjem přiřazen - vyřízeno
+  return 2; // Potvrzeno, Bez dokladu, Trvalý příkaz, Příjem přiřazen, Spárováno - vydaná faktura - vyřízeno
 }
 
 // Pořadí důležitosti stavů dokladu v nabídce "vyberte doklad" u ručního
@@ -1381,6 +1596,8 @@ function bankaStavRadekTrida(stav) {
   if (stav === 'Bez dokladu') return 'stav-radek-bezdokladu';
   if (stav === 'Trvalý příkaz') return 'stav-radek-trvalyprikaz';
   if (stav === 'Příjem přiřazen') return 'stav-radek-prijemprirazen';
+  if (stav === 'Navrženo - vydaná faktura') return 'stav-radek-navrzeno';
+  if (stav === 'Spárováno - vydaná faktura') return 'stav-radek-prijemprirazen';
   return 'stav-radek-chybi';
 }
 
@@ -1397,10 +1614,13 @@ function vykresliBankovniPohyby() {
     (p) => p.Stav_parovani === 'Trvalý příkaz' || p.Stav_parovani === 'Navrženo - trvalý příkaz'
   ).length;
   const prijmyPrirazene = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Příjem přiřazen').length;
+  const fakturyNavrzeno = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Navrženo - vydaná faktura').length;
+  const fakturySparovano = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Spárováno - vydaná faktura').length;
   souhrn.textContent =
     potvrzeno + ' potvrzeno, ' + navrzeno + ' navrženo, ' + chybi + ' chybí, ' + bezDokladu +
-    ' bez dokladu, ' + trvalePrikazy + ' trvalých příkazů, ' + prijmyPrirazene +
-    ' příjmů přiřazeno (celkem ' + bankaPohybySeznam.length + ')';
+    ' bez dokladu, ' + trvalePrikazy + ' trvalých příkazů, ' + prijmyPrirazene + ' příjmů přiřazeno, ' +
+    fakturyNavrzeno + ' navrženo k faktuře, ' + fakturySparovano +
+    ' spárováno s fakturou (celkem ' + bankaPohybySeznam.length + ')';
 
   const jenChybejici = document.getElementById('banka-jen-chybejici').getAttribute('aria-pressed') === 'true';
   const serazene = bankaPohybySeznam
@@ -1409,7 +1629,8 @@ function vykresliBankovniPohyby() {
         !jenChybejici ||
         p.Stav_parovani === 'Nespárováno' ||
         p.Stav_parovani === 'Navrženo' ||
-        p.Stav_parovani === 'Navrženo - trvalý příkaz'
+        p.Stav_parovani === 'Navrženo - trvalý příkaz' ||
+        p.Stav_parovani === 'Navrženo - vydaná faktura'
     )
     .slice()
     .sort((a, b) => {
@@ -1575,6 +1796,59 @@ function vytvorDetailBanka(p) {
     akce.appendChild(
       tlacitkoBanka('Zrušit přiřazení příjmu', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Stredisko: '' }, e.target))
     );
+  } else if (p.Stav_parovani === 'Navrženo - vydaná faktura') {
+    // Od v3.22 - appka navrhla spárování příchozí platby s konkrétní
+    // Vydanou fakturou podle částky + jména zákazníka (viz
+    // lib/bankHelpers.js, navrhniShoduPrijem) - stejný princip jako
+    // "Navrženo" u dokladů, pořád čeká na potvrzení/zamítnutí účetní.
+    const fakturaNavrzena = bankaFakturySeznam.find((f) => f.ID === p.Vydana_faktura_ID);
+    const infoFaktura = document.createElement('div');
+    infoFaktura.className = 'popis';
+    infoFaktura.style.marginBottom = '6px';
+    infoFaktura.textContent = fakturaNavrzena
+      ? 'Appka navrhuje spárovat s vydanou fakturou ' + (fakturaNavrzena.Cislo_faktury || '(bez čísla)') +
+        ' – zákazník ' + (fakturaNavrzena.Zakaznik || '(bez zákazníka)') + ', ' +
+        formatCastkaSMenou(fakturaNavrzena.Castka, fakturaNavrzena.Mena) +
+        (parsujCastkuZListu(p.Castka) < Math.abs(parsujCastkuZListu(fakturaNavrzena.Castka)) - 1
+          ? ' (platba je nižší - appka po potvrzení označí fakturu jako „Částečně uhrazeno“)'
+          : '') + '.'
+      : 'Appka navrhuje spárovat s vydanou fakturou, kterou v seznamu nenašla (možná byla mezitím smazána).';
+    akce.appendChild(infoFaktura);
+    akce.appendChild(
+      tlacitkoBanka('Potvrdit spárování', (e) =>
+        ulozZmenuBanka({ Stav_parovani: 'Spárováno - vydaná faktura' }, e.target)
+      )
+    );
+    akce.appendChild(
+      tlacitkoBanka('Zamítnout návrh', (e) =>
+        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Vydana_faktura_ID: '' }, e.target)
+      )
+    );
+  } else if (p.Stav_parovani === 'Spárováno - vydaná faktura') {
+    // Platba ručně (nebo z návrhu) potvrzená jako úhrada konkrétní Vydané
+    // faktury - appka při potvrzení rovnou přepsala Vydane_faktury.Stav
+    // (viz netlify/functions/banka.js).
+    const fakturaSparovana = bankaFakturySeznam.find((f) => f.ID === p.Vydana_faktura_ID);
+    const infoFakturaSparovana = document.createElement('div');
+    infoFakturaSparovana.className = 'popis';
+    infoFakturaSparovana.style.marginBottom = '6px';
+    infoFakturaSparovana.textContent = fakturaSparovana
+      ? 'Spárováno s vydanou fakturou ' + (fakturaSparovana.Cislo_faktury || '(bez čísla)') +
+        ' – zákazník ' + (fakturaSparovana.Zakaznik || '(bez zákazníka)') + '.'
+      : 'Spárováno s vydanou fakturou, kterou appka v seznamu nenašla (možná byla mezitím smazána).';
+    akce.appendChild(infoFakturaSparovana);
+    akce.appendChild(
+      tlacitkoBanka('Zrušit spárování', (e) =>
+        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Vydana_faktura_ID: '' }, e.target)
+      )
+    );
+    const upozorneniZruseni = document.createElement('div');
+    upozorneniZruseni.className = 'popis';
+    upozorneniZruseni.style.marginTop = '4px';
+    upozorneniZruseni.textContent =
+      'Pozn.: zrušení spárování appka NEVRACÍ automaticky stav faktury zpět - pokud je potřeba, opravte ho ' +
+      'ručně v záložce Vydané faktury.';
+    akce.appendChild(upozorneniZruseni);
   } else if (parsujCastkuZListu(p.Castka) > 0) {
     // PŘÍJEM (Nespárováno / Bez dokladu, kladná částka) - appka od v3.19
     // nabízí přiřazení na Středisko a firemní účet místo výběru dokladu
@@ -1621,6 +1895,39 @@ function vytvorDetailBanka(p) {
         );
       })
     );
+
+    // Od v3.22 - appka nabídne i ruční přiřazení ke konkrétní Vydané faktuře
+    // (ne jen automatický návrh podle částky/jména, viz "Navrženo - vydaná
+    // faktura" výš) - pro případ, že appka sama žádnou vhodnou fakturu
+    // nenašla, ale účetní ví, ke které platba patří.
+    const nesplacene = bankaFakturySeznam.filter((f) => f.Stav === 'Neuhrazeno' || f.Stav === 'Částečně uhrazeno');
+    if (nesplacene.length > 0) {
+      const vyberFaktury = document.createElement('select');
+      vyberFaktury.style.fontSize = '13px';
+      vyberFaktury.innerHTML =
+        '<option value="">— přiřadit k vydané faktuře —</option>' +
+        nesplacene
+          .map(
+            (f) =>
+              '<option value="' + escapeAttr(f.ID) + '">' + escapeHtml(f.Cislo_faktury || '(bez čísla)') + ' – ' +
+              escapeHtml(f.Zakaznik || '(bez zákazníka)') + ' – ' + escapeHtml(formatCastkaSMenou(f.Castka, f.Mena)) +
+              '</option>'
+          )
+          .join('');
+      akce.appendChild(vyberFaktury);
+      akce.appendChild(
+        tlacitkoBanka('Přiřadit k faktuře', (e) => {
+          if (!vyberFaktury.value) {
+            alert('Nejdřív vyberte vydanou fakturu.');
+            return;
+          }
+          ulozZmenuBanka(
+            { Vydana_faktura_ID: vyberFaktury.value, Stav_parovani: 'Spárováno - vydaná faktura' },
+            e.target
+          );
+        })
+      );
+    }
 
     if (p.Stav_parovani !== 'Bez dokladu') {
       akce.appendChild(
@@ -1881,7 +2188,9 @@ async function spustitKontroluDokladu(tlacitko) {
     zprava.innerHTML =
       '<div class="zprava uspech">Zkontrolováno ' + vysledek.zkontrolovano + ' nespárovaných pohybů - ' +
       vysledek.noveNavrzeno + ' appka nově navrhla ke kontrole, ' + vysledek.zustavaNesparovano +
-      ' pořád čeká na doklad.</div>';
+      ' pořád čeká na doklad. U příjmů appka navíc zkontrolovala ' + (vysledek.zkontrolovanoPrijmu || 0) +
+      ' plateb označených „Bez dokladu“ - ' + (vysledek.noveNavrzenoPrijmu || 0) +
+      ' appka nově navrhla ke konkrétní vydané faktuře.</div>';
     await nactiBankovniPohyby();
   } catch (e) {
     zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
@@ -2582,7 +2891,7 @@ function vytvorRadekSmlouva(s, prilohyTeto) {
     '</span>' +
     '<span>' + escapeHtml(s.Firma || '') + '</span>' +
     '<span>' + escapeHtml(s.Stredisko || '') + '</span>' +
-    '<span class="castka">' + (s.Ocekavana_castka !== undefined && s.Ocekavana_castka !== '' ? formatCastka(s.Ocekavana_castka) : '') + '</span>';
+    '<span class="castka">' + (s.Ocekavana_castka !== undefined && s.Ocekavana_castka !== '' ? formatCastkaSMenou(s.Ocekavana_castka, s.Mena) : '') + '</span>';
 
   const detail = document.createElement('div');
   detail.className = 'smlouva-radek-detail';
@@ -2713,6 +3022,14 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
   wrap.appendChild(labelNazev);
   wrap.appendChild(vstupNazev);
 
+  const labelDruhaStrana = document.createElement('label');
+  labelDruhaStrana.textContent = 'Druhá smluvní strana';
+  const vstupDruhaStrana = document.createElement('input');
+  vstupDruhaStrana.type = 'text';
+  vstupDruhaStrana.value = s.Druha_strana || '';
+  wrap.appendChild(labelDruhaStrana);
+  wrap.appendChild(vstupDruhaStrana);
+
   const labelFirma = document.createElement('label');
   labelFirma.textContent = 'Firma';
   const vstupFirma = document.createElement('select');
@@ -2749,6 +3066,15 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
   vstupCastka.value = s.Ocekavana_castka !== undefined && s.Ocekavana_castka !== '' ? parsujCastkuZListu(s.Ocekavana_castka) : '';
   wrap.appendChild(labelCastka);
   wrap.appendChild(vstupCastka);
+
+  const labelMena = document.createElement('label');
+  labelMena.textContent = 'Měna';
+  const vstupMena = document.createElement('input');
+  vstupMena.type = 'text';
+  vstupMena.value = s.Mena || 'CZK';
+  vstupMena.style.maxWidth = '90px';
+  wrap.appendChild(labelMena);
+  wrap.appendChild(vstupMena);
 
   const labelOd = document.createElement('label');
   labelOd.textContent = 'Platnost od';
@@ -2788,11 +3114,13 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
   function ziskejZmeny() {
     return {
       Nazev: vstupNazev.value.trim(),
+      Druha_strana: vstupDruhaStrana.value.trim(),
       Firma: vstupFirma.value.trim(),
       Stredisko: vstupStredisko.value.trim(),
       Typ: vstupTyp.value.trim(),
       Perioda: vstupPerioda.value.trim(),
       Ocekavana_castka: vstupCastka.value,
+      Mena: vstupMena.value.trim() || 'CZK',
       Platnost_od: vstupOd.value,
       Platnost_do: vstupDo.value,
       Poznamka: vstupPoznamka.value.trim(),
@@ -2968,10 +3296,12 @@ async function pridatSmlouvu() {
       body: JSON.stringify({
         Firma: firma,
         Nazev: nazev,
+        Druha_strana: document.getElementById('nova-sm-druha-strana').value.trim(),
         Stredisko: document.getElementById('nova-sm-stredisko').value,
         Typ: document.getElementById('nova-sm-typ').value,
         Perioda: document.getElementById('nova-sm-perioda').value,
         Ocekavana_castka: document.getElementById('nova-sm-castka').value,
+        Mena: document.getElementById('nova-sm-mena').value.trim() || 'CZK',
         Platnost_od: document.getElementById('nova-sm-od').value,
         Platnost_do: document.getElementById('nova-sm-do').value,
         Zdrojovy_soubor_URL: document.getElementById('nova-sm-url').value.trim(),
@@ -2980,7 +3310,9 @@ async function pridatSmlouvu() {
     });
     zprava.innerHTML = '<div class="zprava uspech">Smlouva přidána.</div>';
     document.getElementById('nova-sm-nazev').value = '';
+    document.getElementById('nova-sm-druha-strana').value = '';
     document.getElementById('nova-sm-castka').value = '';
+    document.getElementById('nova-sm-mena').value = 'CZK';
     document.getElementById('nova-sm-od').value = '';
     document.getElementById('nova-sm-do').value = '';
     document.getElementById('nova-sm-url').value = '';
@@ -3068,6 +3400,11 @@ document.getElementById('banka-jen-chybejici').addEventListener('click', (e) => 
 });
 document.getElementById('tlacitko-pridat-fakturu').addEventListener('click', pridatVydanouFakturu);
 document.getElementById('vf-filtr-firma').addEventListener('change', vykresliVydaneFaktury);
+document.getElementById('vf-tlacitko-vyfotit').addEventListener('click', () => document.getElementById('vf-pole-foto').click());
+document.getElementById('vf-tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('vf-pole-soubor').click());
+document.getElementById('vf-pole-foto').addEventListener('change', (e) => zpracujVybranySouborVydaneFaktury(e.target.files[0]));
+document.getElementById('vf-pole-soubor').addEventListener('change', (e) => zpracujVybranySouborVydaneFaktury(e.target.files[0]));
+document.getElementById('vf-tlacitko-nahrat').addEventListener('click', nahratVydanouFakturu);
 document.getElementById('tlacitko-motiv').addEventListener('click', prepniMotiv);
 document.getElementById('tlacitko-export-zobrazit').addEventListener('click', vykresliPrehledExport);
 ['export-firma', 'export-mesic', 'export-rok', 'export-stredisko'].forEach((id) => {

@@ -373,14 +373,16 @@ odhadu, komu doklad patří). Sloupec `Platce_DPH` už je předvyplněný
 
 1. Otevřete `https://VASE-DOMENA.netlify.app`.
 2. Zadejte svůj PIN z listu Uzivatele → Přihlásit se.
-3. Záložka **„Nahrát doklad“** → vyberte/vyfoťte testovací fakturu nebo
+3. Záložka **„Nahrát doklady“** → vyberte/vyfoťte testovací fakturu nebo
    účtenku → „Nahrát a zpracovat“ (zpracování s AI trvá pár vteřin).
-4. Přepněte na záložku **„Doklady“** – měl by přibýt řádek se stavem „Ke
-   kontrole“ (nebo „Možná duplicita“) a vyplněnými poli podle AI odhadu.
-   Zkontrolujte/opravte Firmu, Kategorii, případně SPZ a klikněte
-   **„Uložit“**, pak **„Schválit“**.
-5. Záložka **„Přehled“** – po schválení pár dokladů by se měly objevit
-   součty podle firmy/kategorie/měsíce.
+4. Přepněte na záložku **„Přijaté faktury“** (dřív „Doklady“) – měl by
+   přibýt řádek se stavem „Ke kontrole“ (nebo „Možná duplicita“) a
+   vyplněnými poli podle AI odhadu. Zkontrolujte/opravte Firmu, Kategorii,
+   případně SPZ a klikněte **„Uložit“**, pak **„Schválit“**.
+5. Záložka **„Přehled plateb“** (dřív „Přehled“) – po schválení pár
+   dokladů by se měly objevit součty podle firmy/kategorie/měsíce. Nová
+   záložka **„Dashboard“** (hned vedle „Nahrát doklady“) ukáže totéž jako
+   karty vedle sebe pro každou firmu zvlášť, za posledních 12 měsíců.
 6. Jste-li přihlášeni jako admin, přibudou navíc záložky **„Uživatelé“**,
    **„Firmy“** a **„Auta“** – tam teď můžete přímo v appce přidávat,
    upravovat i mazat uživatele (jméno, PIN, přístup k firmám, role), firmy

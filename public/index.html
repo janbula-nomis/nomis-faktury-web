@@ -41,12 +41,13 @@
     </div>
 
     <nav class="zalozky">
-      <button data-zalozka="nahrat" class="aktivni">Nahrát doklad</button>
-      <button data-zalozka="doklady">Doklady</button>
-      <button data-zalozka="prehled">Přehled</button>
+      <button data-zalozka="nahrat" class="aktivni">Nahrát doklady</button>
+      <button data-zalozka="dashboard" id="nav-dashboard">Dashboard</button>
+      <button data-zalozka="doklady">Přijaté faktury</button>
       <button data-zalozka="vydane-faktury">Vydané faktury</button>
+      <button data-zalozka="prehled">Přehled plateb</button>
       <button data-zalozka="banka" id="nav-banka" class="skryto">Bankovní výpisy</button>
-      <button data-zalozka="smlouvy" id="nav-smlouvy" class="skryto">Smlouvy</button>
+      <button data-zalozka="smlouvy" id="nav-smlouvy" class="skryto">Registr smluv</button>
       <button data-zalozka="export" id="nav-export" class="skryto">Export</button>
       <button data-zalozka="nastaveni" id="nav-nastaveni" class="skryto">Nastavení</button>
     </nav>
@@ -66,9 +67,19 @@
       <div id="nahrat-zprava"></div>
     </div>
 
+    <!-- DASHBOARD (od v3.22) -->
+    <div id="zalozka-dashboard" class="karta skryto">
+      <h2>Dashboard</h2>
+      <p class="popis">Všechny firmy vedle sebe - příjmy, výdaje a rozdíl za posledních 12 měsíců (klouzavé
+        okno) podle střediska, plus provozní upozornění, která čekají na vyřízení.</p>
+      <div id="dash-nacitani" class="nacitani">Načítám…</div>
+      <div id="dash-google-varovani" class="zprava chyba skryto"></div>
+      <div id="dash-obsah" class="mriz-dashboard-firmy skryto"></div>
+    </div>
+
     <!-- DOKLADY -->
     <div id="zalozka-doklady" class="karta skryto">
-      <h2>Doklady</h2>
+      <h2>Přijaté faktury</h2>
       <div class="prepinac-sekce">
         <button type="button" id="dokl-sekce-ke-schvaleni" class="prepinac-sekce-tlacitko aktivni" data-sekce="keSchvaleni">Ke schválení</button>
         <button type="button" id="dokl-sekce-schvalene" class="prepinac-sekce-tlacitko" data-sekce="schvalene">Schválené</button>
@@ -109,8 +120,21 @@
       <p class="popis">Evidence faktur, které firmy skupiny Nomis Group vystavují svým odběratelům
         (samostatně od Dokladů, což jsou přijaté faktury a účtenky).</p>
 
-      <details class="panel-skladaci" open>
-        <summary>Přidat vydanou fakturu</summary>
+      <h3>Nahrát fakturu (s AI vytěžením)</h3>
+      <p class="popis">Appka se ze souboru pokusí sama vyčíst firmu, číslo faktury, zákazníka, jednotku, částku
+        a data - vždy jen jako návrh, který si po nahrání zkontrolujte a případně opravte v seznamu níž.</p>
+      <div class="tlacitka-nahrani">
+        <button id="vf-tlacitko-vyfotit" type="button" class="sekundarni">📷 Vyfotit fakturu</button>
+        <button id="vf-tlacitko-vybrat-soubor" type="button" class="sekundarni">📁 Nahrát soubor faktury</button>
+      </div>
+      <input type="file" id="vf-pole-foto" accept="image/*" capture="environment" class="skryto" />
+      <input type="file" id="vf-pole-soubor" accept="image/*,application/pdf" class="skryto" />
+      <div id="vf-vybrany-soubor-info" class="popis"></div>
+      <button id="vf-tlacitko-nahrat" disabled>Nahrát a vytěžit AI</button>
+      <div id="vf-nahrat-zprava"></div>
+
+      <details class="panel-skladaci" style="margin-top:16px">
+        <summary>Přidat vydanou fakturu ručně</summary>
         <label for="vf-firma">Firma (vystavuje)</label>
         <select id="vf-firma"></select>
         <label for="vf-cislo">Číslo faktury</label>
@@ -203,7 +227,7 @@
 
     <!-- SMLOUVY -->
     <div id="zalozka-smlouvy" class="karta skryto">
-      <h2>Smlouvy</h2>
+      <h2>Registr smluv</h2>
       <p class="popis">Nájem, elektřina, leasing a podobné opakované platby, u kterých není měsíční doklad za
         každou platbu - jen smlouva nebo roční přehled (např. vyúčtování energií). Bankovní pohyb appka pak jde
         přiřadit rovnou ke smlouvě v záložce Bankovní výpisy, místo párování s jednotlivým dokladem. Ke smlouvě
@@ -228,6 +252,8 @@
         <select id="nova-sm-firma"></select>
         <label for="nova-sm-nazev">Název</label>
         <input type="text" id="nova-sm-nazev" placeholder="např. Nájem - Holečkova 1a" />
+        <label for="nova-sm-druha-strana">Druhá smluvní strana (nepovinné)</label>
+        <input type="text" id="nova-sm-druha-strana" placeholder="např. jméno pronajímatele/dodavatele" />
         <label for="nova-sm-stredisko">Středisko</label>
         <select id="nova-sm-stredisko"></select>
         <label for="nova-sm-typ">Typ</label>
@@ -236,6 +262,8 @@
         <select id="nova-sm-perioda"></select>
         <label for="nova-sm-castka">Očekávaná částka (nepovinné)</label>
         <input type="number" id="nova-sm-castka" step="0.01" />
+        <label for="nova-sm-mena">Měna</label>
+        <input type="text" id="nova-sm-mena" value="CZK" style="max-width:90px" />
         <label for="nova-sm-od">Platnost od (nepovinné)</label>
         <input type="date" id="nova-sm-od" />
         <label for="nova-sm-do">Platnost do (nepovinné)</label>
