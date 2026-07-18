@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.6.1 – 2026-07-18';
+const APP_VERZE = 'v4.6.2 – 2026-07-18';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1003,12 +1003,10 @@ const NAZVY_TYPU_DANE = {
   Dan_z_nemovitosti: 'Daň z nemovitostí',
 };
 
-// Appka drží poslední načtená data + zvolený typ období (mesic/rok) v
-// modulové proměnné, ať přepnutí Měsíc/Rok nebo výběru konkrétního období
-// (vykresliDanovyPrehled) nemusí pokaždé volat znovu API - appka data
+// Appka drží poslední načtená data v modulové proměnné, ať výběr jiného
+// roku (vykresliDanovyPrehled) nemusí pokaždé volat znovu API - appka data
 // znovu natáhne jen při skutečném přechodu na záložku (nactiPrehled).
 let danovyPrehledData = null;
-let danovyPrehledTypObdobi = 'mesic';
 
 async function nactiPrehled() {
   const nacitani = document.getElementById('prehled-nacitani');
@@ -1020,34 +1018,39 @@ async function nactiPrehled() {
     danovyPrehledData = await zavolejApi('/danovy-prehled', { method: 'GET' });
     nacitani.classList.add('skryto');
     obsah.classList.remove('skryto');
+    naplnRokyDoVyberu();
     vykresliDanovyPrehled();
   } catch (e) {
     nacitani.textContent = 'Nepodařilo se načíst daňový přehled: ' + e.message;
   }
 }
 
-// Přepínač Měsíc/Rok (od v4.6.1) - appka "Rok" VŽDY počítá jako kalendářní
-// rok (leden - prosinec, daňové období), ne klouzavé okno jako Dashboard.
-document.getElementById('prehled-obdobi-mesic').addEventListener('click', () => {
-  danovyPrehledTypObdobi = 'mesic';
-  document.getElementById('prehled-obdobi-mesic').classList.add('aktivni');
-  document.getElementById('prehled-obdobi-rok').classList.remove('aktivni');
-  vykresliDanovyPrehled(true);
-});
-document.getElementById('prehled-obdobi-rok').addEventListener('click', () => {
-  danovyPrehledTypObdobi = 'rok';
-  document.getElementById('prehled-obdobi-rok').classList.add('aktivni');
-  document.getElementById('prehled-obdobi-mesic').classList.remove('aktivni');
-  vykresliDanovyPrehled(true);
-});
-document.getElementById('prehled-vyber-obdobi').addEventListener('change', () => vykresliDanovyPrehled());
+// Appka nabízí jen výběr KALENDÁŘNÍHO roku (od v4.6.2, viz claude/nomis-
+// faktury-backlog.md, položka 9) - výchozí je aktuální rok, pokud v datech
+// existuje, jinak appka vybere nejnovější dostupný (obdobiRoky appka vrací
+// seřazené od nejnovějšího). Volá se jen jednou po načtení dat, ne při
+// každém překreslení tabulky.
+function naplnRokyDoVyberu() {
+  const vyberRok = document.getElementById('prehled-vyber-rok');
+  const roky = (danovyPrehledData && danovyPrehledData.obdobiRoky) || [];
+  if (roky.length === 0) {
+    vyberRok.innerHTML = '<option value="">— žádná data —</option>';
+    return;
+  }
+  vyberRok.innerHTML = roky.map((r) => '<option value="' + escapeAttr(r) + '">' + escapeHtml(r) + '</option>').join('');
+  const aktualniRok = String(new Date().getFullYear());
+  if (roky.includes(aktualniRok)) vyberRok.value = aktualniRok;
+}
+document.getElementById('prehled-vyber-rok').addEventListener('change', () => vykresliDanovyPrehled());
 
-// Vykreslí tabulku (firmy × druhy daně) pro aktuálně zvolený typ období
-// (mesic/rok) a konkrétní období z #prehled-vyber-obdobi. `obnovSeznamObdobi`
-// appka nastaví na true jen při přepnutí Měsíc/Rok - jinak by appka při
-// pouhé změně vybraného období v <select>u zbytečně přestavěla i samotný
-// seznam možností (a tím ho vrátila na výchozí/první položku).
-function vykresliDanovyPrehled(obnovSeznamObdobi) {
+// Appka vykreslí jeden řádek na firmu s ROČNÍ bilancí (kalendářní rok
+// zvolený v #prehled-vyber-rok) - kliknutím na řádek appka rozbalí/sbalí
+// všech 12 měsíčních řádků té firmy (leden - prosinec, VŽDY všech 12, i
+// prázdné - Jan si to výslovně vyžádal, ať je hned vidět, kde případně
+// chybí zaúčtování). Appka zůstává u opravdové <table> (ne div-gridu jako
+// Doklady/Smlouvy), měsíční řádky jsou normální <tr> ve stejném tbody -
+// tím jsou automaticky zarovnané do stejných sloupců jako roční řádek.
+function vykresliDanovyPrehled() {
   const data = danovyPrehledData;
   if (!data) return;
 
@@ -1057,52 +1060,30 @@ function vykresliDanovyPrehled(obnovSeznamObdobi) {
     ? 'Plátce DPH ve skupině: ' + platci.join(', ') + '.'
     : 'Žádná firma ve skupině není aktuálně nastavena jako plátce DPH (viz Nastavení → Firmy) - sloupec DPH bilance proto appka nepočítá.';
 
-  const vyberObdobi = document.getElementById('prehled-vyber-obdobi');
-  const seznamObdobi = danovyPrehledTypObdobi === 'rok' ? (data.obdobiRoky || []) : (data.obdobiMesice || []);
-
-  if (obnovSeznamObdobi || vyberObdobi.options.length === 0) {
-    const puvodniHodnota = vyberObdobi.value;
-    if (seznamObdobi.length === 0) {
-      vyberObdobi.innerHTML = '<option value="">— žádná data —</option>';
-    } else {
-      vyberObdobi.innerHTML = seznamObdobi.map((o) => '<option value="' + escapeAttr(o) + '">' + escapeHtml(o) + '</option>').join('');
-      // Appka se pokusí zachovat dřív vybraný rok/měsíc, pokud existuje i
-      // v novém seznamu (přepnutí Měsíc/Rok jinak vždy skočí na nejnovější
-      // dostupné období, což je rozumný výchozí stav při prvním načtení).
-      if (puvodniHodnota && seznamObdobi.includes(puvodniHodnota)) vyberObdobi.value = puvodniHodnota;
-    }
-  }
-
-  const obdobi = vyberObdobi.value;
-  const dphBilanceObdobi = (danovyPrehledTypObdobi === 'rok' ? data.dphBilanceRocni : data.dphBilanceMesicni) || {};
-  const danovePlatbyObdobi = (danovyPrehledTypObdobi === 'rok' ? data.danovePlatbyRocni : data.danovePlatbyMesicni) || {};
-  const dphBilanceFirmy = dphBilanceObdobi[obdobi] || {};
-  const danovePlatbyFirmy = danovePlatbyObdobi[obdobi] || {};
-
+  const rok = document.getElementById('prehled-vyber-rok').value;
   const telo = document.getElementById('prehled-tabulka-telo');
   telo.innerHTML = '';
 
-  if (!obdobi) {
+  if (!rok) {
     telo.innerHTML = '<tr><td colspan="5" class="popis">Zatím žádná data k daňovému přehledu (ani DPH bilance z dokladů/faktur, ani platby přiřazené k dani).</td></tr>';
     return;
   }
 
-  // Appka do tabulky zařadí každou firmu, která má v TOMHLE období buď
+  const dphBilanceRokFirmy = (data.dphBilanceRocni || {})[rok] || {};
+  const danovePlatbyRokFirmy = (data.danovePlatbyRocni || {})[rok] || {};
+
+  // Appka do tabulky zařadí každou firmu, která má v TOMHLE roce buď
   // vypočtenou DPH bilanci, nebo aspoň jednu daňovou platbu - ne VŠECHNY
   // firmy skupiny natvrdo, ať se v přehledu neobjevují prázdné řádky za
-  // firmy, které v daném měsíci/roce vůbec žádnou daňovou aktivitu nemají.
-  const firmyKZobrazeni = Array.from(new Set([...Object.keys(dphBilanceFirmy), ...Object.keys(danovePlatbyFirmy)])).sort();
+  // firmy, které v daném roce vůbec žádnou daňovou aktivitu nemají.
+  const firmyKZobrazeni = Array.from(new Set([...Object.keys(dphBilanceRokFirmy), ...Object.keys(danovePlatbyRokFirmy)])).sort();
 
   if (firmyKZobrazeni.length === 0) {
-    telo.innerHTML = '<tr><td colspan="5" class="popis">Za vybrané období appka nemá žádná daňová data.</td></tr>';
+    telo.innerHTML = '<tr><td colspan="5" class="popis">Za vybraný rok appka nemá žádná daňová data.</td></tr>';
     return;
   }
 
-  firmyKZobrazeni.forEach((firma) => {
-    const bilance = dphBilanceFirmy[firma];
-    const dane = danovePlatbyFirmy[firma] || {};
-    const tr = document.createElement('tr');
-
+  function bunkyRadku(prvniSloupecHtml, bilance, dane) {
     let bilanceHtml = '<span class="popis">—</span>';
     if (bilance) {
       const saldoPopis = bilance.saldo > 0 ? 'k doplacení FÚ' : bilance.saldo < 0 ? 'nárok na vrácení' : 'vyrovnáno';
@@ -1111,19 +1092,47 @@ function vykresliDanovyPrehled(obnovSeznamObdobi) {
         '<br><span class="popis">(' + saldoPopis + '; výstup ' + formatCastka(bilance.dphVydane) +
         ', vstup ' + formatCastka(bilance.dphPrijate) + ')</span>';
     }
-
     function bunkaDane(typ) {
-      const castka = dane[typ];
+      const castka = (dane || {})[typ];
       return castka === undefined ? '<span class="popis">—</span>' : formatCastka(castka);
     }
-
-    tr.innerHTML =
-      '<td>' + escapeHtml(firma) + '</td>' +
+    return (
+      '<td>' + prvniSloupecHtml + '</td>' +
       '<td>' + bilanceHtml + '</td>' +
       '<td>' + bunkaDane('DPH') + '</td>' +
       '<td>' + bunkaDane('Dan_z_prijmu') + '</td>' +
-      '<td>' + bunkaDane('Dan_z_nemovitosti') + '</td>';
-    telo.appendChild(tr);
+      '<td>' + bunkaDane('Dan_z_nemovitosti') + '</td>'
+    );
+  }
+
+  firmyKZobrazeni.forEach((firma) => {
+    const trRok = document.createElement('tr');
+    trRok.className = 'prehled-radek-rok';
+    trRok.innerHTML = bunkyRadku(
+      '<span class="prehled-sipka">▶</span><strong>' + escapeHtml(firma) + '</strong>',
+      dphBilanceRokFirmy[firma],
+      danovePlatbyRokFirmy[firma]
+    );
+    telo.appendChild(trRok);
+
+    const radkyMesicu = [];
+    for (let mesic = 1; mesic <= 12; mesic++) {
+      const klicMesice = rok + '-' + String(mesic).padStart(2, '0');
+      const bilanceMesic = ((data.dphBilanceMesicni || {})[klicMesice] || {})[firma];
+      const daneMesic = ((data.danovePlatbyMesicni || {})[klicMesice] || {})[firma];
+
+      const trMesic = document.createElement('tr');
+      trMesic.className = 'prehled-radek-mesic skryto';
+      trMesic.innerHTML = bunkyRadku('<span class="prehled-mesic-label">' + escapeHtml(klicMesice) + '</span>', bilanceMesic, daneMesic);
+      telo.appendChild(trMesic);
+      radkyMesicu.push(trMesic);
+    }
+
+    trRok.addEventListener('click', () => {
+      const zobrazit = !trRok.classList.contains('rozbaleno');
+      trRok.classList.toggle('rozbaleno', zobrazit);
+      radkyMesicu.forEach((trMesic) => trMesic.classList.toggle('skryto', !zobrazit));
+    });
   });
 }
 

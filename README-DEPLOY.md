@@ -1827,6 +1827,55 @@ konkrétního období) + novým testem `ui_test_banka_priradit_k_dani.js`
 `Typ_dane`/`Stav_parovani` v obou směrech, detail „Daňová platba“ ukazuje
 typ a nabízí zrušení).
 
+## 46. Daňový přehled – roční řádek s rozbalením na 12 měsíců místo přepínače Měsíc/Rok + větší logo (v4.6.2)
+
+Jan hned po v4.6.1 zadal další úpravu téže záložky: „do řádku dej všechny
+měsíce roku, každou firmu jako řádek bilance roku, po rozbalení uvidím
+měsíce, nahoře vybíram jen kalendářní rok, výchozí je ten aktuální“ a na
+dotaz upřesnil „všechny měsíce a zarovnej to do tabulky, zvětši trochu
+logo, udělej to vše naráz“.
+
+- **Přepínač Měsíc/Rok appka ÚPLNĚ ODSTRANILA** - appka nahoře nabízí jen
+  jeden `<select>` s KALENDÁŘNÍM ROKEM (`#prehled-vyber-rok`, naplněný z
+  `obdobiRoky`, které appka už dřív dostávala z `danovy-prehled.js` - žádná
+  změna backendu nebyla potřeba, appka jen přestala používat měsíční
+  rozpad na nejvyšší úrovni). Výchozí vybraný rok je aktuální kalendářní
+  rok (`new Date().getFullYear()`), pokud v datech existuje, jinak
+  appka vybere nejnovější dostupný.
+- **Tabulka teď má JEDEN řádek na firmu s ROČNÍ bilancí** (stejné 4
+  sloupce jako dřív) - kliknutím na řádek appka rozbalí/sbalí VŠECH 12
+  měsíčních řádků té firmy (leden - prosinec, VŽDY všech 12 i prázdné -
+  Jan si vyžádal vidět i měsíce bez dat, ne jen obsazené, ať je hned
+  vidět případná mezera v zaúčtování). Měsíční řádky appka vykresluje
+  hned při načtení (jen skryté třídou `skryto`), ne až on-demand při
+  kliknutí - přepínání je tak okamžité bez dalšího zpracování.
+- **Appka zůstala u opravdové `<table>`** (na rozdíl od div-gridových
+  skládacích řádků u Dokladů/Smluv/Vydaných faktur/Bankovních výpisů) -
+  měsíční řádky jsou normální `<tr>` ve stejném `tbody` jako roční řádek,
+  takže jsou automaticky zarovnané do stejných sloupců (přesně Janovo
+  „zarovnej to do tabulky“), žádný nový CSS grid nebyl potřeba.
+- Nová šipka `▶`/rotace (`.prehled-sipka`, stejný princip jako
+  `.doklad-sipka`/`.smlouva-sipka` jinde v appce) na ročním řádku,
+  měsíční řádky appka jemně podbarvila a odsadila (`.prehled-radek-mesic`)
+  pro čitelnost v delší rozbalené tabulce.
+- `public/app.js`: `vykresliDanovyPrehled()` přepsaná bez parametru
+  (žádný přepínač typu období k řešení), nová `naplnRokyDoVyberu()`
+  (volaná jen jednou po načtení dat), roční i měsíční buňky appka staví
+  sdílenou pomocnou funkcí `bunkyRadku()` (dřív duplicitní kód).
+- **Logo appky zvětšeno** (`.misto-logo` v `public/style.css`) z 34px na
+  46px - stejné místo na login obrazovce i v hlavičce appky, appka jinak
+  nic neměnila.
+- Čistě frontendová změna (HTML/CSS/JS) - appka nepotřebovala žádnou
+  úpravu backendu/schématu, není potřeba `/api/setup`.
+
+Ověřeno plnou regresí (backendové i UI testy) + přepsaným
+`ui_test_danovy_prehled.js` (žádný přepínač Měsíc/Rok v DOM, výchozí
+vybraný rok je aktuální, roční řádek + všech 12 skrytých měsíčních řádků
+na firmu hned po načtení, rozbalení/sbalení kliknutím, konkrétní měsíc s
+daty i měsíc bez dat) + jednorázovým vizuálním Playwright skriptem
+(screenshoty login obrazovky, hlavičky appky a rozbaleného přehledu -
+potvrzeno větší logo bez rozbití layoutu a správné zarovnání sloupců).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

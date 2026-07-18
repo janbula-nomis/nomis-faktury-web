@@ -95,11 +95,13 @@ nav.zalozky button[data-zalozka="nahrat"].aktivni { background: #b32a23; border-
 /* Značka appky (logo + název) - stejná struktura na přihlašovací obrazovce
    i v hlavičce appky, ať jde logo jednou vyměnit na obou místech stejně.
    Od v4.6 appka používá reálné logo (icon-navy.svg, dodané Janem) místo
-   dřívějšího rezervovaného prázdného místa. */
+   dřívějšího rezervovaného prázdného místa. Od v4.6.2 appka logo zvětšila
+   (Jan: „zvětši trochu logo“) - z 34px na 46px, beze změny na jiných
+   rozměrech/rozložení hlavičky. */
 .znacka { display: flex; align-items: center; gap: 10px; }
 .misto-logo {
-  width: 34px;
-  height: 34px;
+  width: 46px;
+  height: 46px;
   flex: none;
   border-radius: var(--radius-sm);
   object-fit: contain;
@@ -116,6 +118,19 @@ nav.zalozky button[data-zalozka="nahrat"].aktivni { background: #b32a23; border-
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 th, td { text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--barva-hranice); vertical-align: top; }
 th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
+
+/* Daňový přehled (od v4.6.2) - roční řádek firmy je rozklikávací (stejný
+   princip šipky/rotace jako .doklad-sipka/.smlouva-sipka výše, appka tu
+   ale zůstává u opravdové <table>, ne div-gridu, ať appka splní Janův
+   požadavek "zarovnej to do tabulky" - měsíční řádky po rozbalení jsou
+   normální <tr> ve stejném tbody, tedy automaticky zarovnané do stejných
+   sloupců jako roční řádek). */
+.prehled-radek-rok { cursor: pointer; }
+.prehled-radek-rok:hover { filter: brightness(0.97); }
+.prehled-radek-rok.rozbaleno .prehled-sipka { transform: rotate(90deg); }
+.prehled-sipka { display: inline-block; transition: transform 0.15s; margin-right: 4px; }
+.prehled-radek-mesic td { background: rgba(0,0,0,0.03); font-size: 12px; }
+.prehled-radek-mesic .prehled-mesic-label { padding-left: 22px; color: var(--barva-text-tlumena); }
 
 .stav-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
 .stav-ke-kontrole { background: #fff4de; color: var(--barva-varovani); }
