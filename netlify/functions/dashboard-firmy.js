@@ -1,11 +1,12 @@
 /**
  * netlify/functions/dashboard-firmy.js
  * GET (Bearer token) -> data pro NOVOU záložku "Dashboard" (od v3.22, viz
- * claude/nomis-faktury-backlog.md, položka 4) - na rozdíl od
- * netlify/functions/dashboard.js (starší endpoint, dnes používaný záložkou
- * "Přehled plateb" - jeden souhrn napříč VŠEMI firmami dohromady) appka tady
- * vrací VŠECHNY firmy viditelné uživateli VEDLE SEBE, každou se svými
- * vlastními čísly (žádný přepínač/filtr firmy).
+ * claude/nomis-faktury-backlog.md, položka 4) - na rozdíl od dřívější
+ * záložky "Přehled plateb" (jeden souhrn napříč VŠEMI firmami dohromady;
+ * od v4.6 zrušená a nahrazená Daňovým přehledem, viz backlog položka 9 a
+ * netlify/functions/danovy-prehled.js) appka tady vrací VŠECHNY firmy
+ * viditelné uživateli VEDLE SEBE, každou se svými vlastními čísly (žádný
+ * přepínač/filtr firmy).
  *
  * Pro každou viditelnou firmu appka počítá za KLOUZAVÉ OKNO POSLEDNÍCH 12
  * MĚSÍCŮ (od 1. dne měsíce před 11 měsíci do dneška):
@@ -15,7 +16,8 @@
  *     Přijaté faktury/Doklady), počet nespárovaných bankovních pohybů
  *     (Stav_parovani == "Nespárováno")
  *
- * Výdaje appka počítá stejně jako netlify/functions/dashboard.js: doklady
+ * Výdaje appka počítá stejnou logikou, jakou dřív používala záložka Přehled
+ * plateb: doklady
  * dané firmy (mimo placeholder "Zpracovává se") PLUS bankovní pohyby
  * přiřazené jako trvalý příkaz ke Smlouvě (Stav_parovani == "Trvalý
  * příkaz") - středisko u těch appka bere ze samotné Smlouvy

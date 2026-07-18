@@ -92,18 +92,17 @@ nav.zalozky button[data-zalozka="nahrat"].aktivni { background: #b32a23; border-
 .hlavicka-app { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .hlavicka-app .uzivatel { font-size: 12px; color: var(--barva-text-tlumena); text-align: right; }
 
-/* Značka appky (místo na logo + název) - stejná struktura na přihlašovací
-   obrazovce i v hlavičce appky, ať jde logo jednou vyměnit na obou místech
-   stejně. .misto-logo je jen rezervovaný prostor, dokud appka nemá reálné
-   logo od Jana - pak stačí sem vložit <img>. */
+/* Značka appky (logo + název) - stejná struktura na přihlašovací obrazovce
+   i v hlavičce appky, ať jde logo jednou vyměnit na obou místech stejně.
+   Od v4.6 appka používá reálné logo (icon-navy.svg, dodané Janem) místo
+   dřívějšího rezervovaného prázdného místa. */
 .znacka { display: flex; align-items: center; gap: 10px; }
 .misto-logo {
   width: 34px;
   height: 34px;
   flex: none;
   border-radius: var(--radius-sm);
-  border: 1.5px dashed var(--barva-hranice);
-  background: var(--barva-pozadi);
+  object-fit: contain;
 }
 
 .zprava { padding: 9px 11px; border-radius: var(--radius-sm); font-size: 13px; margin-top: 10px; }

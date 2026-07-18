@@ -1683,6 +1683,92 @@ kosmetická úprava hlavní navigace, žádná změna funkce/dat:
   regrese - žádný existující test netestuje barvu pozadí navigačních
   tlačítek, jen jejich text/chování).
 
+## 44. Daňový přehled (DPH bilance + zaplacené daně) + reálné logo appky (v4.6)
+
+Jan: „nahradíme list Přehled plateb, ten nepotřebuji, nově to bude daňový
+přehled, DPH u plátce, daň z příjmu zaplacená, daň z nemovitostí, případně
+silniční daň, tyto hodnoty získáme z přijatých i vydaných dokladů a
+bankovních výpisů“ + „potřebuji vést DPH samostatně, z přijatých faktur ho
+vyčíslit a vést bilanci, kolik DPH dostanu nebo zaplatím“ + „měsíční
+plátce“ (viz claude/nomis-faktury-backlog.md, položka 9, kde je i historie
+původního zadání a upřesnění formou vyjasňujících otázek).
+
+**Záložka „Přehled plateb“ appka ZCELA ZRUŠILA** (Čistý tok, rozpad výdajů
+podle firmy/kategorie/měsíce, příjmů podle střediska/měsíce) - podle
+rozhodnutí Jana se tenhle obsah nikam nepřesouvá, jen mizí, nahrazený novou
+záložkou **„Daňový přehled“** (stejné `data-zalozka="prehled"`, jen nový
+obsah):
+
+- **DPH bilance** - appka ji POČÍTÁ automaticky, ne ručně zadává. Zdroj:
+  nové sloupce `DPH`/`Sazba_DPH` na Vydaných fakturách (u Dokladů `DPH` už
+  existoval od dřívějška, jen se nikde nezobrazoval - nově appka přidala i
+  `Sazba_DPH`). Obě pole appka nabízí jako AI odhad (Gemini) + ruční
+  kontrolu v detailu dokladu/faktury, stejná konvence jako ostatní
+  vytěžovaná pole. Appka bilanci počítá JEN u firem s `Firmy.Platce_DPH =
+  "ANO"` (dnes jen NOMIS Investment) a JEN po kalendářních měsících (Jan
+  potvrdil, že NOMIS Investment je měsíční plátce) jako:
+  `saldo = DPH na vydaných fakturách za měsíc - DPH na dokladech za měsíc`.
+  Kladné saldo = appka na výstupu vybrala víc, než na vstupu zaplatila ->
+  typicky doplatek FÚ; záporné = nárok na vrácení. Appka NIKDY sama nic
+  neodvádí ani nepotvrzuje - jen spočítá podklad pro přiznání.
+- **Zaplacené daně** (daň z příjmu, daň z nemovitostí) - appka je
+  NEDOPOČÍTÁVÁ, jen SČÍTÁ skutečně zaplacené bankovní platby, které účetní
+  ručně přiřadila k dani novou akcí **„Přiřadit k dani“** v detailu
+  odchozí platby v záložce Bankovní výpisy (výběr Dan_z_prijmu/
+  Dan_z_nemovitosti + tlačítko) - mirror existujícího vzoru „Přiřadit ke
+  smlouvě“ (trvalý příkaz): appka NEROZPOZNÁVÁ přiřazení automaticky podle
+  protistrany/textu, jen eviduje ruční volbu. Silniční daň appka zatím
+  NEPODPORUJE (Jan: „až později“) - odloženo na později.
+
+Datové změny:
+
+- `lib/dokladySchema.js`: nový sloupec `Sazba_DPH` (za existující `DPH`).
+- `lib/vydaneFakturySchema.js`: nové sloupce `DPH`, `Sazba_DPH`.
+- `lib/bankSchema.js`: nový sloupec `Typ_dane` + nová hodnota
+  `Stav_parovani = "Daňová platba"`.
+- `lib/gemini.js`: `extrahujDataZDokladu` nově žádá i `sazba_dph` (u
+  hlavního dokladu i každého z `dalsi_doklady`), `extrahujDataZVydaneFaktury`
+  nově žádá `dph`/`sazba_dph` (dřív se DPH u vydaných faktur vůbec
+  nevytěžovalo).
+- `netlify/functions/upload-dokoncit.js` a `vydane-faktury-upload-dokoncit.js`:
+  mapují nová pole z AI extrakce do řádku.
+- Nová backendová funkce `netlify/functions/danovy-prehled.js` (nahrazuje
+  zrušenou `dashboard.js` - endpoint `/api/dashboard` appka už nemá,
+  frontend teď volá `/api/danovy-prehled`). Odděleně od Dashboardu
+  (`dashboard-firmy.js`, záložka „Dashboard“ zůstává beze změny funkce).
+- `public/app.js`: `nactiPrehled()` přepsaná na nové volání a vykreslení;
+  `vytvorDetailDoklad`/`vytvorDetailVydanaFaktura` mají nové editovatelné
+  pole „DPH (částka) a sazba (%)“; `vytvorDetailBanka` má u odchozích plateb
+  bez dokladu novou akci „Přiřadit k dani“ a nový detail/badge/řádkovou
+  barvu pro `Stav_parovani = "Daňová platba"` (appka recykluje existující
+  fialovou barvu/badge „Trvalý příkaz“, žádné nové CSS třídy nebyly
+  potřeba).
+- `netlify/functions/setup.js` nepotřeboval žádnou změnu - všechny nové
+  sloupce appka doplní samočinně přes existující mechanismus (čte
+  `DOKLADY_HEADERS`/`VYDANE_FAKTURY_HEADERS`/`BANKOVNI_HEADERS` přímo z
+  `lib/`, takže po nasazení stačí znovu spustit `/api/setup`, ať appka
+  doplní chybějící hlavičky do existujících listů).
+
+**Logo appky** - Jan dodal sadu SVG log, appka po dvou neúspěšných pokusech
+s nahráním souboru dostala funkční verzi vložením SVG markupu přímo do
+chatu (`public/assets/icon-navy.svg` - tmavě modrý čtverec se zlatým
+monogramem „N“). Appka nahradila dřívější rezervovaný prázdný `.misto-logo`
+(na přihlašovací obrazovce i v hlavičce appky) skutečným `<img>` a přidala
+stejný soubor jako favicon. Zbylé varianty log (`logo-nomis-group-navy.svg`
+a další) se appce zatím nepodařilo získat (soubory se nepřenesly) - pokud
+je Jan bude chtít použít i jinde, nejjistější cesta je vložit jejich SVG
+obsah přímo jako text.
+
+Ověřeno plnou regresí (backendové i UI testy) + novými testy
+`test_danovy_prehled.js` (DPH bilance jen u plátce DPH, jen dokončené
+doklady, ne placeholder; zaplacené daně jen `"Daňová platba"`) a
+`ui_test_danovy_prehled.js` (přejmenovaná záložka, vykreslení DPH bilance
+a zaplacených daní, potvrzení že staré ID Přehledu plateb v DOM už
+neexistují) - dřívější `test_dashboard_castka.js`/
+`test_dashboard_prijmy_vydaje.js`/`ui_test_prehled_prijmy.js` appka
+odstranila (testovaly zrušenou funkci), `ui_test_dashboard_zalozka.js`
+upravena na nový popisek „Daňový přehled“ v navigaci.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

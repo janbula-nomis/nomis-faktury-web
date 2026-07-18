@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.5 – 2026-07-18';
+const APP_VERZE = 'v4.6 – 2026-07-18';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -741,6 +741,26 @@ function vytvorDetailDoklad(d) {
   wrap.appendChild(vstupCastka);
   wrap.appendChild(vstupMena);
 
+  // DPH/Sazba_DPH (od v4.6, viz claude/nomis-faktury-backlog.md, položka 9) -
+  // appka pole nabízí jako AI odhad ze zpracování dokladu + ruční kontrolu,
+  // stejná konvence jako ostatní vytěžovaná pole. Používá se jen u firem
+  // plátců DPH (dnes NOMIS Investment) pro měsíční DPH bilanci v Daňovém
+  // přehledu - u ostatních firem se pole dají klidně nechat prázdná.
+  const labelDph = document.createElement('label');
+  labelDph.textContent = 'DPH (částka) a sazba (%)';
+  const vstupDph = document.createElement('input');
+  vstupDph.type = 'number';
+  vstupDph.step = '0.01';
+  vstupDph.value = d.DPH !== undefined && d.DPH !== '' ? parsujCastkuZListu(d.DPH) : '';
+  vstupDph.style.marginBottom = '6px';
+  const vstupSazbaDph = document.createElement('input');
+  vstupSazbaDph.type = 'text';
+  vstupSazbaDph.value = d.Sazba_DPH || '';
+  vstupSazbaDph.style.maxWidth = '90px';
+  wrap.appendChild(labelDph);
+  wrap.appendChild(vstupDph);
+  wrap.appendChild(vstupSazbaDph);
+
   const labelFirma = document.createElement('label');
   labelFirma.textContent = 'Firma';
   const vstupFirma = document.createElement('select');
@@ -795,6 +815,8 @@ function vytvorDetailDoklad(d) {
       Datum_dokladu: vstupDatum.value,
       Castka: vstupCastka.value,
       Mena: vstupMena.value.trim(),
+      DPH: vstupDph.value,
+      Sazba_DPH: vstupSazbaDph.value.trim(),
       Firma_potvrzena: vstupFirma.value.trim(),
       Kategorie: vstupKategorie.value.trim(),
       Stredisko: vstupStredisko.value.trim(),
@@ -973,7 +995,12 @@ async function nactiDashboard() {
   }
 }
 
-// ---------- PŘEHLED ----------
+// ---------- DAŇOVÝ PŘEHLED (od v4.6 - nahrazuje dřívější Přehled plateb) ----------
+
+const NAZVY_TYPU_DANE = {
+  Dan_z_prijmu: 'Daň z příjmu',
+  Dan_z_nemovitosti: 'Daň z nemovitostí',
+};
 
 async function nactiPrehled() {
   const nacitani = document.getElementById('prehled-nacitani');
@@ -982,55 +1009,67 @@ async function nactiPrehled() {
   obsah.classList.add('skryto');
 
   try {
-    const data = await zavolejApi('/dashboard', { method: 'GET' });
+    const data = await zavolejApi('/danovy-prehled', { method: 'GET' });
     nacitani.classList.add('skryto');
     obsah.classList.remove('skryto');
 
-    document.getElementById('prehled-pocet').textContent = 'Celkem dokladů: ' + data.pocetDokladu;
-    vykresliSouhrn('souhrn-firmy', data.souhrnPodleFirmy);
-    vykresliSouhrn('souhrn-kategorie', data.souhrnPodleKategorie);
-    vykresliSouhrn('souhrn-mesic', data.souhrnPodleMesice);
+    const info = document.getElementById('prehled-dph-info');
+    const platci = data.platciDph || [];
+    info.textContent = platci.length > 0
+      ? 'Plátce DPH ve skupině: ' + platci.join(', ') + '. Bilance appka počítá po kalendářních měsících.'
+      : 'Žádná firma ve skupině není aktuálně nastavena jako plátce DPH (viz Nastavení → Firmy) - DPH bilanci proto appka nepočítá.';
 
-    // Od v3.19 - čistý tok (příjmy - výdaje) a příjmy podle střediska/měsíce
-    // (viz netlify/functions/dashboard.js). Appka počítá s tím, že starší
-    // appka (bez zapnuté Banky) tahle pole nemusí vůbec vrátit - defaultuje
-    // na 0/prázdné objekty, ať Přehled dál funguje jako dřív.
-    const cistyTok = document.getElementById('souhrn-cisty-tok');
-    cistyTok.innerHTML = '';
-    [
-      ['Příjmy celkem', data.prijmyCelkem || 0],
-      ['Výdaje celkem', data.vydajeCelkem || 0],
-      ['Rozdíl', (data.prijmyCelkem || 0) - (data.vydajeCelkem || 0)],
-    ].forEach(([popisek, hodnota]) => {
-      const div = document.createElement('div');
-      div.className = 'polozka-souhrn';
-      div.innerHTML = '<span>' + escapeHtml(popisek) + '</span><strong>' + formatCastka(hodnota) + '</strong>';
-      cistyTok.appendChild(div);
+    const mesiceKontejner = document.getElementById('prehled-dph-mesice');
+    mesiceKontejner.innerHTML = '';
+    const bilance = data.dphBilance || [];
+    if (bilance.length === 0) {
+      mesiceKontejner.innerHTML = '<div class="nacitani">Zatím žádná data k DPH.</div>';
+    } else {
+      bilance
+        .slice()
+        .sort((a, b) => b.mesic.localeCompare(a.mesic))
+        .forEach((polozka) => {
+          const div = document.createElement('div');
+          div.className = 'polozka-souhrn';
+          const saldoPopis = polozka.saldo > 0
+            ? 'k doplacení FÚ'
+            : polozka.saldo < 0
+              ? 'nárok na vrácení'
+              : 'vyrovnáno';
+          div.innerHTML =
+            '<span>' + escapeHtml(polozka.mesic) + ' – ' + escapeHtml(polozka.firma) +
+            '<br><span class="popis">výstup ' + formatCastka(polozka.dphVydane) + ', vstup ' + formatCastka(polozka.dphPrijate) + '</span></span>' +
+            '<strong>' + formatCastka(polozka.saldo) + '<br><span class="popis">(' + saldoPopis + ')</span></strong>';
+          mesiceKontejner.appendChild(div);
+        });
+    }
+
+    const daneKontejner = document.getElementById('prehled-zaplacene-dane');
+    daneKontejner.innerHTML = '';
+    const zaplacene = data.zaplaceneDane || {};
+    const radky = [];
+    Object.keys(zaplacene).forEach((firma) => {
+      Object.keys(zaplacene[firma]).forEach((typ) => {
+        radky.push({ firma, typ, castka: zaplacene[firma][typ].celkem });
+      });
     });
-
-    vykresliSouhrn('souhrn-prijmy-stredisko', data.souhrnPrijmyPodleStrediska);
-    vykresliSouhrn('souhrn-prijmy-mesic', data.souhrnPrijmyPodleMesice);
+    if (radky.length === 0) {
+      daneKontejner.innerHTML = '<div class="nacitani">Zatím žádné platby přiřazené k dani - viz záložka Bankovní výpisy, tlačítko „Přiřadit k dani“.</div>';
+    } else {
+      radky
+        .sort((a, b) => a.firma.localeCompare(b.firma) || a.typ.localeCompare(b.typ))
+        .forEach((r) => {
+          const div = document.createElement('div');
+          div.className = 'polozka-souhrn';
+          div.innerHTML =
+            '<span>' + escapeHtml(r.firma) + ' – ' + escapeHtml(NAZVY_TYPU_DANE[r.typ] || r.typ) + '</span>' +
+            '<strong>' + formatCastka(r.castka) + '</strong>';
+          daneKontejner.appendChild(div);
+        });
+    }
   } catch (e) {
-    nacitani.textContent = 'Nepodařilo se načíst přehled: ' + e.message;
+    nacitani.textContent = 'Nepodařilo se načíst daňový přehled: ' + e.message;
   }
-}
-
-function vykresliSouhrn(idKontejneru, souhrn) {
-  const kontejner = document.getElementById(idKontejneru);
-  kontejner.innerHTML = '';
-
-  const zaznamy = Object.entries(souhrn || {}).sort((a, b) => b[1] - a[1]);
-  if (zaznamy.length === 0) {
-    kontejner.innerHTML = '<div class="nacitani">Zatím žádná data.</div>';
-    return;
-  }
-
-  zaznamy.forEach(([klic, hodnota]) => {
-    const div = document.createElement('div');
-    div.className = 'polozka-souhrn';
-    div.innerHTML = '<span>' + escapeHtml(klic) + '</span><strong>' + formatCastka(hodnota) + '</strong>';
-    kontejner.appendChild(div);
-  });
 }
 
 // Appka čte listy v Sheets, kde se čísla vrací naformátovaná přesně tak, jak
@@ -1463,6 +1502,25 @@ function vytvorDetailVydanaFaktura(f) {
   wrap.appendChild(vstupCastka);
   wrap.appendChild(vstupMena);
 
+  // DPH/Sazba_DPH (od v4.6, viz claude/nomis-faktury-backlog.md, položka 9) -
+  // appka pole nabízí jako AI odhad ze zpracování faktury + ruční kontrolu,
+  // stejná konvence jako u Dokladů. Používá se jen u firem plátců DPH (dnes
+  // NOMIS Investment) jako VÝSTUP DPH pro měsíční bilanci v Daňovém přehledu.
+  const labelDph = document.createElement('label');
+  labelDph.textContent = 'DPH (částka) a sazba (%)';
+  const vstupDph = document.createElement('input');
+  vstupDph.type = 'number';
+  vstupDph.step = '0.01';
+  vstupDph.value = f.DPH !== undefined && f.DPH !== '' ? parsujCastkuZListu(f.DPH) : '';
+  vstupDph.style.marginBottom = '6px';
+  const vstupSazbaDph = document.createElement('input');
+  vstupSazbaDph.type = 'text';
+  vstupSazbaDph.value = f.Sazba_DPH || '';
+  vstupSazbaDph.style.maxWidth = '90px';
+  wrap.appendChild(labelDph);
+  wrap.appendChild(vstupDph);
+  wrap.appendChild(vstupSazbaDph);
+
   const labelPoznamka = document.createElement('label');
   labelPoznamka.textContent = 'Poznámka';
   const vstupPoznamka = document.createElement('input');
@@ -1489,6 +1547,8 @@ function vytvorDetailVydanaFaktura(f) {
       Datum_splatnosti: vstupSplatnost.value,
       Castka: vstupCastka.value,
       Mena: vstupMena.value.trim() || 'CZK',
+      DPH: vstupDph.value,
+      Sazba_DPH: vstupSazbaDph.value.trim(),
       Poznamka: vstupPoznamka.value.trim(),
     };
   }
@@ -1781,6 +1841,10 @@ function bankaStavBadge(stav) {
   // faktury-backlog.md, položka 5B).
   if (stav === 'Navrženo - vydaná faktura') return '<span class="badge-navrzeno">Navrženo (faktura)</span>';
   if (stav === 'Spárováno - vydaná faktura') return '<span class="badge-prijemprirazen">Spárováno s fakturou</span>';
+  // Od v4.6 - ruční přiřazení odchozí platby k dani (viz claude/nomis-
+  // faktury-backlog.md, položka 9), stejná barva/logika jako Trvalý příkaz
+  // (appka ho NEPOVAŽUJE za chybějící doklad).
+  if (stav === 'Daňová platba') return '<span class="badge-trvalyprikaz">Daňová platba</span>';
   return '<span class="badge-chybi">Chybí doklad</span>';
 }
 
@@ -1817,6 +1881,7 @@ function bankaStavRadekTrida(stav) {
   if (stav === 'Příjem přiřazen') return 'stav-radek-prijemprirazen';
   if (stav === 'Navrženo - vydaná faktura') return 'stav-radek-navrzeno';
   if (stav === 'Spárováno - vydaná faktura') return 'stav-radek-prijemprirazen';
+  if (stav === 'Daňová platba') return 'stav-radek-trvalyprikaz';
   return 'stav-radek-chybi';
 }
 
@@ -1835,11 +1900,12 @@ function vykresliBankovniPohyby() {
   const prijmyPrirazene = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Příjem přiřazen').length;
   const fakturyNavrzeno = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Navrženo - vydaná faktura').length;
   const fakturySparovano = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Spárováno - vydaná faktura').length;
+  const danovePlatby = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Daňová platba').length;
   souhrn.textContent =
     potvrzeno + ' potvrzeno, ' + navrzeno + ' navrženo, ' + chybi + ' chybí, ' + bezDokladu +
     ' bez dokladu, ' + trvalePrikazy + ' trvalých příkazů, ' + prijmyPrirazene + ' příjmů přiřazeno, ' +
-    fakturyNavrzeno + ' navrženo k faktuře, ' + fakturySparovano +
-    ' spárováno s fakturou (celkem ' + bankaPohybySeznam.length + ')';
+    fakturyNavrzeno + ' navrženo k faktuře, ' + fakturySparovano + ' spárováno s fakturou, ' +
+    danovePlatby + ' daňových plateb (celkem ' + bankaPohybySeznam.length + ')';
 
   const jenChybejici = document.getElementById('banka-jen-chybejici').getAttribute('aria-pressed') === 'true';
   const serazene = bankaPohybySeznam
@@ -2068,6 +2134,18 @@ function vytvorDetailBanka(p) {
       'Pozn.: zrušení spárování appka NEVRACÍ automaticky stav faktury zpět - pokud je potřeba, opravte ho ' +
       'ručně v záložce Vydané faktury.';
     akce.appendChild(upozorneniZruseni);
+  } else if (p.Stav_parovani === 'Daňová platba') {
+    // Od v4.6 - odchozí platba ručně přiřazená k dani (viz claude/nomis-
+    // faktury-backlog.md, položka 9) - appka částku jen SČÍTÁ do Daňového
+    // přehledu, nedopočítává ji (na rozdíl od DPH bilance).
+    const infoDan = document.createElement('div');
+    infoDan.className = 'popis';
+    infoDan.style.marginBottom = '6px';
+    infoDan.textContent = 'Přiřazeno k dani: ' + (NAZVY_TYPU_DANE[p.Typ_dane] || p.Typ_dane || '(neznámý typ)') + '.';
+    akce.appendChild(infoDan);
+    akce.appendChild(
+      tlacitkoBanka('Zrušit přiřazení k dani', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Typ_dane: '' }, e.target))
+    );
   } else if (parsujCastkuZListu(p.Castka) > 0) {
     // PŘÍJEM (Nespárováno / Bez dokladu, kladná částka) - appka od v3.19
     // nabízí přiřazení na Středisko a firemní účet místo výběru dokladu
@@ -2274,6 +2352,27 @@ function vytvorDetailBanka(p) {
       infoZadneSmlouvy.textContent = 'Žádná smlouva zatím není založená - pro trvalý příkaz (nájem/elektřina/leasing) ji založte v Nastavení → Smlouvy.';
       akce.appendChild(infoZadneSmlouvy);
     }
+
+    // Od v4.6 - ruční přiřazení k dani (viz claude/nomis-faktury-backlog.md,
+    // položka 9) - appka NEROZPOZNÁVÁ automaticky podle protistrany/textu
+    // (na rozdíl od dokladů/trvalých příkazů výš), jen eviduje skutečně
+    // zaplacenou částku podle toho, co účetní ručně vybere.
+    const vyberTypDane = document.createElement('select');
+    vyberTypDane.style.fontSize = '13px';
+    vyberTypDane.innerHTML =
+      '<option value="">— přiřadit k dani —</option>' +
+      '<option value="Dan_z_prijmu">Daň z příjmu</option>' +
+      '<option value="Dan_z_nemovitosti">Daň z nemovitostí</option>';
+    akce.appendChild(vyberTypDane);
+    akce.appendChild(
+      tlacitkoBanka('Přiřadit k dani', (e) => {
+        if (!vyberTypDane.value) {
+          alert('Nejdřív vyberte typ daně.');
+          return;
+        }
+        ulozZmenuBanka({ Typ_dane: vyberTypDane.value, Stav_parovani: 'Daňová platba', Doklad_ID: '' }, e.target);
+      })
+    );
 
     if (p.Stav_parovani !== 'Bez dokladu') {
       akce.appendChild(

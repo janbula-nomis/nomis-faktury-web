@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>NOMIS Group – evidence dokladů</title>
 <link rel="stylesheet" href="style.css" />
+<link rel="icon" type="image/svg+xml" href="assets/icon-navy.svg" />
 </head>
 <body>
 <div id="app">
@@ -12,7 +13,7 @@
   <!-- PŘIHLÁŠENÍ -->
   <section id="view-login" class="karta">
     <div class="znacka">
-      <div class="misto-logo" aria-hidden="true"></div>
+      <img class="misto-logo" src="assets/icon-navy.svg" alt="NOMIS Group" />
       <h1>NOMIS Group evidence dokladů</h1>
     </div>
     <p class="popis">Evidence faktur, účtenek a bankovních výpisů</p>
@@ -30,7 +31,7 @@
   <section id="view-app" class="skryto">
     <div class="hlavicka-app">
       <div class="znacka">
-        <div class="misto-logo" aria-hidden="true"></div>
+        <img class="misto-logo" src="assets/icon-navy.svg" alt="NOMIS Group" />
         <h1>NOMIS Group evidence dokladů</h1>
       </div>
       <div class="uzivatel">
@@ -45,7 +46,7 @@
       <button data-zalozka="dashboard" id="nav-dashboard">Dashboard</button>
       <button data-zalozka="doklady">Přijaté faktury</button>
       <button data-zalozka="vydane-faktury">Vydané faktury</button>
-      <button data-zalozka="prehled">Přehled plateb</button>
+      <button data-zalozka="prehled">Daňový přehled</button>
       <button data-zalozka="banka" id="nav-banka" class="skryto">Bankovní výpisy</button>
       <button data-zalozka="smlouvy" id="nav-smlouvy" class="skryto">Registr smluv</button>
       <button data-zalozka="export" id="nav-export" class="skryto">Export</button>
@@ -89,28 +90,23 @@
       <div id="doklady-seznam"></div>
     </div>
 
-    <!-- PŘEHLED -->
+    <!-- DAŇOVÝ PŘEHLED (od v4.6 - nahrazuje dřívější Přehled plateb) -->
     <div id="zalozka-prehled" class="karta skryto">
-      <h2>Přehled nákladů a příjmů</h2>
+      <h2>Daňový přehled</h2>
+      <p class="popis">DPH bilanci appka počítá automaticky z DPH na přijatých dokladech a vydaných fakturách -
+        pouze u firem, které jsou plátcem DPH. Ostatní daně appka nedopočítává, jen sčítá skutečně zaplacené
+        částky přiřazené k dani v záložce Bankovní výpisy (tlačítko „Přiřadit k dani“).</p>
       <div id="prehled-nacitani" class="nacitani">Načítám…</div>
       <div id="prehled-obsah" class="skryto">
-        <p><strong id="prehled-pocet"></strong></p>
 
-        <h2>Čistý tok</h2>
-        <p class="popis">Výdaje zahrnují i trvalé příkazy (nájem/elektřina/leasing přiřazené ke smlouvě) - viz
-          záložka Bankovní výpisy. Příjmy appka počítá jen z plateb, kterým bylo přiřazeno středisko.</p>
-        <div class="mriz-souhrn" id="souhrn-cisty-tok"></div>
+        <h2>DPH bilance</h2>
+        <div id="prehled-dph-info" class="popis"></div>
+        <div class="mriz-souhrn" id="prehled-dph-mesice"></div>
 
-        <h2 style="margin-top:20px">Výdaje podle firmy</h2>
-        <div class="mriz-souhrn" id="souhrn-firmy"></div>
-        <h2 style="margin-top:20px">Výdaje podle kategorie</h2>
-        <div class="mriz-souhrn" id="souhrn-kategorie"></div>
-        <h2 style="margin-top:20px">Výdaje podle měsíce</h2>
-        <div class="mriz-souhrn" id="souhrn-mesic"></div>
-        <h2 style="margin-top:20px">Příjmy podle střediska</h2>
-        <div class="mriz-souhrn" id="souhrn-prijmy-stredisko"></div>
-        <h2 style="margin-top:20px">Příjmy podle měsíce</h2>
-        <div class="mriz-souhrn" id="souhrn-prijmy-mesic"></div>
+        <h2 style="margin-top:20px">Zaplacené daně</h2>
+        <p class="popis">Daň z příjmu a daň z nemovitostí, podle skutečně zaplacených bankovních plateb (silniční
+          daň appka zatím nepodporuje).</p>
+        <div class="mriz-souhrn" id="prehled-zaplacene-dane"></div>
       </div>
     </div>
 

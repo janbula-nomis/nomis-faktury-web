@@ -85,6 +85,8 @@ exports.handler = async (event) => {
       Datum_splatnosti: extrakce.datum_splatnosti || '',
       Castka: extrakce.castka || '',
       Mena: extrakce.mena || 'CZK',
+      DPH: extrakce.dph || '',
+      Sazba_DPH: extrakce.sazba_dph || '',
       Stav: duplicita ? 'Možná duplicita' : 'Neuhrazeno',
       Poznamka: extrakce.poznamka_ai || '',
     });
