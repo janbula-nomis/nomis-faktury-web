@@ -1560,6 +1560,54 @@ smlouvy), plus upraveným `ui_test_vf_ai_a_parovani.js` (přepsán ze staré
 `<table>` na nový skládací řádek). Plná regrese: 40 backendových + 20 UI
 testů, žádná regrese.
 
+## 41. Zarovnání skládaných řádků Vydaných faktur a Registru smluv do sloupců (v4.3)
+
+Jan po v4.2: „vydané faktury a registr smluv zarovnej do tabulky, aby to
+bylo zarovnané pod sebou" - sbalené řádky (hlava karty) u obou záložek
+dřív používaly `display: flex; flex-wrap: wrap`, takže se sloupce mezi
+řádky neseřadily přesně pod sebe (šířka obsahu jednoho pole ovlivňovala
+pozici všech následujících polí ve STEJNÉM řádku, ale ne nutně stejně
+napříč RŮZNÝMI řádky).
+
+- `public/style.css`: `.vf-radek-hlava`/`.vf-radek-hlavicka` a
+  `.smlouva-radek-hlava`/`.smlouva-radek-hlavicka` appka přepnula na
+  `display: grid` s PEVNÝM `grid-template-columns` (stejný seznam šířek
+  sloupců na hlavičce i na každém datovém řádku), takže se sloupce teď
+  chovají jako ve skutečné tabulce - zarovnané pod sebou napříč všemi
+  řádky.
+- `public/app.js` (`vytvorRadekSmlouva`): appka už NIKDY nevynechává
+  sloupec, i když je pole prázdné (dřív např. `Druha_strana`/`Perioda`
+  appka podmíněně nevykreslila vůbec, což by u grid layoutu posunulo
+  všechny následující sloupce doleva a rozbilo zarovnání) - teď se
+  vykresluje vždy prázdný `<span>` misto vynechání.
+- `public/index.html`: appka přidala statický řádek záhlaví
+  `.vf-radek-hlavicka`/`.smlouva-radek-hlavicka` (popisky sloupců: Stav,
+  Číslo, Název, Firma, atd.) nad `#vf-seznam`/`#smlouvy-seznam`.
+- **Sdílený vodorovný scroll**: Registr smluv má 11 sloupců, které se na
+  běžnou šířku panelu nevejdou vedle sebe. Appka proto zabalila záhlaví +
+  seznam řádků do jednoho společného obalu (`.vf-tabulka-obal`/
+  `.smlouva-tabulka-obal`), který jako jediný má `overflow-x: auto` -
+  záhlaví i všechny řádky se tak vodorovně posouvají SPOLEČNĚ, jako jedna
+  jednotka (podobně jako u běžné `<table>` s vodorovným přetečením).
+  Appka zkusila nejdřív dát `overflow-x: auto` nezávisle na záhlaví i na
+  každý řádek zvlášť - vizuální test (screenshoty přes Playwright)
+  odhalil, že se tím záhlaví a řádky rozjely each nezávisle, takže se
+  sloupce rozjížděly. Appka navíc musela odstranit `overflow: hidden` z
+  `.vf-radek`/`.smlouva-radek` (dřív sloužilo jen k zaoblení rohů karty),
+  protože by jinak osekávalo vodorovný obsah řádku dřív, než by se stihl
+  scrollovat ve sdíleném obalu - zaoblení spodních rohů appka teď řeší
+  vlastním `border-radius` na `.vf-radek-detail`/`.smlouva-radek-detail`.
+  Appka přidala i tenký viditelný posuvník (`scrollbar-width: thin` +
+  `::-webkit-scrollbar`), ať uživatel pozná, že řádek jde odscrollovat
+  doprava.
+- Ověřeno jednorázovým vizuálním Playwright skriptem (screenshoty
+  s realistickými i okrajovými daty - dlouhé názvy, různé měny, prázdná
+  volitelná pole, placeholder řádky) a kontrolou přes `scrollLeft`, že se
+  záhlaví a datové řádky posouvají synchronně. Plná regrese: 40
+  backendových + 20 UI testů, žádná regrese (existující testy kontrolují
+  textový obsah, ne přesné vizuální zarovnání, proto bylo vizuální
+  ověření screenshoty nutné navíc).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

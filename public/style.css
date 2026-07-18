@@ -154,12 +154,47 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
    Doklady/Bankovní výpisy výše (.doklad-radek/.banka-radek), samostatná
    sada tříd podle zavedené konvence appky (každý seznam má vlastní
    pojmenování, i když je vzhled shodný). */
-.smlouva-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; overflow: hidden; font-size: 13px; }
-.smlouva-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
+/* (v4.3) POZOR: žádné `overflow: hidden` zde - i když se tím dřív ořezávaly
+   rohy podle border-radius, zároveň by to při širší mřížce (grid) uřezávalo
+   i vodorovný obsah řádku dřív, než by se stihl vodorovně scrollovat ve
+   sdíleném `.smlouva-tabulka-obal` (viz komentář tam). Zaoblení spodních
+   rohů teď řeší `.smlouva-radek-detail` vlastním border-radius. */
+.smlouva-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
+/* (v4.3) Sbalený řádek appka od téhle verze vykresluje jako CSS grid s
+   PEVNÝMI sloupci (dřív flex + flex-wrap) - Jan: "vydané faktury a registr
+   smluv zarovnej do tabulky, aby to bylo zarovnané pod sebou". Sloupce:
+   šipka / stav / číslo smlouvy / název / firma / druhá strana / středisko /
+   typ / perioda / částka / platnost do - stejné pořadí musí mít i
+   `.smlouva-radek-hlavicka` (hlavička sloupců, viz níže) a JS
+   `vytvorRadekSmlouva`, aby se sloupce napříč všemi řádky zarovnaly. Na
+   užší obrazovce appka řádek nechá vodorovně scrollovat (`overflow-x`),
+   ne aby se sloupce mačkaly/lámaly - zachovává princip appky nikdy
+   nenutit k posouvání celou STRÁNKU, jen tenhle konkrétní řádek. */
+.smlouva-radek-hlava, .smlouva-radek-hlavicka {
+  display: grid;
+  grid-template-columns: 16px 92px 96px minmax(150px, 1.6fr) 130px 130px 110px 80px 85px 90px 90px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.smlouva-radek-hlava { padding: 8px 10px; cursor: pointer; }
+.smlouva-radek-hlava > span, .smlouva-radek-hlavicka > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.smlouva-radek-hlavicka { padding: 0 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
+/* (v4.3) Hlavička i všechny řádky scrollují SPOLEČNĚ jako jedna jednotka -
+   appka drží vodorovný scroll jen na tomhle sdíleném obalu
+   (`.smlouva-tabulka-obal`), NE zvlášť na hlavičce a zvlášť na každém
+   řádku zvlášť. Dřív appka měla `overflow-x:auto` na hlavičce i na
+   `.smlouva-radek-hlava` nezávisle - to způsobilo, že se při užší
+   obrazovce hlavička a řádky rozjely (každý si scrolloval jinak), takže
+   sloupce přestaly být pod sebou zarovnané. */
+.smlouva-tabulka-obal { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
+.smlouva-tabulka-obal::-webkit-scrollbar { height: 8px; }
+.smlouva-tabulka-obal::-webkit-scrollbar-thumb { background: var(--barva-hranice); border-radius: 4px; }
 .smlouva-radek-hlava:hover { filter: brightness(0.97); }
 .smlouva-radek-hlava .nazev-smlouvy { font-weight: 600; }
 .smlouva-radek-hlava .cislo-smlouvy { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; color: var(--barva-text-tlumena); background: rgba(127,127,127,0.15); padding: 1px 6px; border-radius: var(--radius-sm); }
-.smlouva-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
+.smlouva-radek-hlava .castka { text-align: right; }
+.smlouva-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
 .smlouva-radek.rozbaleno .smlouva-radek-detail { display: block; }
 .smlouva-radek.rozbaleno .smlouva-sipka { transform: rotate(90deg); }
 .smlouva-sipka { display: inline-block; transition: transform 0.15s; }
@@ -177,12 +212,32 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
    má appka i tady editaci/mazání a zároveň se vyhne stejnému problému s
    vodorovným přetečením na užších oknech, kvůli kterému appka Doklady
    přepnula na tenhle vzor už v v3.7. */
-.vf-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; overflow: hidden; font-size: 13px; }
-.vf-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
+/* (v4.3) Stejný důvod jako u `.smlouva-radek` výše - žádné `overflow: hidden`,
+   ať se vodorovná mřížka může scrollovat ve sdíleném `.vf-tabulka-obal`. */
+.vf-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
+/* (v4.3) Stejný přechod na CSS grid s pevnými sloupci jako u Smlouvy výše -
+   Jan: "vydané faktury a registr smluv zarovnej do tabulky, aby to bylo
+   zarovnané pod sebou". Sloupce: šipka / stav / číslo faktury / zákazník /
+   firma / částka - stejné pořadí musí mít `.vf-radek-hlavicka` a JS
+   `vytvorRadekVydanaFaktura`. */
+.vf-radek-hlava, .vf-radek-hlavicka {
+  display: grid;
+  grid-template-columns: 16px 110px 110px minmax(120px, 1fr) 150px 100px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.vf-radek-hlava { padding: 8px 10px; cursor: pointer; }
+.vf-radek-hlava > span, .vf-radek-hlavicka > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.vf-radek-hlavicka { padding: 0 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
+/* (v4.3) Stejný princip sdíleného scrollu jako u Smlouvy výše - viz komentář tam. */
+.vf-tabulka-obal { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
+.vf-tabulka-obal::-webkit-scrollbar { height: 8px; }
+.vf-tabulka-obal::-webkit-scrollbar-thumb { background: var(--barva-hranice); border-radius: 4px; }
 .vf-radek-hlava:hover { filter: brightness(0.97); }
 .vf-radek-hlava .nazev-vf { font-weight: 600; }
-.vf-radek-hlava .castka { font-weight: 600; margin-left: auto; }
-.vf-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
+.vf-radek-hlava .castka { font-weight: 600; text-align: right; }
+.vf-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
 .vf-radek.rozbaleno .vf-radek-detail { display: block; }
 .vf-radek.rozbaleno .vf-sipka { transform: rotate(90deg); }
 .vf-sipka { display: inline-block; transition: transform 0.15s; }
