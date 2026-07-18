@@ -1411,6 +1411,59 @@ nesmí navrhnout; `test_dashboard_firmy.js`/`test_dashboard_prijmy_vydaje.js`
 přehledů, rozpadlá podle Jednotky) i plnou regresí (37 backendových + 18
 UI testů, žádná regrese).
 
+## 39. Kontrola duplicity u Vydaných faktur + zaokrouhlení částek v Dashboardu na celé koruny (v4.1)
+
+Jan nahlásil dvě samostatné drobnější věci krátce po v4.0:
+
+**A) „U vydaných faktur není kontrola duplicity."** Appka měla už od v3.0
+u přijatých Dokladů kontrolu možné duplicity (`lib/duplicity.js`,
+`isMoznaDuplicita` - shoda dodavatele + částky, a navíc buď čísla dokladu,
+nebo data), ale u Vydaných faktur appka symetrický protějšek nikdy
+nedostala - opakované nahrání/zpracování stejné faktury (např. omylem
+dvakrát nahraný stejný soubor, nebo dvakrát stisknuté „Dokončit
+zpracování") appka tiše založila jako dva samostatné identické řádky.
+Appka teď má novou funkci `isMoznaDuplicitaFaktura` (`lib/duplicity.js`) -
+stejná logika, jen s poli Vydaných faktur: shoda ZÁKAZNÍKA + ČÁSTKY, a
+navíc buď čísla faktury, nebo data vystavení. `netlify/functions/
+vydane-faktury-upload-dokoncit.js` (fáze 2 AI zpracování) ji po vytěžení
+zavolá proti všem už zpracovaným fakturám (mimo dosud nezpracované
+placeholdery a fakturu samotnou) a při shodě nastaví `Stav: 'Možná
+duplicita'` místo `'Neuhrazeno'` - appka fakturu založí i tak (appka nic
+nemaže/neblokuje sama), jen na ni zřetelně upozorní (v tabulce podbarvená
+stejně jako „Po splatnosti", stav zobrazen jako „Možná duplicita"), ať si
+ji účetní zkontroluje.
+
+**Důležité omezení, o kterém byl Jan informován**: appka tuhle kontrolu
+NEMÁ retroaktivně - týká se jen NOVĚ zpracovaných faktur od nasazení
+v4.1, appka existující už uložené duplicitní řádky (např. dvojice faktur
+č. 125007 z obrázku, který Jan poslal) sama nenajde ani neoznačí.
+Zároveň appka u Vydaných faktur PODLE BACKLOGU (položka 8, zatím ČEKÁ NA
+IMPLEMENTACI) ještě neumí fakturu smazat ani upravit přímo v appce -
+odstranění už existujícího duplicitního řádku tak Jan musí prozatím
+provést ručně přímo v Google Sheets (list `Vydane_faktury`), dokud appka
+nedostane mazání/editaci i pro tuhle záložku.
+
+**B) „V Dashboardu zaokrouhluj na celá čísla."** Záložka Dashboard (od
+v3.22) zobrazovala částky se stejnou přesností jako všude jinde v appce
+(až na haléře, `formatCastka`) - u rychlého přehledového souhrnu to ale
+působilo zbytečně nepřehledně. Nová funkce `formatCastkaCele`
+(`public/app.js`) zaokrouhlí na celé koruny (`Math.round`, žádné
+desetinné místo) - použitá JEN v Dashboardu (`vykresliDashSouhrnStredisek`,
+`vytvorDashFirmaKarta` - příjmy/výdaje/rozdíl celkem i rozpad podle
+střediska). Přehled plateb (starší záložka, `vykresliSouhrn`) i všechny
+ostatní záložky (Doklady, Bankovní výpisy, Vydané faktury) dál zobrazují
+částky přesně na haléře beze změny - tam accuracy u párování/kontroly
+záleží, v Dashboardu jde jen o rychlý přehled.
+
+Obě změny jsou čistě frontendová/logická úprava (`public/app.js`,
+`lib/duplicity.js`, `netlify/functions/vydane-faktury-upload-dokoncit.js`)
+- žádný nový sloupec v Sheets, není potřeba znovu spouštět `/api/setup`.
+Ověřeno rozšířeným testem `test_vf_upload.js` (nová faktura se stejným
+zákazníkem/částkou/číslem faktury jako už zpracovaná dostane Stav „Možná
+duplicita"; faktura se stejným zákazníkem/částkou, ale JINÝM číslem
+faktury i datem, se duplicitou neoznačí) i plnou regresí (37 backendových
++ 18 UI testů, žádná regrese).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

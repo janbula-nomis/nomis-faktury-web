@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.0 – 2026-07-17';
+const APP_VERZE = 'v4.1 – 2026-07-18';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -898,7 +898,7 @@ function vykresliDashSouhrnStredisek(souhrn) {
   return zaznamy
     .map(
       ([klic, hodnota]) =>
-        '<div class="polozka-souhrn"><span>' + escapeHtml(klic) + '</span><strong>' + formatCastka(hodnota) + '</strong></div>'
+        '<div class="polozka-souhrn"><span>' + escapeHtml(klic) + '</span><strong>' + formatCastkaCele(hodnota) + '</strong></div>'
     )
     .join('');
 }
@@ -911,9 +911,9 @@ function vytvorDashFirmaKarta(f) {
 
   let html =
     '<h3>' + escapeHtml(f.firma) + '</h3>' +
-    '<div class="polozka-souhrn"><span>Příjmy (12 měsíců)</span><strong>' + formatCastka(f.prijmyCelkem) + '</strong></div>' +
-    '<div class="polozka-souhrn"><span>Výdaje (12 měsíců)</span><strong>' + formatCastka(f.vydajeCelkem) + '</strong></div>' +
-    '<div class="polozka-souhrn"><span>Rozdíl</span><strong class="' + rozdilTrida + '">' + formatCastka(f.rozdil) + '</strong></div>' +
+    '<div class="polozka-souhrn"><span>Příjmy (12 měsíců)</span><strong>' + formatCastkaCele(f.prijmyCelkem) + '</strong></div>' +
+    '<div class="polozka-souhrn"><span>Výdaje (12 měsíců)</span><strong>' + formatCastkaCele(f.vydajeCelkem) + '</strong></div>' +
+    '<div class="polozka-souhrn"><span>Rozdíl</span><strong class="' + rozdilTrida + '">' + formatCastkaCele(f.rozdil) + '</strong></div>' +
     '<div class="dash-stredisko-nadpis">Výdaje podle střediska</div>' +
     vykresliDashSouhrnStredisek(f.strediskaVydaje) +
     '<div class="dash-stredisko-nadpis">Příjmy podle střediska</div>' +
@@ -1050,6 +1050,15 @@ function parsujCastkuZListu(hodnota) {
 
 function formatCastka(hodnota) {
   return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 2 }).format(parsujCastkuZListu(hodnota)) + ' Kč';
+}
+
+// (v4.0) Jan chtěl v záložce Dashboard zaokrouhlovat na celé koruny (jde jen
+// o rychlý přehledový souhrn, ne o přesné párování jako u Dokladů/Bankovních
+// výpisů, kde appka haléře záměrně ukazuje - viz formatCastka výš/v3.4-v3.5).
+// Použito JEN v Dashboardu (vykresliDashSouhrnStredisek/vytvorDashFirmaKarta)
+// - Přehled plateb (vykresliSouhrn) dál používá formatCastka beze změny.
+function formatCastkaCele(hodnota) {
+  return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(Math.round(parsujCastkuZListu(hodnota))) + ' Kč';
 }
 
 // Doklady i Vydané faktury mají vlastní pole Mena (appka u dokladu umí
@@ -1245,6 +1254,10 @@ function vfStavRadekTrida(f) {
   if (f.Stav === 'Zpracovává se') return 'stav-radek-vf-zpracovava';
   if (f.Stav === 'Uhrazeno') return 'stav-radek-vf-uhrazeno';
   if (f.Stav === 'Částečně uhrazeno') return 'stav-radek-vf-castecne';
+  // (v4.0) Kontrola duplicity při AI zpracování - viz isMoznaDuplicitaFaktura
+  // v lib/duplicity.js. Stejné probarvení jako "Po splatnosti" (obojí je
+  // upozornění vyžadující pozornost účetní).
+  if (f.Stav === 'Možná duplicita') return 'stav-radek-vf-posplatnosti';
   if (vfJePoSplatnosti(f)) return 'stav-radek-vf-posplatnosti';
   return 'stav-radek-vf-neuhrazeno';
 }
@@ -1256,6 +1269,11 @@ function vfStavText(f) {
   // Bankovní výpisy, návrh spárování s vydanou fakturou podle částky + jména
   // zákazníka) - appka to appka drží jako vlastní stav, ne jen odvozeně.
   if (f.Stav === 'Částečně uhrazeno') return 'Částečně uhrazeno';
+  // (v4.0) Viz isMoznaDuplicitaFaktura v lib/duplicity.js - appka po AI
+  // vytěžení našla jinou fakturu se stejným zákazníkem/částkou a stejným
+  // číslem faktury nebo datem vystavení - zkontrolujte, jestli nejde o
+  // omylem dvakrát zpracovaný stejný soubor.
+  if (f.Stav === 'Možná duplicita') return 'Možná duplicita';
   if (vfJePoSplatnosti(f)) return 'Po splatnosti';
   return 'Neuhrazeno';
 }

@@ -17,6 +17,7 @@ const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { readSheetObjects, updateRow } = require('../../lib/sheetsHelpers');
 const { extrahujDataZVydaneFaktury } = require('../../lib/gemini');
+const { isMoznaDuplicitaFaktura } = require('../../lib/duplicity');
 const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
 const { json } = require('../../lib/http');
 
@@ -63,6 +64,17 @@ exports.handler = async (event) => {
     const { rows: firmy } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Firmy');
     const extrakce = await extrahujDataZVydaneFaktury(buffer, mimeType, firmy);
 
+    // (v4.0) Kontrola duplicity - appka do téhle verze u Vydaných faktur
+    // vůbec neměla protějšek k isMoznaDuplicita() u Dokladů, takže opakované
+    // nahrání/zpracování stejné faktury (např. omylem dvakrát nahraný stejný
+    // soubor) tiše založilo druhý identický řádek. Srovnává se proti VŠEM
+    // ostatním už zpracovaným fakturám (ne proti sobě samé, ne proti jiným
+    // dosud nezpracovaným placeholderům).
+    const duplicita = isMoznaDuplicitaFaktura(
+      existujiciFaktury.filter((r) => r.ID !== id && r.Stav !== 'Zpracovává se'),
+      extrakce
+    );
+
     const aktualizovana = Object.assign({}, faktura, {
       Firma: extrakce.firma_odhad || '',
       Cislo_faktury: extrakce.cislo_faktury || '',
@@ -73,7 +85,7 @@ exports.handler = async (event) => {
       Datum_splatnosti: extrakce.datum_splatnosti || '',
       Castka: extrakce.castka || '',
       Mena: extrakce.mena || 'CZK',
-      Stav: 'Neuhrazeno',
+      Stav: duplicita ? 'Možná duplicita' : 'Neuhrazeno',
       Poznamka: extrakce.poznamka_ai || '',
     });
 
