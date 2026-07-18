@@ -154,25 +154,21 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
    Doklady/Bankovní výpisy výše (.doklad-radek/.banka-radek), samostatná
    sada tříd podle zavedené konvence appky (každý seznam má vlastní
    pojmenování, i když je vzhled shodný). */
-/* (v4.3) POZOR: žádné `overflow: hidden` zde - i když se tím dřív ořezávaly
-   rohy podle border-radius, zároveň by to při širší mřížce (grid) uřezávalo
-   i vodorovný obsah řádku dřív, než by se stihl vodorovně scrollovat ve
-   sdíleném `.smlouva-tabulka-obal` (viz komentář tam). Zaoblení spodních
-   rohů teď řeší `.smlouva-radek-detail` vlastním border-radius. */
 .smlouva-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
-/* (v4.3) Sbalený řádek appka od téhle verze vykresluje jako CSS grid s
-   PEVNÝMI sloupci (dřív flex + flex-wrap) - Jan: "vydané faktury a registr
-   smluv zarovnej do tabulky, aby to bylo zarovnané pod sebou". Sloupce:
-   šipka / stav / číslo smlouvy / název / firma / druhá strana / středisko /
-   typ / perioda / částka / platnost do - stejné pořadí musí mít i
-   `.smlouva-radek-hlavicka` (hlavička sloupců, viz níže) a JS
-   `vytvorRadekSmlouva`, aby se sloupce napříč všemi řádky zarovnaly. Na
-   užší obrazovce appka řádek nechá vodorovně scrollovat (`overflow-x`),
-   ne aby se sloupce mačkaly/lámaly - zachovává princip appky nikdy
-   nenutit k posouvání celou STRÁNKU, jen tenhle konkrétní řádek. */
+/* (v4.4) Jan po zkušenosti se scrollovací tabulkou z v4.3 ("tohle nevypadá
+   moc dobře") appku vrátil k MÉNĚ sloupcům, ať se celý sbalený řádek vejde
+   na obrazovku bez vodorovného scrollu - viditelné jsou jen Číslo, Název,
+   Smluvní strany (Firma/Druhá strana v jedné buňce), Částka a Platnost
+   od-do, zbytek (Středisko, Typ, Perioda) appka přesunula do rozbaleného
+   detailu. STAV appka už nezobrazuje jako samostatný sloupec/chip - celý
+   řádek je místo toho podbarvený podle stavu (zelená = Aktivní, šedá =
+   Neaktivní, modrá = Zpracovává se, viz `.radek-stav-*` níže), stejný
+   princip jako appka odjakživa používá u Dokladů/Bankovních výpisů. Pevný
+   `grid-template-columns` (stejný na hlavičce i na řádku) appka zachovala
+   ze stejného důvodu jako v4.3 - ať sloupce zůstanou zarovnané pod sebou. */
 .smlouva-radek-hlava, .smlouva-radek-hlavicka {
   display: grid;
-  grid-template-columns: 16px 92px 96px minmax(150px, 1.6fr) 130px 130px 110px 80px 85px 90px 90px;
+  grid-template-columns: 16px 100px minmax(140px, 1.3fr) minmax(160px, 1.3fr) 90px 175px;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -180,16 +176,6 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .smlouva-radek-hlava { padding: 8px 10px; cursor: pointer; }
 .smlouva-radek-hlava > span, .smlouva-radek-hlavicka > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .smlouva-radek-hlavicka { padding: 0 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
-/* (v4.3) Hlavička i všechny řádky scrollují SPOLEČNĚ jako jedna jednotka -
-   appka drží vodorovný scroll jen na tomhle sdíleném obalu
-   (`.smlouva-tabulka-obal`), NE zvlášť na hlavičce a zvlášť na každém
-   řádku zvlášť. Dřív appka měla `overflow-x:auto` na hlavičce i na
-   `.smlouva-radek-hlava` nezávisle - to způsobilo, že se při užší
-   obrazovce hlavička a řádky rozjely (každý si scrolloval jinak), takže
-   sloupce přestaly být pod sebou zarovnané. */
-.smlouva-tabulka-obal { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
-.smlouva-tabulka-obal::-webkit-scrollbar { height: 8px; }
-.smlouva-tabulka-obal::-webkit-scrollbar-thumb { background: var(--barva-hranice); border-radius: 4px; }
 .smlouva-radek-hlava:hover { filter: brightness(0.97); }
 .smlouva-radek-hlava .nazev-smlouvy { font-weight: 600; }
 .smlouva-radek-hlava .cislo-smlouvy { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; color: var(--barva-text-tlumena); background: rgba(127,127,127,0.15); padding: 1px 6px; border-radius: var(--radius-sm); }
@@ -197,6 +183,7 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .smlouva-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
 .smlouva-radek.rozbaleno .smlouva-radek-detail { display: block; }
 .smlouva-radek.rozbaleno .smlouva-sipka { transform: rotate(90deg); }
+.smlouva-radek.radek-stav-schvaleno { background: #f1faf6; border-left: 3px solid var(--barva-uspech); }
 .smlouva-sipka { display: inline-block; transition: transform 0.15s; }
 .smlouva-radek-detail .radek-akci { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
 .smlouva-radek.radek-stav-zpracovava { background: #f0f3ff; border-left: 3px solid var(--barva-primarni); }
@@ -394,6 +381,7 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .badge-potvrzeno,
 :root[data-motiv="tmavy"] .doklad-radek.radek-stav-schvaleno,
 :root[data-motiv="tmavy"] .vf-radek.radek-vf-uhrazeno,
+:root[data-motiv="tmavy"] .smlouva-radek.radek-stav-schvaleno,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-potvrzeno { background: #1c3a2e; color: var(--barva-uspech); }
 :root[data-motiv="tmavy"] .badge-navrzeno,
 :root[data-motiv="tmavy"] .stav-zpracovava,

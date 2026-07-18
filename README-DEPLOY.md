@@ -1608,6 +1608,58 @@ napříč RŮZNÝMI řádky).
   textový obsah, ne přesné vizuální zarovnání, proto bylo vizuální
   ověření screenshoty nutné navíc).
 
+## 42. Registr smluv – zúžený sbalený řádek s podbarvením podle stavu místo scrollovací tabulky (v4.4)
+
+Jan po v4.3 na screenshotu ostrého provozu upozornil, že vodorovně
+scrollovací 11sloupcová tabulka „nevypadá moc dobře“ (na screenshotu byl
+levý okraj sloupců uřezaný mimo viditelnou oblast). Zadal konkrétní
+přepracování přes AskUserQuestion (appka si nechala upřesnit čtyři
+otevřené otázky, než začala implementovat):
+
+- **STAV už není sloupec, ale podbarvení celého řádku** - appka zrušila
+  chip `stav-chip` ve sbaleném řádku Smluv, Aktivní smlouva má teď celý
+  řádek jemně zelený (`.smlouva-radek.radek-stav-schvaleno`, nová třída,
+  stejná barva jako „Uhrazeno“ u Vydaných faktur/„Schváleno“ u Dokladů),
+  Neaktivní zůstává šedá (`.radek-stav-neaktivni`, beze změny barvy),
+  Zpracovává se zůstává modrá (`.radek-stav-zpracovava`, beze změny) -
+  appka tenhle princip (podbarvený řádek podle stavu) používá odjakživa
+  u Dokladů/Bankovních výpisů/Vydaných faktur, u Smluv ho jen sjednotila.
+- **Viditelný sbalený řádek appka zúžila na 6 gridových sloupců**: šipka,
+  Číslo smlouvy, Název, Smluvní strany (Firma a Druhá strana appka spojila
+  do JEDNÉ buňky, oddělené lomítkem, např. „NOMIS Investment /
+  Pronajímatel s.r.o.“ - podle Janova rozhodnutí přes AskUserQuestion),
+  Částka, Platnost od - do (appka teď ukazuje CELÝ rozsah, ne jen
+  Platnost do jako v4.3 - taky podle Janova rozhodnutí). Středisko, Typ a
+  Perioda appka přesunula výhradně do rozbaleného detailu (ten appka
+  needitovatelně/needitovaně nezměnila, jen zúžila sbalený souhrn).
+  Vydané faktury appka záměrně NEZMĚNILA (Jan potvrdil přes
+  AskUserQuestion, že se týká jen Registru smluv) - jejich 6sloupcový
+  sbalený řádek appce beztak seděl na šířku panelu bez scrollu už od
+  v4.3.
+- Díky zúžení appka u Smluv **zrušila i vodorovně scrollovací obal**
+  (`.smlouva-tabulka-obal` zavedený v4.3) - 6 nových sloupců appce sedí
+  na běžnou šířku panelu bez nutnosti scrollovat, appka tak vrátila
+  `.smlouva-radek-hlavicka` zpátky jako prostý statický řádek nad
+  `#smlouvy-seznam` (Vydané faktury svůj `.vf-tabulka-obal` appka
+  ponechala beze změny, protože se jejich rozsahu tahle úprava netýkala).
+- `public/app.js` (`vytvorRadekSmlouva`): appka vypočítá `smluvniStrany =
+  [Firma, Druha_strana].filter(Boolean).join(' / ')` a `platnost =
+  [Platnost_od, Platnost_do].filter(Boolean).join(' - ')` - u smlouvy bez
+  vyplněné Druhé strany/jednoho z dat appka zobrazí jen tu vyplněnou
+  hodnotu samotnou, ne prázdné lomítko/pomlčku navíc.
+- `public/style.css`: nový `grid-template-columns` s 6 (místo 11) položek
+  na `.smlouva-radek-hlava`/`.smlouva-radek-hlavicka`, nová třída
+  `.smlouva-radek.radek-stav-schvaleno` (+ tmavý režim).
+- Čistě frontendová CSS/HTML/JS změna - žádný nový sloupec v Sheets, není
+  potřeba `/api/setup`.
+- Ověřeno upraveným `ui_test_smlouvy_cislo_smlouvy.js` (sbalený řádek
+  ukazuje číslo/smluvní strany/platnost od-do, ale NE periodu/typ) a
+  `ui_test_smlouvy_zalozka.js` (placeholder „Zpracovává se“ appka pozná
+  podle textu v řádku, ne podle zrušeného stav-chipu) + jednorázovým
+  vizuálním Playwright skriptem (světlý i tmavý režim - zelené/šedé/modré
+  podbarvení řádku, žádný vodorovný scroll u Smluv). Plná regrese: 40
+  backendových + 20 UI testů, žádná regrese.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

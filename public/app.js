@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.3 – 2026-07-18';
+const APP_VERZE = 'v4.4 – 2026-07-18';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -3102,26 +3102,26 @@ function vytvorRadekSmlouva(s, prilohyTeto) {
 
   const hlava = document.createElement('div');
   hlava.className = 'smlouva-radek-hlava';
-  // (v4.3) Všechny sloupce se appka teď vykresluje VŽDY (i prázdné) - Jan:
-  // "vydané faktury a registr smluv zarovnej do tabulky, aby to bylo
-  // zarovnané pod sebou". Sbalený řádek appka zobrazuje jako CSS grid
-  // (.smlouva-radek-hlava, viz style.css) s pevnými sloupci - kdyby appka
-  // některý sloupec podmíněně vynechávala (jako dřív), zbylé sloupce by se
-  // posunuly a přestaly by se zarovnávat se sloupci ostatních řádků.
+  // (v4.4) Jan: "ve viditelném řádku jen tolik informací co se vleze na
+  // stránku, zbytek zabalit, STAV nebude sloupec ale podbarvený řádek" -
+  // appka tak sbalený řádek zúžila na 6 gridových polí (šipka/Číslo/Název/
+  // Smluvní strany/Částka/Platnost) - Středisko, Typ a Perioda appka
+  // přesunula do rozbaleného detailu (vytvorDetailSmlouva), stav appka
+  // vyjadřuje jen podbarvením celého `.smlouva-radek` (viz radek.className
+  // výš + `.radek-stav-*` v style.css), ne samostatným chipem v řádku.
+  // Appka i tady vykresluje VŠECHNY gridové sloupce vždy (i prázdné), ať se
+  // se zarovnáním napříč řádky nic nerozbije (stejný důvod jako v4.3).
+  const smluvniStrany = [s.Firma, s.Druha_strana].filter(Boolean).join(' / ');
+  const platnost = [s.Platnost_od, s.Platnost_do].filter(Boolean).join(' - ');
   hlava.innerHTML =
     '<span class="smlouva-sipka">▶</span>' +
-    '<span class="stav-chip ' + stavTridaSmlouva(s) + '">' + escapeHtml(stavTextSmlouva(s)) + '</span>' +
     '<span class="cislo-smlouvy">' + escapeHtml(s.Cislo_smlouvy || '') + '</span>' +
     '<span class="nazev-smlouvy">' +
       escapeHtml(s.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (s.Nazev || '(bez názvu)')) +
     '</span>' +
-    '<span>' + escapeHtml(s.Firma || '') + '</span>' +
-    '<span>' + escapeHtml(s.Druha_strana || '') + '</span>' +
-    '<span>' + escapeHtml(s.Stredisko || '') + '</span>' +
-    '<span class="popis">' + escapeHtml(s.Typ || '') + '</span>' +
-    '<span class="popis">' + escapeHtml(s.Perioda || '') + '</span>' +
+    '<span>' + escapeHtml(smluvniStrany) + '</span>' +
     '<span class="castka">' + (s.Ocekavana_castka !== undefined && s.Ocekavana_castka !== '' ? formatCastkaSMenou(s.Ocekavana_castka, s.Mena) : '') + '</span>' +
-    '<span class="popis">' + (s.Platnost_do ? escapeHtml(s.Platnost_do) : '') + '</span>';
+    '<span class="popis">' + escapeHtml(platnost) + '</span>';
 
   const detail = document.createElement('div');
   detail.className = 'smlouva-radek-detail';
