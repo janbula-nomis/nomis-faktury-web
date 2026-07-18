@@ -22,6 +22,7 @@ const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { readSheetObjects, updateRow } = require('../../lib/sheetsHelpers');
 const { extrahujDataZeSmlouvy } = require('../../lib/gemini');
 const { SMLOUVY_HEADERS } = require('../../lib/smlouvySchema');
+const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
 
 exports.handler = async (event) => {
@@ -72,7 +73,15 @@ exports.handler = async (event) => {
     const { rows: firmy } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Firmy');
     const extrakce = await extrahujDataZeSmlouvy(buffer, mimeType, firmy);
 
+    // Číslo smlouvy appka přiděluje až TEĎ, po úspěšném AI zpracování (od
+    // v4.2) - ne už při založení placeholderu (stejný princip jako Firma,
+    // kterou appka taky doplní až tady). Idempotentní - pokud smlouva už
+    // číslo má (např. opakované zavolání "Dokončit zpracování"), appka
+    // znovu negeneruje nové.
+    const cisloSmlouvy = smlouva.Cislo_smlouvy || vygenerujCisloSmlouvy(existujiciSmlouvy, new Date().getFullYear());
+
     const aktualizovana = Object.assign({}, smlouva, {
+      Cislo_smlouvy: cisloSmlouvy,
       Firma: extrakce.firma_odhad || '',
       Nazev: extrakce.nazev || priloha.Nazev_souboru || 'Nová smlouva',
       Druha_strana: extrakce.druha_strana || '',

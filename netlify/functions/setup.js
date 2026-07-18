@@ -24,12 +24,14 @@
  */
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { zajistiInboxSlozku } = require('../../lib/driveHelpers');
+const { readSheetObjects, updateRow } = require('../../lib/sheetsHelpers');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { UCTY_HEADERS } = require('../../lib/uctySchema');
 const { SMLOUVY_HEADERS } = require('../../lib/smlouvySchema');
 const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
+const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
 
 const LISTY = [
@@ -151,6 +153,40 @@ exports.handler = async (event) => {
           vysledky.push(list.nazev + ': doplněny chybějící sloupce (' + chybejiciHlavicky.join(', ') + ')');
         }
       }
+    }
+
+    // Zpětné dočíslování Cislo_smlouvy u existujících smluv (od v4.2,
+    // backlog položka 12) - smlouvy založené appkou PŘED zavedením čísla
+    // smlouvy ho ještě nemají. Appka nemá u starších smluv uložené datum
+    // založení, takže jako náhradu za chronologické pořadí použije pořadí
+    // řádků v listu (nižší číslo řádku = dřív založená smlouva) a přidělí
+    // jim AKTUÁLNÍ rok (rok spuštění tohohle /api/setup), i když smlouva
+    // mohla vzniknout dřív - appka nemá jak zjistit skutečný rok založení
+    // zpětně. Placeholder smlouvy (Stav "Zpracovává se", ještě bez Firmy)
+    // appka přeskočí - ty dostanou číslo až po dokončení AI zpracování.
+    try {
+      const { rows: vsechnySmlouvy } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy');
+      const rokBackfillu = new Date().getFullYear();
+      const kDoplneni = vsechnySmlouvy
+        .filter((s) => s.Firma && s.Stav !== 'Zpracovává se' && !s.Cislo_smlouvy)
+        .sort((a, b) => a._row - b._row);
+
+      if (kDoplneni.length > 0) {
+        const aktualniStav = vsechnySmlouvy.slice();
+        for (const smlouva of kDoplneni) {
+          const cislo = vygenerujCisloSmlouvy(aktualniStav, rokBackfillu);
+          const aktualizovana = Object.assign({}, smlouva, { Cislo_smlouvy: cislo });
+          await updateRow(sheets, spreadsheetId, 'Smlouvy', SMLOUVY_HEADERS, smlouva._row, aktualizovana);
+          const idx = aktualniStav.findIndex((s) => s._row === smlouva._row);
+          if (idx !== -1) aktualniStav[idx] = aktualizovana;
+        }
+        vysledky.push(
+          'Smlouvy: doplněno číslo smlouvy u ' + kDoplneni.length + ' existujících smluv ' +
+          '(pořadí podle řádků, rok ' + rokBackfillu + ').'
+        );
+      }
+    } catch (e) {
+      vysledky.push('Smlouvy: doplnění čísla smlouvy se nezdařilo (' + e.message + ') - appka pokračuje dál.');
     }
 
     const drive = await getDriveClient();

@@ -22,8 +22,9 @@
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
-const { readSheetObjects, appendRow, updateRow } = require('../../lib/sheetsHelpers');
+const { readSheetObjects, appendRow, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
+const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
 
@@ -107,6 +108,36 @@ exports.handler = async (event) => {
 
       const aktualizovana = Object.assign({}, faktura, zmeny || {});
       await updateRow(sheets, spreadsheetId, 'Vydane_faktury', VYDANE_FAKTURY_HEADERS, faktura._row, aktualizovana);
+
+      return json(200, { ok: true });
+    }
+
+    if (event.httpMethod === 'DELETE') {
+      const id = (event.queryStringParameters || {}).id;
+      if (!id) return json(400, { error: 'Chybí ID faktury.' });
+
+      const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Vydane_faktury');
+      const faktura = rows.find((r) => r.ID === id);
+      if (!faktura) return json(404, { error: 'Faktura nenalezena.' });
+      if (!maPristupKFirme(uzivatel, faktura.Firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
+
+      await deleteRow(sheets, spreadsheetId, 'Vydane_faktury', faktura._row);
+
+      // Cascade: bankovní pohyby napárované na smazanou vydanou fakturu appka
+      // vrátí do stavu "Bez dokladu" (NE "Nespárováno" - to je konvence pro
+      // výdajovou stranu/Doklady a Smlouvy; příjmová strana bez přiřazení
+      // faktury je "Bez dokladu", viz banka.js).
+      try {
+        const { rows: pohyby } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
+        const napojenePohyby = pohyby.filter((p) => p.Vydana_faktura_ID === id);
+        for (const pohyb of napojenePohyby) {
+          const aktualizovany = Object.assign({}, pohyb, { Vydana_faktura_ID: '', Stav_parovani: 'Bez dokladu' });
+          await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, aktualizovany);
+        }
+      } catch (e) {
+        // List Bankovni_pohyby nemusí existovat (appka bez zapnuté Banky) -
+        // smazání faktury appka nemá kvůli tomu shodit.
+      }
 
       return json(200, { ok: true });
     }

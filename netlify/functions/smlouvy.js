@@ -33,6 +33,7 @@ const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects, appendRow, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const { SMLOUVY_HEADERS } = require('../../lib/smlouvySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
+const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
 
@@ -102,8 +103,15 @@ exports.handler = async (event) => {
       if (!maPristupKFirme(uzivatel, firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
       if (!nazev) return json(400, { error: 'Název smlouvy je povinný.' });
 
+      // Číslo smlouvy appka přiděluje hned při ručním založení (od v4.2) -
+      // u nahrané/AI-vytěžené smlouvy se přiděluje až po úspěšném zpracování,
+      // viz smlouvy-upload-dokoncit.js.
+      const { rows: existujiciSmlouvy } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy');
+      const cisloSmlouvy = vygenerujCisloSmlouvy(existujiciSmlouvy, new Date().getFullYear());
+
       const smlouva = {
         ID: crypto.randomUUID(),
+        Cislo_smlouvy: cisloSmlouvy,
         Firma: firma,
         Nazev: nazev,
         Druha_strana: String(telo.Druha_strana || '').trim(),

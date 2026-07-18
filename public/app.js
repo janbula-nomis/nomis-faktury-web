@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.1 – 2026-07-18';
+const APP_VERZE = 'v4.2 – 2026-07-18';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1250,16 +1250,31 @@ function vfJePoSplatnosti(f) {
   return f.Datum_splatnosti < new Date().toISOString().slice(0, 10);
 }
 
+// (v4.2) Barva řádku (třída appka připojí za "radek-", viz .vf-radek.radek-vf-*
+// v public/style.css) - stejné rozdělení jako dřív, appka jen odstranila
+// starý prefix "stav-" navázaný na zrušenou <table>.
 function vfStavRadekTrida(f) {
-  if (f.Stav === 'Zpracovává se') return 'stav-radek-vf-zpracovava';
-  if (f.Stav === 'Uhrazeno') return 'stav-radek-vf-uhrazeno';
-  if (f.Stav === 'Částečně uhrazeno') return 'stav-radek-vf-castecne';
+  if (f.Stav === 'Zpracovává se') return 'vf-zpracovava';
+  if (f.Stav === 'Uhrazeno') return 'vf-uhrazeno';
+  if (f.Stav === 'Částečně uhrazeno') return 'vf-castecne';
   // (v4.0) Kontrola duplicity při AI zpracování - viz isMoznaDuplicitaFaktura
   // v lib/duplicity.js. Stejné probarvení jako "Po splatnosti" (obojí je
   // upozornění vyžadující pozornost účetní).
-  if (f.Stav === 'Možná duplicita') return 'stav-radek-vf-posplatnosti';
-  if (vfJePoSplatnosti(f)) return 'stav-radek-vf-posplatnosti';
-  return 'stav-radek-vf-neuhrazeno';
+  if (f.Stav === 'Možná duplicita') return 'vf-posplatnosti';
+  if (vfJePoSplatnosti(f)) return 'vf-posplatnosti';
+  return 'vf-neuhrazeno';
+}
+
+// Barva chipu ve sbaleném řádku - appka tu reuse-uje stejné generické
+// tříčky jako Doklady/Smlouvy (stavTrida/stavTridaSmlouva výše), ať appka
+// nemá 3 sady skoro identických barev navíc.
+function vfStavChipTrida(f) {
+  if (f.Stav === 'Zpracovává se') return 'stav-zpracovava';
+  if (f.Stav === 'Uhrazeno') return 'stav-schvaleno';
+  if (f.Stav === 'Částečně uhrazeno') return 'stav-zpracovava';
+  if (f.Stav === 'Možná duplicita') return 'stav-duplicita';
+  if (vfJePoSplatnosti(f)) return 'stav-duplicita';
+  return 'stav-ke-kontrole';
 }
 
 function vfStavText(f) {
@@ -1279,10 +1294,10 @@ function vfStavText(f) {
 }
 
 function vykresliVydaneFaktury() {
-  const telo = document.getElementById('tabulka-vf-telo');
+  const kontejner = document.getElementById('vf-seznam');
   const souhrn = document.getElementById('vf-souhrn');
   const filtrFirma = document.getElementById('vf-filtr-firma').value;
-  telo.innerHTML = '';
+  kontejner.innerHTML = '';
 
   const filtrovane = vfFakturySeznam.filter((f) => !filtrFirma || f.Firma === filtrFirma);
   // Placeholder faktury (AI zpracování ještě neproběhlo) appka do souhrnu
@@ -1302,61 +1317,230 @@ function vykresliVydaneFaktury() {
 
   const serazene = filtrovane.slice().sort((a, b) => (b.Datum_vystaveni || '').localeCompare(a.Datum_vystaveni || ''));
 
-  serazene.forEach((f) => {
-    const tr = document.createElement('tr');
-    tr.className = vfStavRadekTrida(f);
-
-    // Placeholder faktura (Stav "Zpracovává se") - AI zpracování ještě
-    // neproběhlo/se nepovedlo, stejný vzor jako u Dokladů/Smluv appka
-    // místo editace prázdných polí rovnou nabídne dokončení zpracování.
-    if (f.Stav === 'Zpracovává se') {
-      const td = document.createElement('td');
-      td.colSpan = 9;
-      td.innerHTML =
-        '<span class="stav-chip stav-zpracovava">Zpracovává se</span> Soubor je bezpečně uložený, AI zpracování ' +
-        'údajů ještě neproběhlo (nebo se dřív nepovedlo kvůli dočasnému přetížení). ';
-      const tlacitkoDokoncit = document.createElement('button');
-      tlacitkoDokoncit.className = 'maly';
-      tlacitkoDokoncit.textContent = 'Dokončit zpracování';
-      tlacitkoDokoncit.onclick = () => dokoncitZpracovaniVydaneFaktury(f.ID, tlacitkoDokoncit);
-      td.appendChild(tlacitkoDokoncit);
-      tr.appendChild(td);
-      telo.appendChild(tr);
-      return;
-    }
-
-    tr.innerHTML =
-      '<td data-label="Firma">' + escapeHtml(f.Firma || '') + '</td>' +
-      '<td data-label="Číslo">' + escapeHtml(f.Cislo_faktury || '') + '</td>' +
-      '<td data-label="Jednotka">' + escapeHtml(f.Jednotka || '') + '</td>' +
-      '<td data-label="Zákazník">' + escapeHtml(f.Zakaznik || '') + '</td>' +
-      '<td data-label="Vystaveno">' + escapeHtml(f.Datum_vystaveni || '') + '</td>' +
-      '<td data-label="Splatnost">' + escapeHtml(f.Datum_splatnosti || '') + '</td>' +
-      '<td data-label="Částka">' + formatCastkaSMenou(f.Castka, f.Mena) + '</td>' +
-      '<td data-label="Stav">' + escapeHtml(vfStavText(f)) + '</td>' +
-      '<td data-label="Akce"></td>';
-
-    const buneckaAkce = tr.children[8];
-    const tlacitko = document.createElement('button');
-    tlacitko.className = 'maly sekundarni';
-    if (f.Stav === 'Uhrazeno') {
-      tlacitko.textContent = 'Zrušit uhrazení';
-      tlacitko.onclick = () => ulozZmenuVydaneFaktury(f.ID, { Stav: 'Neuhrazeno', Datum_uhrady: '' }, tlacitko);
-    } else {
-      tlacitko.textContent = 'Označit uhrazeno';
-      tlacitko.onclick = () => ulozZmenuVydaneFaktury(
-        f.ID,
-        { Stav: 'Uhrazeno', Datum_uhrady: new Date().toISOString().slice(0, 10) },
-        tlacitko
-      );
-    }
-    buneckaAkce.appendChild(tlacitko);
-
-    telo.appendChild(tr);
-  });
+  serazene.forEach((f) => kontejner.appendChild(vytvorRadekVydanaFaktura(f)));
 
   if (serazene.length === 0) {
-    telo.innerHTML = '<tr><td colspan="9" class="nacitani">Zatím žádné vydané faktury.</td></tr>';
+    kontejner.innerHTML = '<div class="nacitani">Zatím žádné vydané faktury.</div>';
+  }
+}
+
+// (v4.2) Skládací řádek Vydané faktury - stejný vzor jako Doklady/Smlouvy
+// (vytvorRadekDoklad/vytvorRadekSmlouva výše). Jan: "vydané faktury musí
+// být řádek, který rozbalím, a obsahuje možnost ručně upravit, smazat" -
+// appka do téhle verze měla jen statickou <table> bez editace/mazání.
+function vytvorRadekVydanaFaktura(f) {
+  const radek = document.createElement('div');
+  radek.className = 'vf-radek radek-' + vfStavRadekTrida(f);
+
+  const hlava = document.createElement('div');
+  hlava.className = 'vf-radek-hlava';
+  hlava.innerHTML =
+    '<span class="vf-sipka">▶</span>' +
+    '<span class="stav-chip ' + vfStavChipTrida(f) + '">' + escapeHtml(vfStavText(f)) + '</span>' +
+    '<span class="nazev-vf">' +
+      escapeHtml(f.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (f.Cislo_faktury || '(bez čísla)')) +
+    '</span>' +
+    '<span>' + escapeHtml(f.Zakaznik || '') + '</span>' +
+    '<span>' + escapeHtml(f.Firma || '') + '</span>' +
+    '<span class="castka">' + (f.Stav === 'Zpracovává se' ? '' : formatCastkaSMenou(f.Castka, f.Mena)) + '</span>';
+
+  const detail = document.createElement('div');
+  detail.className = 'vf-radek-detail';
+
+  hlava.addEventListener('click', () => {
+    radek.classList.toggle('rozbaleno');
+    if (radek.classList.contains('rozbaleno') && !radek.dataset.naplneno) {
+      radek.dataset.naplneno = '1';
+      detail.appendChild(vytvorDetailVydanaFaktura(f));
+    }
+  });
+
+  radek.appendChild(hlava);
+  radek.appendChild(detail);
+  return radek;
+}
+
+function vytvorDetailVydanaFaktura(f) {
+  const wrap = document.createElement('div');
+
+  // Placeholder faktura (Stav "Zpracovává se") - AI zpracování ještě
+  // neproběhlo/se nepovedlo, stejný vzor jako u Dokladů/Smluv appka místo
+  // editace prázdných polí rovnou nabídne dokončení zpracování.
+  if (f.Stav === 'Zpracovává se') {
+    const info = document.createElement('div');
+    info.className = 'zprava info';
+    info.textContent =
+      'Soubor je bezpečně uložený, AI zpracování údajů ještě neproběhlo (nebo se dřív nepovedlo kvůli ' +
+      'dočasnému přetížení). Dokončete ho tlačítkem níž - nic nemusíte nahrávat znovu.';
+    wrap.appendChild(info);
+
+    const akce = document.createElement('div');
+    akce.className = 'radek-akci';
+    const tlacitkoDokoncit = document.createElement('button');
+    tlacitkoDokoncit.className = 'maly';
+    tlacitkoDokoncit.textContent = 'Dokončit zpracování';
+    tlacitkoDokoncit.onclick = () => dokoncitZpracovaniVydaneFaktury(f.ID, tlacitkoDokoncit);
+    akce.appendChild(tlacitkoDokoncit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.onclick = () => smazVydanouFakturu(f.ID, f.Cislo_faktury, tlacitkoSmazat);
+    akce.appendChild(tlacitkoSmazat);
+    wrap.appendChild(akce);
+
+    return wrap;
+  }
+
+  const labelFirma = document.createElement('label');
+  labelFirma.textContent = 'Firma (vystavuje)';
+  const vstupFirma = document.createElement('select');
+  vstupFirma.innerHTML = moznostiFirmySeznam(vfFirmySeznam, f.Firma || '');
+  wrap.appendChild(labelFirma);
+  wrap.appendChild(vstupFirma);
+
+  const labelCislo = document.createElement('label');
+  labelCislo.textContent = 'Číslo faktury';
+  const vstupCislo = document.createElement('input');
+  vstupCislo.type = 'text';
+  vstupCislo.value = f.Cislo_faktury || '';
+  wrap.appendChild(labelCislo);
+  wrap.appendChild(vstupCislo);
+
+  const labelJednotka = document.createElement('label');
+  labelJednotka.textContent = 'Jednotka';
+  const vstupJednotka = document.createElement('input');
+  vstupJednotka.type = 'text';
+  vstupJednotka.setAttribute('list', 'seznam-jednotek');
+  vstupJednotka.value = f.Jednotka || '';
+  wrap.appendChild(labelJednotka);
+  wrap.appendChild(vstupJednotka);
+
+  const labelZakaznik = document.createElement('label');
+  labelZakaznik.textContent = 'Zákazník';
+  const vstupZakaznik = document.createElement('input');
+  vstupZakaznik.type = 'text';
+  vstupZakaznik.value = f.Zakaznik || '';
+  wrap.appendChild(labelZakaznik);
+  wrap.appendChild(vstupZakaznik);
+
+  const labelIco = document.createElement('label');
+  labelIco.textContent = 'IČO zákazníka';
+  const vstupIco = document.createElement('input');
+  vstupIco.type = 'text';
+  vstupIco.value = f.ICO_zakaznika || '';
+  wrap.appendChild(labelIco);
+  wrap.appendChild(vstupIco);
+
+  const labelVystaveni = document.createElement('label');
+  labelVystaveni.textContent = 'Datum vystavení';
+  const vstupVystaveni = document.createElement('input');
+  vstupVystaveni.type = 'date';
+  vstupVystaveni.value = f.Datum_vystaveni || '';
+  wrap.appendChild(labelVystaveni);
+  wrap.appendChild(vstupVystaveni);
+
+  const labelSplatnost = document.createElement('label');
+  labelSplatnost.textContent = 'Datum splatnosti';
+  const vstupSplatnost = document.createElement('input');
+  vstupSplatnost.type = 'date';
+  vstupSplatnost.value = f.Datum_splatnosti || '';
+  wrap.appendChild(labelSplatnost);
+  wrap.appendChild(vstupSplatnost);
+
+  const labelCastka = document.createElement('label');
+  labelCastka.textContent = 'Částka a měna';
+  const vstupCastka = document.createElement('input');
+  vstupCastka.type = 'number';
+  vstupCastka.step = '0.01';
+  vstupCastka.value = f.Castka !== undefined && f.Castka !== '' ? parsujCastkuZListu(f.Castka) : '';
+  vstupCastka.style.marginBottom = '6px';
+  const vstupMena = document.createElement('input');
+  vstupMena.type = 'text';
+  vstupMena.value = f.Mena || 'CZK';
+  vstupMena.style.maxWidth = '90px';
+  wrap.appendChild(labelCastka);
+  wrap.appendChild(vstupCastka);
+  wrap.appendChild(vstupMena);
+
+  const labelPoznamka = document.createElement('label');
+  labelPoznamka.textContent = 'Poznámka';
+  const vstupPoznamka = document.createElement('input');
+  vstupPoznamka.type = 'text';
+  vstupPoznamka.value = f.Poznamka || '';
+  wrap.appendChild(labelPoznamka);
+  wrap.appendChild(vstupPoznamka);
+
+  if (f.Zdrojovy_soubor_URL) {
+    const souborDiv = document.createElement('div');
+    souborDiv.style.marginTop = '12px';
+    souborDiv.innerHTML = 'Soubor: <a href="' + escapeAttr(f.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>';
+    wrap.appendChild(souborDiv);
+  }
+
+  function ziskejZmeny() {
+    return {
+      Firma: vstupFirma.value.trim(),
+      Cislo_faktury: vstupCislo.value.trim(),
+      Jednotka: vstupJednotka.value.trim(),
+      Zakaznik: vstupZakaznik.value.trim(),
+      ICO_zakaznika: vstupIco.value.trim(),
+      Datum_vystaveni: vstupVystaveni.value,
+      Datum_splatnosti: vstupSplatnost.value,
+      Castka: vstupCastka.value,
+      Mena: vstupMena.value.trim() || 'CZK',
+      Poznamka: vstupPoznamka.value.trim(),
+    };
+  }
+
+  const akce = document.createElement('div');
+  akce.className = 'radek-akci';
+
+  const tlacitkoUlozit = document.createElement('button');
+  tlacitkoUlozit.className = 'maly sekundarni';
+  tlacitkoUlozit.textContent = 'Uložit';
+  tlacitkoUlozit.onclick = () => ulozZmenuVydaneFaktury(f.ID, ziskejZmeny(), tlacitkoUlozit);
+  akce.appendChild(tlacitkoUlozit);
+
+  const tlacitkoStav = document.createElement('button');
+  tlacitkoStav.className = 'maly';
+  if (f.Stav === 'Uhrazeno') {
+    tlacitkoStav.textContent = 'Zrušit uhrazení';
+    tlacitkoStav.onclick = () => ulozZmenuVydaneFaktury(f.ID, { Stav: 'Neuhrazeno', Datum_uhrady: '' }, tlacitkoStav);
+  } else {
+    tlacitkoStav.textContent = 'Označit uhrazeno';
+    tlacitkoStav.onclick = () => ulozZmenuVydaneFaktury(
+      f.ID,
+      { Stav: 'Uhrazeno', Datum_uhrady: new Date().toISOString().slice(0, 10) },
+      tlacitkoStav
+    );
+  }
+  akce.appendChild(tlacitkoStav);
+
+  const tlacitkoSmazat = document.createElement('button');
+  tlacitkoSmazat.className = 'maly sekundarni';
+  tlacitkoSmazat.textContent = 'Smazat';
+  tlacitkoSmazat.onclick = () => smazVydanouFakturu(f.ID, f.Cislo_faktury, tlacitkoSmazat);
+  akce.appendChild(tlacitkoSmazat);
+
+  wrap.appendChild(akce);
+
+  return wrap;
+}
+
+let vfZpravaTimeout = null;
+
+function zobrazZpravuVydaneFaktury(text) {
+  const zprava = document.getElementById('vf-zprava-akce');
+  if (!zprava) return;
+  zprava.textContent = text;
+  zprava.classList.toggle('skryto', !text);
+  if (vfZpravaTimeout) clearTimeout(vfZpravaTimeout);
+  if (text) {
+    vfZpravaTimeout = setTimeout(() => {
+      zprava.textContent = '';
+      zprava.classList.add('skryto');
+    }, 5000);
   }
 }
 
@@ -1365,8 +1549,25 @@ async function ulozZmenuVydaneFaktury(id, zmeny, tlacitko) {
   try {
     await zavolejApi('/vydaneFaktury', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
     await nactiVydaneFaktury();
+    zobrazZpravuVydaneFaktury(zmeny.Stav === 'Uhrazeno' ? 'Faktura označena jako uhrazená.' : 'Změna uložena.');
   } catch (e) {
     alert('Nepodařilo se uložit změnu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+// (v4.2) Nové - appka do téhle verze u Vydaných faktur mazání vůbec
+// neměla (Jan: "vydané faktury musí být řádek, který rozbalím, a obsahuje
+// možnost ručně upravit, smazat"), mirror smazDoklad/smazSmlouvu výše.
+async function smazVydanouFakturu(id, cisloFaktury, tlacitko) {
+  if (!confirm('Opravdu smazat vydanou fakturu „' + (cisloFaktury || '(bez čísla)') + '“? Tuhle akci nejde vrátit zpět.')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/vydaneFaktury?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    await nactiVydaneFaktury();
+    zobrazZpravuVydaneFaktury('Vydaná faktura smazána.');
+  } catch (e) {
+    alert('Nepodařilo se smazat vydanou fakturu: ' + e.message);
     tlacitko.disabled = false;
   }
 }
@@ -2904,12 +3105,17 @@ function vytvorRadekSmlouva(s, prilohyTeto) {
   hlava.innerHTML =
     '<span class="smlouva-sipka">▶</span>' +
     '<span class="stav-chip ' + stavTridaSmlouva(s) + '">' + escapeHtml(stavTextSmlouva(s)) + '</span>' +
+    (s.Cislo_smlouvy ? '<span class="cislo-smlouvy">' + escapeHtml(s.Cislo_smlouvy) + '</span>' : '') +
     '<span class="nazev-smlouvy">' +
       escapeHtml(s.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (s.Nazev || '(bez názvu)')) +
     '</span>' +
     '<span>' + escapeHtml(s.Firma || '') + '</span>' +
+    (s.Druha_strana ? '<span>' + escapeHtml(s.Druha_strana) + '</span>' : '') +
     '<span>' + escapeHtml(s.Stredisko || '') + '</span>' +
-    '<span class="castka">' + (s.Ocekavana_castka !== undefined && s.Ocekavana_castka !== '' ? formatCastkaSMenou(s.Ocekavana_castka, s.Mena) : '') + '</span>';
+    (s.Typ ? '<span class="popis">' + escapeHtml(s.Typ) + '</span>' : '') +
+    (s.Perioda ? '<span class="popis">' + escapeHtml(s.Perioda) + '</span>' : '') +
+    '<span class="castka">' + (s.Ocekavana_castka !== undefined && s.Ocekavana_castka !== '' ? formatCastkaSMenou(s.Ocekavana_castka, s.Mena) : '') + '</span>' +
+    (s.Platnost_do ? '<span class="popis">do ' + escapeHtml(s.Platnost_do) + '</span>' : '');
 
   const detail = document.createElement('div');
   detail.className = 'smlouva-radek-detail';
@@ -3027,6 +3233,18 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
 
     wrap.appendChild(vytvorPrilohySekce(s, prilohyTeto));
     return wrap;
+  }
+
+  // Číslo smlouvy appka přiděluje sama (od v4.2) - jen zobrazí, needituje se.
+  if (s.Cislo_smlouvy) {
+    const labelCislo = document.createElement('label');
+    labelCislo.textContent = 'Číslo smlouvy';
+    const zobrazeniCislo = document.createElement('div');
+    zobrazeniCislo.className = 'popis';
+    zobrazeniCislo.style.marginBottom = '8px';
+    zobrazeniCislo.textContent = s.Cislo_smlouvy;
+    wrap.appendChild(labelCislo);
+    wrap.appendChild(zobrazeniCislo);
   }
 
   // AI vytěžené (nebo ručně zadané) údaje appka ukazuje jako běžně
