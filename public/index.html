@@ -94,19 +94,34 @@
     <div id="zalozka-prehled" class="karta skryto">
       <h2>Daňový přehled</h2>
       <p class="popis">DPH bilanci appka počítá automaticky z DPH na přijatých dokladech a vydaných fakturách -
-        pouze u firem, které jsou plátcem DPH. Ostatní daně appka nedopočítává, jen sčítá skutečně zaplacené
-        částky přiřazené k dani v záložce Bankovní výpisy (tlačítko „Přiřadit k dani“).</p>
+        pouze u firem, které jsou plátcem DPH. Ostatní daně appka nedopočítává, jen sčítá skutečně zaplacené/
+        vrácené částky přiřazené k dani v záložce Bankovní výpisy (tlačítko „Přiřadit k dani“). Rok appka vždy
+        počítá jako kalendářní rok (leden - prosinec), jde o daňové období.</p>
       <div id="prehled-nacitani" class="nacitani">Načítám…</div>
       <div id="prehled-obsah" class="skryto">
 
-        <h2>DPH bilance</h2>
-        <div id="prehled-dph-info" class="popis"></div>
-        <div class="mriz-souhrn" id="prehled-dph-mesice"></div>
+        <div class="prepinac-sekce">
+          <button type="button" id="prehled-obdobi-mesic" class="prepinac-sekce-tlacitko aktivni" data-typ-obdobi="mesic">Měsíc</button>
+          <button type="button" id="prehled-obdobi-rok" class="prepinac-sekce-tlacitko" data-typ-obdobi="rok">Rok</button>
+        </div>
+        <label for="prehled-vyber-obdobi" class="popis" style="display:inline-block;margin:6px 10px 6px 0">Období:</label>
+        <select id="prehled-vyber-obdobi" style="max-width:160px"></select>
 
-        <h2 style="margin-top:20px">Zaplacené daně</h2>
-        <p class="popis">Daň z příjmu a daň z nemovitostí, podle skutečně zaplacených bankovních plateb (silniční
-          daň appka zatím nepodporuje).</p>
-        <div class="mriz-souhrn" id="prehled-zaplacene-dane"></div>
+        <div id="prehled-dph-info" class="popis" style="margin-top:8px"></div>
+        <div id="prehled-tabulka-obal" style="margin-top:10px;overflow-x:auto">
+          <table id="prehled-tabulka">
+            <thead>
+              <tr>
+                <th>Firma</th>
+                <th>DPH bilance (vypočtená)</th>
+                <th>DPH banka (zaplaceno/vráceno)</th>
+                <th>Daň z příjmu (banka)</th>
+                <th>Daň z nemovitostí (banka)</th>
+              </tr>
+            </thead>
+            <tbody id="prehled-tabulka-telo"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 

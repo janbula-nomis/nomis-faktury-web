@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.6 – 2026-07-18';
+const APP_VERZE = 'v4.6.1 – 2026-07-18';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -998,9 +998,17 @@ async function nactiDashboard() {
 // ---------- DAŇOVÝ PŘEHLED (od v4.6 - nahrazuje dřívější Přehled plateb) ----------
 
 const NAZVY_TYPU_DANE = {
+  DPH: 'DPH',
   Dan_z_prijmu: 'Daň z příjmu',
   Dan_z_nemovitosti: 'Daň z nemovitostí',
 };
+
+// Appka drží poslední načtená data + zvolený typ období (mesic/rok) v
+// modulové proměnné, ať přepnutí Měsíc/Rok nebo výběru konkrétního období
+// (vykresliDanovyPrehled) nemusí pokaždé volat znovu API - appka data
+// znovu natáhne jen při skutečném přechodu na záložku (nactiPrehled).
+let danovyPrehledData = null;
+let danovyPrehledTypObdobi = 'mesic';
 
 async function nactiPrehled() {
   const nacitani = document.getElementById('prehled-nacitani');
@@ -1009,67 +1017,114 @@ async function nactiPrehled() {
   obsah.classList.add('skryto');
 
   try {
-    const data = await zavolejApi('/danovy-prehled', { method: 'GET' });
+    danovyPrehledData = await zavolejApi('/danovy-prehled', { method: 'GET' });
     nacitani.classList.add('skryto');
     obsah.classList.remove('skryto');
-
-    const info = document.getElementById('prehled-dph-info');
-    const platci = data.platciDph || [];
-    info.textContent = platci.length > 0
-      ? 'Plátce DPH ve skupině: ' + platci.join(', ') + '. Bilance appka počítá po kalendářních měsících.'
-      : 'Žádná firma ve skupině není aktuálně nastavena jako plátce DPH (viz Nastavení → Firmy) - DPH bilanci proto appka nepočítá.';
-
-    const mesiceKontejner = document.getElementById('prehled-dph-mesice');
-    mesiceKontejner.innerHTML = '';
-    const bilance = data.dphBilance || [];
-    if (bilance.length === 0) {
-      mesiceKontejner.innerHTML = '<div class="nacitani">Zatím žádná data k DPH.</div>';
-    } else {
-      bilance
-        .slice()
-        .sort((a, b) => b.mesic.localeCompare(a.mesic))
-        .forEach((polozka) => {
-          const div = document.createElement('div');
-          div.className = 'polozka-souhrn';
-          const saldoPopis = polozka.saldo > 0
-            ? 'k doplacení FÚ'
-            : polozka.saldo < 0
-              ? 'nárok na vrácení'
-              : 'vyrovnáno';
-          div.innerHTML =
-            '<span>' + escapeHtml(polozka.mesic) + ' – ' + escapeHtml(polozka.firma) +
-            '<br><span class="popis">výstup ' + formatCastka(polozka.dphVydane) + ', vstup ' + formatCastka(polozka.dphPrijate) + '</span></span>' +
-            '<strong>' + formatCastka(polozka.saldo) + '<br><span class="popis">(' + saldoPopis + ')</span></strong>';
-          mesiceKontejner.appendChild(div);
-        });
-    }
-
-    const daneKontejner = document.getElementById('prehled-zaplacene-dane');
-    daneKontejner.innerHTML = '';
-    const zaplacene = data.zaplaceneDane || {};
-    const radky = [];
-    Object.keys(zaplacene).forEach((firma) => {
-      Object.keys(zaplacene[firma]).forEach((typ) => {
-        radky.push({ firma, typ, castka: zaplacene[firma][typ].celkem });
-      });
-    });
-    if (radky.length === 0) {
-      daneKontejner.innerHTML = '<div class="nacitani">Zatím žádné platby přiřazené k dani - viz záložka Bankovní výpisy, tlačítko „Přiřadit k dani“.</div>';
-    } else {
-      radky
-        .sort((a, b) => a.firma.localeCompare(b.firma) || a.typ.localeCompare(b.typ))
-        .forEach((r) => {
-          const div = document.createElement('div');
-          div.className = 'polozka-souhrn';
-          div.innerHTML =
-            '<span>' + escapeHtml(r.firma) + ' – ' + escapeHtml(NAZVY_TYPU_DANE[r.typ] || r.typ) + '</span>' +
-            '<strong>' + formatCastka(r.castka) + '</strong>';
-          daneKontejner.appendChild(div);
-        });
-    }
+    vykresliDanovyPrehled();
   } catch (e) {
     nacitani.textContent = 'Nepodařilo se načíst daňový přehled: ' + e.message;
   }
+}
+
+// Přepínač Měsíc/Rok (od v4.6.1) - appka "Rok" VŽDY počítá jako kalendářní
+// rok (leden - prosinec, daňové období), ne klouzavé okno jako Dashboard.
+document.getElementById('prehled-obdobi-mesic').addEventListener('click', () => {
+  danovyPrehledTypObdobi = 'mesic';
+  document.getElementById('prehled-obdobi-mesic').classList.add('aktivni');
+  document.getElementById('prehled-obdobi-rok').classList.remove('aktivni');
+  vykresliDanovyPrehled(true);
+});
+document.getElementById('prehled-obdobi-rok').addEventListener('click', () => {
+  danovyPrehledTypObdobi = 'rok';
+  document.getElementById('prehled-obdobi-rok').classList.add('aktivni');
+  document.getElementById('prehled-obdobi-mesic').classList.remove('aktivni');
+  vykresliDanovyPrehled(true);
+});
+document.getElementById('prehled-vyber-obdobi').addEventListener('change', () => vykresliDanovyPrehled());
+
+// Vykreslí tabulku (firmy × druhy daně) pro aktuálně zvolený typ období
+// (mesic/rok) a konkrétní období z #prehled-vyber-obdobi. `obnovSeznamObdobi`
+// appka nastaví na true jen při přepnutí Měsíc/Rok - jinak by appka při
+// pouhé změně vybraného období v <select>u zbytečně přestavěla i samotný
+// seznam možností (a tím ho vrátila na výchozí/první položku).
+function vykresliDanovyPrehled(obnovSeznamObdobi) {
+  const data = danovyPrehledData;
+  if (!data) return;
+
+  const info = document.getElementById('prehled-dph-info');
+  const platci = data.platciDph || [];
+  info.textContent = platci.length > 0
+    ? 'Plátce DPH ve skupině: ' + platci.join(', ') + '.'
+    : 'Žádná firma ve skupině není aktuálně nastavena jako plátce DPH (viz Nastavení → Firmy) - sloupec DPH bilance proto appka nepočítá.';
+
+  const vyberObdobi = document.getElementById('prehled-vyber-obdobi');
+  const seznamObdobi = danovyPrehledTypObdobi === 'rok' ? (data.obdobiRoky || []) : (data.obdobiMesice || []);
+
+  if (obnovSeznamObdobi || vyberObdobi.options.length === 0) {
+    const puvodniHodnota = vyberObdobi.value;
+    if (seznamObdobi.length === 0) {
+      vyberObdobi.innerHTML = '<option value="">— žádná data —</option>';
+    } else {
+      vyberObdobi.innerHTML = seznamObdobi.map((o) => '<option value="' + escapeAttr(o) + '">' + escapeHtml(o) + '</option>').join('');
+      // Appka se pokusí zachovat dřív vybraný rok/měsíc, pokud existuje i
+      // v novém seznamu (přepnutí Měsíc/Rok jinak vždy skočí na nejnovější
+      // dostupné období, což je rozumný výchozí stav při prvním načtení).
+      if (puvodniHodnota && seznamObdobi.includes(puvodniHodnota)) vyberObdobi.value = puvodniHodnota;
+    }
+  }
+
+  const obdobi = vyberObdobi.value;
+  const dphBilanceObdobi = (danovyPrehledTypObdobi === 'rok' ? data.dphBilanceRocni : data.dphBilanceMesicni) || {};
+  const danovePlatbyObdobi = (danovyPrehledTypObdobi === 'rok' ? data.danovePlatbyRocni : data.danovePlatbyMesicni) || {};
+  const dphBilanceFirmy = dphBilanceObdobi[obdobi] || {};
+  const danovePlatbyFirmy = danovePlatbyObdobi[obdobi] || {};
+
+  const telo = document.getElementById('prehled-tabulka-telo');
+  telo.innerHTML = '';
+
+  if (!obdobi) {
+    telo.innerHTML = '<tr><td colspan="5" class="popis">Zatím žádná data k daňovému přehledu (ani DPH bilance z dokladů/faktur, ani platby přiřazené k dani).</td></tr>';
+    return;
+  }
+
+  // Appka do tabulky zařadí každou firmu, která má v TOMHLE období buď
+  // vypočtenou DPH bilanci, nebo aspoň jednu daňovou platbu - ne VŠECHNY
+  // firmy skupiny natvrdo, ať se v přehledu neobjevují prázdné řádky za
+  // firmy, které v daném měsíci/roce vůbec žádnou daňovou aktivitu nemají.
+  const firmyKZobrazeni = Array.from(new Set([...Object.keys(dphBilanceFirmy), ...Object.keys(danovePlatbyFirmy)])).sort();
+
+  if (firmyKZobrazeni.length === 0) {
+    telo.innerHTML = '<tr><td colspan="5" class="popis">Za vybrané období appka nemá žádná daňová data.</td></tr>';
+    return;
+  }
+
+  firmyKZobrazeni.forEach((firma) => {
+    const bilance = dphBilanceFirmy[firma];
+    const dane = danovePlatbyFirmy[firma] || {};
+    const tr = document.createElement('tr');
+
+    let bilanceHtml = '<span class="popis">—</span>';
+    if (bilance) {
+      const saldoPopis = bilance.saldo > 0 ? 'k doplacení FÚ' : bilance.saldo < 0 ? 'nárok na vrácení' : 'vyrovnáno';
+      bilanceHtml =
+        '<strong>' + formatCastka(bilance.saldo) + '</strong>' +
+        '<br><span class="popis">(' + saldoPopis + '; výstup ' + formatCastka(bilance.dphVydane) +
+        ', vstup ' + formatCastka(bilance.dphPrijate) + ')</span>';
+    }
+
+    function bunkaDane(typ) {
+      const castka = dane[typ];
+      return castka === undefined ? '<span class="popis">—</span>' : formatCastka(castka);
+    }
+
+    tr.innerHTML =
+      '<td>' + escapeHtml(firma) + '</td>' +
+      '<td>' + bilanceHtml + '</td>' +
+      '<td>' + bunkaDane('DPH') + '</td>' +
+      '<td>' + bunkaDane('Dan_z_prijmu') + '</td>' +
+      '<td>' + bunkaDane('Dan_z_nemovitosti') + '</td>';
+    telo.appendChild(tr);
+  });
 }
 
 // Appka čte listy v Sheets, kde se čísla vrací naformátovaná přesně tak, jak
@@ -1972,6 +2027,34 @@ function vytvorRadekBanka(p) {
   return radek;
 }
 
+// Sdílený výběr „Přiřadit k dani“ (od v4.6, rozšířeno v4.6.1) - appka ho
+// nabízí u odchozích I příchozích plateb (vrácení přeplatku DPH/daně od
+// finančního úřadu přijde jako kladná platba), proto jedna sdílená funkce
+// místo dvou skoro identických kopií kódu ve výdajové i příjmové větvi
+// vytvorDetailBanka. Appka NEROZPOZNÁVÁ přiřazení automaticky podle
+// protistrany/textu - jen eviduje ruční volbu účetní.
+function vytvorVyberPriradKDani(p, ulozZmenuBanka, tlacitkoBanka) {
+  const fragment = document.createDocumentFragment();
+  const vyberTypDane = document.createElement('select');
+  vyberTypDane.style.fontSize = '13px';
+  vyberTypDane.innerHTML =
+    '<option value="">— přiřadit k dani —</option>' +
+    '<option value="DPH">DPH</option>' +
+    '<option value="Dan_z_prijmu">Daň z příjmu</option>' +
+    '<option value="Dan_z_nemovitosti">Daň z nemovitostí</option>';
+  fragment.appendChild(vyberTypDane);
+  fragment.appendChild(
+    tlacitkoBanka('Přiřadit k dani', (e) => {
+      if (!vyberTypDane.value) {
+        alert('Nejdřív vyberte typ daně.');
+        return;
+      }
+      ulozZmenuBanka({ Typ_dane: vyberTypDane.value, Stav_parovani: 'Daňová platba', Doklad_ID: '' }, e.target);
+    })
+  );
+  return fragment;
+}
+
 function vytvorDetailBanka(p) {
   const wrap = document.createElement('div');
 
@@ -2226,6 +2309,12 @@ function vytvorDetailBanka(p) {
       );
     }
 
+    // Od v4.6.1 - vrácení přeplatku daně/DPH od finančního úřadu přijde na
+    // účet jako KLADNÁ platba, appka proto nabízí „Přiřadit k dani“ i tady
+    // na příjmové straně, ne jen u odchozích plateb (viz stejná akce níže
+    // ve výdajové větvi).
+    akce.appendChild(vytvorVyberPriradKDani(p, ulozZmenuBanka, tlacitkoBanka));
+
     if (p.Stav_parovani !== 'Bez dokladu') {
       akce.appendChild(
         tlacitkoBanka('Označit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu' }, e.target))
@@ -2353,26 +2442,11 @@ function vytvorDetailBanka(p) {
       akce.appendChild(infoZadneSmlouvy);
     }
 
-    // Od v4.6 - ruční přiřazení k dani (viz claude/nomis-faktury-backlog.md,
-    // položka 9) - appka NEROZPOZNÁVÁ automaticky podle protistrany/textu
-    // (na rozdíl od dokladů/trvalých příkazů výš), jen eviduje skutečně
-    // zaplacenou částku podle toho, co účetní ručně vybere.
-    const vyberTypDane = document.createElement('select');
-    vyberTypDane.style.fontSize = '13px';
-    vyberTypDane.innerHTML =
-      '<option value="">— přiřadit k dani —</option>' +
-      '<option value="Dan_z_prijmu">Daň z příjmu</option>' +
-      '<option value="Dan_z_nemovitosti">Daň z nemovitostí</option>';
-    akce.appendChild(vyberTypDane);
-    akce.appendChild(
-      tlacitkoBanka('Přiřadit k dani', (e) => {
-        if (!vyberTypDane.value) {
-          alert('Nejdřív vyberte typ daně.');
-          return;
-        }
-        ulozZmenuBanka({ Typ_dane: vyberTypDane.value, Stav_parovani: 'Daňová platba', Doklad_ID: '' }, e.target);
-      })
-    );
+    // Od v4.6 (rozšířeno v4.6.1 o DPH) - ruční přiřazení k dani - appka
+    // NEROZPOZNÁVÁ automaticky podle protistrany/textu (na rozdíl od
+    // dokladů/trvalých příkazů výš), jen eviduje skutečně zaplacenou/
+    // vrácenou částku podle toho, co účetní ručně vybere.
+    akce.appendChild(vytvorVyberPriradKDani(p, ulozZmenuBanka, tlacitkoBanka));
 
     if (p.Stav_parovani !== 'Bez dokladu') {
       akce.appendChild(

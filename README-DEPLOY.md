@@ -1769,6 +1769,64 @@ neexistují) - dřívější `test_dashboard_castka.js`/
 odstranila (testovaly zrušenou funkci), `ui_test_dashboard_zalozka.js`
 upravena na nový popisek „Daňový přehled“ v navigaci.
 
+## 45. Oprava „Přiřadit k dani“ (DPH + kladné částky) a Daňový přehled jako tabulka (v4.6.1)
+
+Hned po nasazení v4.6 Jan nahlásil mezeru: „jak přiřadím platbu DPH z
+výpisů? jen napiš“ - appka totiž u „Přiřadit k dani“ nabízela jen Daň z
+příjmu/Daň z nemovitostí (žádné DPH) a jen u ODCHOZÍCH plateb, takže
+vrácení přeplatku DPH/daně od finančního úřadu (které na účet přijde jako
+KLADNÁ platba) neměla appka kam zařadit. Následně Jan zadal přesné
+zadání: „opravit přiřadit k dani - může být i kladná hodnota, vrácení
+DPH, pak daňový přehled udělat jako tabulku, ve sloupcích druhy daně a
+jejich měsíční nebo roční bilance pro jednotlivé firmy, u plátce DPH i
+DPH“ a na dotaz upřesnil, že „rok“ appka MÁ VŽDY počítat jako kalendářní
+rok (leden - prosinec, daňové období) - výslovně odlišné od záložky
+Dashboard, která záměrně používá klouzavé 12měsíční okno pro jiný účel
+(rychlý provozní přehled, ne daňové přiznání) - appka tenhle rozdíl nikde
+nesmí zaměnit.
+
+Změny:
+
+- `lib/bankSchema.js`: `Typ_dane` rozšířeno o hodnotu `"DPH"` (dřív jen
+  `Dan_z_prijmu`/`Dan_z_nemovitosti`). Appka tenhle sloupec drží ZÁMĚRNĚ
+  odděleně od vypočtené DPH bilance (dvě různá čísla vedle sebe v
+  Daňovém přehledu - kolik appka spočítala z dokladů/faktur vs. kolik
+  reálně prošlo bankou).
+- `public/app.js`: nová sdílená funkce `vytvorVyberPriradKDani()` (výběr
+  typu daně + tlačítko „Přiřadit k dani“) - appka ji nově volá jak ve
+  VÝDAJOVÉ, tak v PŘÍJMOVÉ větvi `vytvorDetailBanka` (dřív existovala jen
+  duplicitně a jen u výdajů). `NAZVY_TYPU_DANE` rozšířeno o `DPH`.
+- `netlify/functions/danovy-prehled.js`: přepsáno tak, aby appka vracela
+  data ROZPADEM PODLE MĚSÍCE i PODLE KALENDÁŘNÍHO ROKU zároveň
+  (`dphBilanceMesicni`/`dphBilanceRocni`/`danovePlatbyMesicni`/
+  `danovePlatbyRocni` + seznamy období `obdobiMesice`/`obdobiRoky`,
+  řazené od nejnovějšího) - appka „rok“ počítá jen jako `Datum.slice(0,4)`
+  (kalendářní rok), nikdy jako klouzavé okno. Appka navíc přestala brát
+  `Math.abs()` u daňových plateb a sčítá je SE ZNAMÉNKEM, ať se vrácený
+  přeplatek (kladná částka) reálně odečte od zaplacené částky (záporná)
+  místo aby se sečetly jako dvě stejně velké platby.
+- `public/index.html`: záložka „Daňový přehled“ přestavěna z jednoduchých
+  seznamů na TABULKU (firmy v řádcích, sloupce Firma / DPH bilance
+  (vypočtená) / DPH banka (zaplaceno/vráceno) / Daň z příjmu (banka) /
+  Daň z nemovitostí (banka)) + přepínač Měsíc/Rok (`.prepinac-sekce`,
+  stejný vzor jako u Doklady/Smlouvy) a `<select>` s konkrétním obdobím.
+- `public/app.js`: `nactiPrehled()`/`vykresliDanovyPrehled()` přepsané pro
+  novou tabulku - appka drží poslední načtená data + zvolený typ období v
+  modulové proměnné, ať přepnutí Měsíc/Rok nebo výběr konkrétního období
+  nemusí pokaždé volat API znovu.
+- Žádná nová CSS třída nebyla potřeba (appka recyklovala obecné
+  `table`/`th`/`td` styly a existující `.prepinac-sekce` segmentovaný
+  přepínač).
+
+Ověřeno plnou regresí (backendové i UI testy) + přepsanými testy
+`test_danovy_prehled.js` (nový tvar odpovědi, součet SE ZNAMÉNKEM,
+kalendářní rok správně sečte měsíce napříč rokem) a
+`ui_test_danovy_prehled.js` (nová tabulka, přepínač Měsíc/Rok, výběr
+konkrétního období) + novým testem `ui_test_banka_priradit_k_dani.js`
+(volba DPH nabízená u výdajové I příjmové platby, PATCH pošle správné
+`Typ_dane`/`Stav_parovani` v obou směrech, detail „Daňová platba“ ukazuje
+typ a nabízí zrušení).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
