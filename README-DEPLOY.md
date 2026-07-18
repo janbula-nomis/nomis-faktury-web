@@ -1660,6 +1660,29 @@ otevřené otázky, než začala implementovat):
   podbarvení řádku, žádný vodorovný scroll u Smluv). Plná regrese: 40
   backendových + 20 UI testů, žádná regrese.
 
+## 43. Vizuální odlišení záložky „Nahrát doklady“ červeným pozadím (v4.5)
+
+Jan: „ještě chci odlišit aby nahrát doklad bylo červené pozadí.“ Čistě
+kosmetická úprava hlavní navigace, žádná změna funkce/dat:
+
+- Tlačítko `data-zalozka="nahrat"` v `<nav class="zalozky">` má teď
+  vždy (aktivní i neaktivní stav) červené pozadí (`var(--barva-chyba)`,
+  stejná proměnná jako u existujících chybových/upozorňovacích stavů v
+  appce, jen zde bez negativního významu - Jan chtěl červenou čistě jako
+  vizuální odlišení první/hlavní záložky). Aktivní stav appka ztmavila
+  (`#b32a23`, v tmavém režimu `#c94f47`), ať je i po červeném pozadí
+  poznat, že je záložka zrovna otevřená.
+- `public/style.css`: nové selektory `nav.zalozky button[data-zalozka="nahrat"]`
+  (+ `:hover`/`.aktivni`) v běžném i tmavém režimu. Ostatní záložky v
+  navigaci beze změny.
+- Čistě frontendová CSS změna - žádný nový sloupec v Sheets, není potřeba
+  `/api/setup`.
+- Ověřeno jednorázovým vizuálním Playwright skriptem (screenshoty navigace
+  ve světlém i tmavém režimu, potvrzeno červené pozadí i čitelnost
+  bílého textu) + plnou regresí (40 backendových + 20 UI testů, žádná
+  regrese - žádný existující test netestuje barvu pozadí navigačních
+  tlačítek, jen jejich text/chování).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
