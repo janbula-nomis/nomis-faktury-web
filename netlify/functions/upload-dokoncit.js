@@ -167,6 +167,8 @@ exports.handler = async (event) => {
       Kategorie: (historickaShoda && historickaShoda.kategorie) || extrakce.kategorie || '',
       Stredisko: (historickaShoda && historickaShoda.stredisko) || extrakce.stredisko_odhad || '',
       SPZ_auta: extrakce.spz_auta || '',
+      Mnozstvi_litru: extrakce.mnozstvi_litru || '',
+      Druh_paliva: extrakce.druh_paliva || '',
       Stav: duplicita ? 'Možná duplicita' : 'Ke kontrole',
       Poznamka:
         extrakce.poznamka_ai ||
@@ -230,6 +232,8 @@ exports.handler = async (event) => {
         Kategorie: (historickaShodaDalsi && historickaShodaDalsi.kategorie) || dalsi.kategorie || '',
         Stredisko: (historickaShodaDalsi && historickaShodaDalsi.stredisko) || dalsi.stredisko_odhad || '',
         SPZ_auta: dalsi.spz_auta || '',
+        Mnozstvi_litru: dalsi.mnozstvi_litru || '',
+        Druh_paliva: dalsi.druh_paliva || '',
         Stav: duplicitaDalsi ? 'Možná duplicita' : 'Ke kontrole',
         Poznamka: poznamkaFragmenty.join(' '),
         Nahral_uzivatel: aktualizovany.Nahral_uzivatel,

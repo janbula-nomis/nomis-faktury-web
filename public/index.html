@@ -47,6 +47,7 @@
       <button data-zalozka="doklady">Přijaté faktury</button>
       <button data-zalozka="vydane-faktury">Vydané faktury</button>
       <button data-zalozka="prehled">Daňový přehled</button>
+      <button data-zalozka="kniha-jizd" id="nav-kniha-jizd">Kniha jízd</button>
       <button data-zalozka="banka" id="nav-banka" class="skryto">Bankovní výpisy</button>
       <button data-zalozka="smlouvy" id="nav-smlouvy" class="skryto">Registr smluv</button>
       <button data-zalozka="export" id="nav-export" class="skryto">Export</button>
@@ -117,6 +118,75 @@
               </tr>
             </thead>
             <tbody id="prehled-tabulka-telo"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- KNIHA JÍZD (backlog, položka 16) -->
+    <div id="zalozka-kniha-jizd" class="karta skryto">
+      <h2>Kniha jízd</h2>
+      <p class="popis">Evidence jízd podle auta - ruční zadání jízdy níž, tankování (litry/druh paliva) appka
+        vytěží automaticky z dokladů s kategorií „Palivo“ (viz záložka Přijaté faktury). Souhrn ukazuje ujeté
+        km, natankované litry a průměrnou spotřebu podle auta a měsíce/roku. Import CSV uložených cest zatím
+        appka neumí - čeká na ukázkový soubor od Jana.</p>
+
+      <details class="panel-skladaci" style="margin-top:16px">
+        <summary>Přidat jízdu ručně</summary>
+        <label for="nova-kj-firma">Firma</label>
+        <select id="nova-kj-firma"></select>
+        <label for="nova-kj-auto">Auto</label>
+        <select id="nova-kj-auto"></select>
+        <label for="nova-kj-ridic">Řidič (nepovinné)</label>
+        <input type="text" id="nova-kj-ridic" />
+        <label for="nova-kj-datum">Datum</label>
+        <input type="date" id="nova-kj-datum" />
+        <label for="nova-kj-ucel">Odkud/kam nebo účel cesty (nepovinné)</label>
+        <input type="text" id="nova-kj-ucel" placeholder="např. Praha - Brno, obchodní jednání" />
+        <label for="nova-kj-km">Ujeté km (nepovinné, pokud zadáte tachometr níž)</label>
+        <input type="number" id="nova-kj-km" step="1" />
+        <label for="nova-kj-tachometr-od">Tachometr - počáteční stav (nepovinné)</label>
+        <input type="number" id="nova-kj-tachometr-od" step="1" />
+        <label for="nova-kj-tachometr-do">Tachometr - koncový stav (nepovinné)</label>
+        <input type="number" id="nova-kj-tachometr-do" step="1" />
+        <label for="nova-kj-poznamka">Poznámka</label>
+        <input type="text" id="nova-kj-poznamka" />
+        <button id="tlacitko-pridat-jizdu">Přidat jízdu</button>
+        <div id="kniha-jizd-zprava"></div>
+      </details>
+
+      <div class="prepinac-sekce" style="margin-top:16px">
+        <button type="button" id="kj-sekce-jizdy" class="prepinac-sekce-tlacitko aktivni" data-sekce="jizdy">Jízdy</button>
+        <button type="button" id="kj-sekce-souhrn" class="prepinac-sekce-tlacitko" data-sekce="souhrn">Souhrn podle auta</button>
+      </div>
+
+      <div id="kj-obsah-jizdy">
+        <div id="kniha-jizd-nacitani" class="nacitani" style="margin-top:12px">Načítám…</div>
+        <div class="kj-radek-hlavicka popis">
+          <span></span>
+          <span>Datum</span>
+          <span>Auto</span>
+          <span>Odkud/kam, účel</span>
+          <span class="castka">Ujeté km</span>
+          <span>Řidič</span>
+        </div>
+        <div id="kniha-jizd-seznam"></div>
+      </div>
+
+      <div id="kj-obsah-souhrn" class="skryto">
+        <label for="kj-souhrn-vyber-rok" class="popis" style="display:inline-block;margin:12px 10px 6px 0">Rok:</label>
+        <select id="kj-souhrn-vyber-rok" style="max-width:120px"></select>
+        <div id="kj-souhrn-tabulka-obal" style="margin-top:10px;overflow-x:auto">
+          <table id="kj-souhrn-tabulka">
+            <thead>
+              <tr>
+                <th>Auto</th>
+                <th>Ujeté km</th>
+                <th>Natankováno litrů</th>
+                <th>Průměrná spotřeba (l/100 km)</th>
+              </tr>
+            </thead>
+            <tbody id="kj-souhrn-tabulka-telo"></tbody>
           </table>
         </div>
       </div>

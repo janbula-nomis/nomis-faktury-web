@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.6.2 – 2026-07-18';
+const APP_VERZE = 'v4.7 – 2026-07-19';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -167,7 +167,7 @@ function zobrazApp() {
 }
 
 function prepniZalozku(nazev) {
-  ['nahrat', 'dashboard', 'doklady', 'vydane-faktury', 'prehled', 'banka', 'smlouvy', 'export', 'nastaveni'].forEach((n) => {
+  ['nahrat', 'dashboard', 'doklady', 'vydane-faktury', 'prehled', 'kniha-jizd', 'banka', 'smlouvy', 'export', 'nastaveni'].forEach((n) => {
     document.getElementById('zalozka-' + n).classList.toggle('skryto', n !== nazev);
   });
   document.querySelectorAll('nav.zalozky button').forEach((btn) => {
@@ -177,6 +177,7 @@ function prepniZalozku(nazev) {
   if (nazev === 'doklady') nactiDoklady();
   if (nazev === 'prehled') nactiPrehled();
   if (nazev === 'vydane-faktury') inicializujZalozkuVydaneFaktury();
+  if (nazev === 'kniha-jizd') nactiKnihaJizd();
   if (nazev === 'banka') inicializujZalozkuBanka();
   if (nazev === 'smlouvy') nactiSmlouvy();
   if (nazev === 'export') inicializujZalozkuExport();
@@ -528,6 +529,25 @@ function moznostiStrediska(vybrane) {
   return html;
 }
 
+// Kniha jízd (backlog, položka 16) - "Auto" appka schválně nabízí ze
+// STEJNÉHO číselníku jako Středisko (jen položky "Auto - X"), ne ze
+// samostatné entity Auta (SPZ/Model/Firma/Ridic, viz netlify/functions/
+// auta.js) - appka totiž u Dokladů/tankování pozná auto přes Středisko
+// (od v3.8 nemá vlastní SPZ pole), takže spárování jízd s tankováním jde
+// nejjednodušeji přes stejný řetězec, bez překladu mezi dvěma číselníky.
+function moznostiAuta(vybrane) {
+  const auta = MOZNOSTI_STREDISKA.filter((s) => s.startsWith('Auto - '));
+  let html = '<option value="">— vyberte auto —</option>';
+  auta.forEach((a) => {
+    const oznaceno = a === vybrane ? ' selected' : '';
+    html += '<option value="' + escapeAttr(a) + '"' + oznaceno + '>' + escapeHtml(a) + '</option>';
+  });
+  if (vybrane && !auta.includes(vybrane)) {
+    html += '<option value="' + escapeAttr(vybrane) + '" selected>' + escapeHtml(vybrane) + '</option>';
+  }
+  return html;
+}
+
 // Číselník Kategorie (od v3.15) - Kategorie byla dřív obyčejné textové pole
 // (ruční opis, nebo AI odhad), což u součtů v Přehledu snadno vedlo k tomu,
 // že stejný typ nákladu skončil pod víc mírně odlišnými řetězci (např.
@@ -786,6 +806,27 @@ function vytvorDetailDoklad(d) {
   // duplicitní údaj. Sloupec SPZ_auta v Sheets zůstává beze změny kvůli
   // starším záznamům, appka do něj jen nově nezapisuje z týhle záložky.
 
+  // Mnozstvi_litru/Druh_paliva (od backlogu, položka 16) - appka je vytěží
+  // AI odhadem jen u Kategorie "Palivo" (viz lib/gemini.js), tady jde jen o
+  // ruční kontrolu/opravu, stejná konvence jako u DPH výše. Slouží k Knize
+  // jízd (záložka Kniha jízd) - appka podle Střediska (auta) a měsíce
+  // spočítá průměrnou spotřebu.
+  const labelPalivo = document.createElement('label');
+  labelPalivo.textContent = 'Palivo - litry a druh';
+  const vstupLitry = document.createElement('input');
+  vstupLitry.type = 'number';
+  vstupLitry.step = '0.01';
+  vstupLitry.value = d.Mnozstvi_litru !== undefined && d.Mnozstvi_litru !== '' ? parsujCastkuZListu(d.Mnozstvi_litru) : '';
+  vstupLitry.style.marginBottom = '6px';
+  vstupLitry.placeholder = 'litry';
+  const vstupDruhPaliva = document.createElement('input');
+  vstupDruhPaliva.type = 'text';
+  vstupDruhPaliva.value = d.Druh_paliva || '';
+  vstupDruhPaliva.placeholder = 'druh paliva (Nafta/Benzín…)';
+  wrap.appendChild(labelPalivo);
+  wrap.appendChild(vstupLitry);
+  wrap.appendChild(vstupDruhPaliva);
+
   // Doklad zaplacený hotově nebo soukromou kartou nikdy nebude mít
   // protějšek v Bankovních výpisech (tam appka páruje jen odchozí platby
   // z firemního účtu) - tenhle příznak to u dokladu rovnou zviditelní,
@@ -820,6 +861,8 @@ function vytvorDetailDoklad(d) {
       Firma_potvrzena: vstupFirma.value.trim(),
       Kategorie: vstupKategorie.value.trim(),
       Stredisko: vstupStredisko.value.trim(),
+      Mnozstvi_litru: vstupLitry.value,
+      Druh_paliva: vstupDruhPaliva.value.trim(),
       Hrazeno_mimo_ucet: vstupMimoUcet.checked ? 'ANO' : '',
     };
   }
@@ -3770,6 +3813,373 @@ async function smazSmlouvu(id, nazev, tlacitko) {
   }
 }
 
+// ---------- KNIHA JÍZD (backlog, položka 16) ----------
+
+let firmyProVyberKnihaJizd = [];
+let knihaJizdSekce = 'jizdy';
+let knihaJizdSouhrnData = null;
+
+async function nactiKnihaJizd() {
+  const nacitani = document.getElementById('kniha-jizd-nacitani');
+  const kontejner = document.getElementById('kniha-jizd-seznam');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+  kontejner.innerHTML = '';
+
+  try {
+    const [dataJizdy, dataFirmy] = await Promise.all([
+      zavolejApi('/kniha-jizd', { method: 'GET' }),
+      zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+    ]);
+    firmyProVyberKnihaJizd = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
+    vyplnVyberFirem('nova-kj-firma', firmyProVyberKnihaJizd);
+    if (!document.getElementById('nova-kj-auto').dataset.naplneno) {
+      document.getElementById('nova-kj-auto').innerHTML = moznostiAuta('');
+      document.getElementById('nova-kj-auto').dataset.naplneno = '1';
+    }
+    nacitani.classList.add('skryto');
+    vykresliKnihaJizd(dataJizdy.jizdy || []);
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst Knihu jízd: ' + e.message;
+  }
+
+  if (knihaJizdSekce === 'souhrn') nactiKnihaJizdSouhrn();
+}
+
+function prepniKnihaJizdSekci(sekce) {
+  knihaJizdSekce = sekce;
+  document.getElementById('kj-sekce-jizdy').classList.toggle('aktivni', sekce === 'jizdy');
+  document.getElementById('kj-sekce-souhrn').classList.toggle('aktivni', sekce === 'souhrn');
+  document.getElementById('kj-obsah-jizdy').classList.toggle('skryto', sekce !== 'jizdy');
+  document.getElementById('kj-obsah-souhrn').classList.toggle('skryto', sekce !== 'souhrn');
+  if (sekce === 'souhrn' && !knihaJizdSouhrnData) nactiKnihaJizdSouhrn();
+}
+
+function vykresliKnihaJizd(jizdy) {
+  const kontejner = document.getElementById('kniha-jizd-seznam');
+  const serazene = jizdy.slice().sort((a, b) => (b.Datum || '').localeCompare(a.Datum || ''));
+
+  kontejner.innerHTML = '';
+  serazene.forEach((j) => kontejner.appendChild(vytvorRadekJizda(j)));
+
+  if (serazene.length === 0) {
+    kontejner.innerHTML = '<div class="nacitani">Zatím žádné jízdy - přidejte první ručně výš, nebo počkejte na import CSV (zatím nedostupný).</div>';
+  }
+}
+
+// Skládací řádek Kniha jízd - stejný vzor jako vytvorRadekSmlouva výš, appka
+// vykresluje VŠECHNY gridové sloupce vždy (i prázdné), ať zůstane zarovnané.
+function vytvorRadekJizda(j) {
+  const radek = document.createElement('div');
+  radek.className = 'kj-radek';
+
+  const hlava = document.createElement('div');
+  hlava.className = 'kj-radek-hlava';
+  hlava.innerHTML =
+    '<span class="kj-sipka">▶</span>' +
+    '<span>' + escapeHtml(j.Datum || '') + '</span>' +
+    '<span>' + escapeHtml(j.Auto || '') + '</span>' +
+    '<span class="popis">' + escapeHtml(j.Ucel_cesty || '') + '</span>' +
+    '<span class="castka">' + escapeHtml(j.Ujete_km !== undefined && j.Ujete_km !== '' ? String(j.Ujete_km) + ' km' : '') + '</span>' +
+    '<span>' + escapeHtml(j.Ridic || '') + '</span>';
+
+  const detail = document.createElement('div');
+  detail.className = 'kj-radek-detail';
+
+  hlava.addEventListener('click', () => {
+    radek.classList.toggle('rozbaleno');
+    if (radek.classList.contains('rozbaleno') && !radek.dataset.naplneno) {
+      radek.dataset.naplneno = '1';
+      detail.appendChild(vytvorDetailJizda(j));
+    }
+  });
+
+  radek.appendChild(hlava);
+  radek.appendChild(detail);
+  return radek;
+}
+
+function vytvorDetailJizda(j) {
+  const wrap = document.createElement('div');
+  wrap.className = 'radek-detail-obsah';
+
+  const labelFirma = document.createElement('label');
+  labelFirma.textContent = 'Firma';
+  const vstupFirma = document.createElement('select');
+  vstupFirma.innerHTML = moznostiFirmySeznam(firmyProVyberKnihaJizd, j.Firma || '');
+  wrap.appendChild(labelFirma);
+  wrap.appendChild(vstupFirma);
+
+  const labelAuto = document.createElement('label');
+  labelAuto.textContent = 'Auto';
+  const vstupAuto = document.createElement('select');
+  vstupAuto.innerHTML = moznostiAuta(j.Auto || '');
+  wrap.appendChild(labelAuto);
+  wrap.appendChild(vstupAuto);
+
+  const labelRidic = document.createElement('label');
+  labelRidic.textContent = 'Řidič';
+  const vstupRidic = document.createElement('input');
+  vstupRidic.type = 'text';
+  vstupRidic.value = j.Ridic || '';
+  wrap.appendChild(labelRidic);
+  wrap.appendChild(vstupRidic);
+
+  const labelDatum = document.createElement('label');
+  labelDatum.textContent = 'Datum';
+  const vstupDatum = document.createElement('input');
+  vstupDatum.type = 'date';
+  vstupDatum.value = j.Datum || '';
+  wrap.appendChild(labelDatum);
+  wrap.appendChild(vstupDatum);
+
+  const labelUcel = document.createElement('label');
+  labelUcel.textContent = 'Odkud/kam nebo účel cesty';
+  const vstupUcel = document.createElement('input');
+  vstupUcel.type = 'text';
+  vstupUcel.value = j.Ucel_cesty || '';
+  wrap.appendChild(labelUcel);
+  wrap.appendChild(vstupUcel);
+
+  const labelKm = document.createElement('label');
+  labelKm.textContent = 'Ujeté km';
+  const vstupKm = document.createElement('input');
+  vstupKm.type = 'number';
+  vstupKm.step = '1';
+  vstupKm.value = j.Ujete_km !== undefined && j.Ujete_km !== '' ? j.Ujete_km : '';
+  wrap.appendChild(labelKm);
+  wrap.appendChild(vstupKm);
+
+  const labelTachOd = document.createElement('label');
+  labelTachOd.textContent = 'Tachometr - počáteční stav';
+  const vstupTachOd = document.createElement('input');
+  vstupTachOd.type = 'number';
+  vstupTachOd.step = '1';
+  vstupTachOd.value = j.Pocatecni_tachometr !== undefined && j.Pocatecni_tachometr !== '' ? j.Pocatecni_tachometr : '';
+  wrap.appendChild(labelTachOd);
+  wrap.appendChild(vstupTachOd);
+
+  const labelTachDo = document.createElement('label');
+  labelTachDo.textContent = 'Tachometr - koncový stav';
+  const vstupTachDo = document.createElement('input');
+  vstupTachDo.type = 'number';
+  vstupTachDo.step = '1';
+  vstupTachDo.value = j.Konecny_tachometr !== undefined && j.Konecny_tachometr !== '' ? j.Konecny_tachometr : '';
+  wrap.appendChild(labelTachDo);
+  wrap.appendChild(vstupTachDo);
+
+  const labelPoznamka = document.createElement('label');
+  labelPoznamka.textContent = 'Poznámka';
+  const vstupPoznamka = document.createElement('input');
+  vstupPoznamka.type = 'text';
+  vstupPoznamka.value = j.Poznamka || '';
+  wrap.appendChild(labelPoznamka);
+  wrap.appendChild(vstupPoznamka);
+
+  if (j.Zdroj) {
+    const zdrojDiv = document.createElement('div');
+    zdrojDiv.className = 'popis';
+    zdrojDiv.style.marginTop = '6px';
+    zdrojDiv.textContent = 'Zdroj: ' + j.Zdroj;
+    wrap.appendChild(zdrojDiv);
+  }
+
+  function ziskejZmeny() {
+    return {
+      Firma: vstupFirma.value.trim(),
+      Auto: vstupAuto.value.trim(),
+      Ridic: vstupRidic.value.trim(),
+      Datum: vstupDatum.value,
+      Ucel_cesty: vstupUcel.value.trim(),
+      Ujete_km: vstupKm.value,
+      Pocatecni_tachometr: vstupTachOd.value,
+      Konecny_tachometr: vstupTachDo.value,
+      Poznamka: vstupPoznamka.value.trim(),
+    };
+  }
+
+  const akce = document.createElement('div');
+  akce.className = 'radek-akci';
+
+  const tlacitkoUlozit = document.createElement('button');
+  tlacitkoUlozit.className = 'maly sekundarni';
+  tlacitkoUlozit.textContent = 'Uložit';
+  tlacitkoUlozit.onclick = () => ulozJizdu(j.ID, ziskejZmeny(), tlacitkoUlozit);
+  akce.appendChild(tlacitkoUlozit);
+
+  const tlacitkoSmazat = document.createElement('button');
+  tlacitkoSmazat.className = 'maly sekundarni';
+  tlacitkoSmazat.textContent = 'Smazat';
+  tlacitkoSmazat.onclick = () => smazJizdu(j.ID, tlacitkoSmazat);
+  akce.appendChild(tlacitkoSmazat);
+
+  wrap.appendChild(akce);
+  return wrap;
+}
+
+async function pridatJizdu() {
+  const zprava = document.getElementById('kniha-jizd-zprava');
+  zprava.innerHTML = '';
+
+  const firma = document.getElementById('nova-kj-firma').value;
+  const auto = document.getElementById('nova-kj-auto').value;
+  const datum = document.getElementById('nova-kj-datum').value;
+  if (!firma) {
+    zprava.innerHTML = '<div class="zprava chyba">Vyberte firmu.</div>';
+    return;
+  }
+  if (!auto) {
+    zprava.innerHTML = '<div class="zprava chyba">Vyberte auto.</div>';
+    return;
+  }
+  if (!datum) {
+    zprava.innerHTML = '<div class="zprava chyba">Datum jízdy je povinné.</div>';
+    return;
+  }
+
+  try {
+    await zavolejApi('/kniha-jizd', {
+      method: 'POST',
+      body: JSON.stringify({
+        Firma: firma,
+        Auto: auto,
+        Ridic: document.getElementById('nova-kj-ridic').value.trim(),
+        Datum: datum,
+        Ucel_cesty: document.getElementById('nova-kj-ucel').value.trim(),
+        Ujete_km: document.getElementById('nova-kj-km').value,
+        Pocatecni_tachometr: document.getElementById('nova-kj-tachometr-od').value,
+        Konecny_tachometr: document.getElementById('nova-kj-tachometr-do').value,
+        Poznamka: document.getElementById('nova-kj-poznamka').value.trim(),
+      }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Jízda přidána.</div>';
+    document.getElementById('nova-kj-ridic').value = '';
+    document.getElementById('nova-kj-datum').value = '';
+    document.getElementById('nova-kj-ucel').value = '';
+    document.getElementById('nova-kj-km').value = '';
+    document.getElementById('nova-kj-tachometr-od').value = '';
+    document.getElementById('nova-kj-tachometr-do').value = '';
+    document.getElementById('nova-kj-poznamka').value = '';
+    await nactiKnihaJizd();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function ulozJizdu(id, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/kniha-jizd', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
+    await nactiKnihaJizd();
+  } catch (e) {
+    alert('Nepodařilo se uložit jízdu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazJizdu(id, tlacitko) {
+  if (!confirm('Opravdu smazat tuhle jízdu?')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/kniha-jizd?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    await nactiKnihaJizd();
+  } catch (e) {
+    alert('Nepodařilo se smazat jízdu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+// Souhrn podle auta (km/litry/spotřeba) - appka nabízí jen výběr
+// KALENDÁŘNÍHO roku a po rozkliknutí auta rozbalí všech 12 měsíců, stejný
+// vzor jako Daňový přehled (vykresliDanovyPrehled výš).
+async function nactiKnihaJizdSouhrn() {
+  try {
+    knihaJizdSouhrnData = await zavolejApi('/kniha-jizd-prehled', { method: 'GET' });
+    naplnRokyDoVyberuKnihaJizd();
+    vykresliKnihaJizdSouhrn();
+  } catch (e) {
+    document.getElementById('kj-souhrn-tabulka-telo').innerHTML =
+      '<tr><td colspan="4" class="popis">Nepodařilo se načíst souhrn: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+function naplnRokyDoVyberuKnihaJizd() {
+  const vyberRok = document.getElementById('kj-souhrn-vyber-rok');
+  const roky = (knihaJizdSouhrnData && knihaJizdSouhrnData.obdobiRoky) || [];
+  if (roky.length === 0) {
+    vyberRok.innerHTML = '<option value="">— žádná data —</option>';
+    return;
+  }
+  vyberRok.innerHTML = roky.map((r) => '<option value="' + escapeAttr(r) + '">' + escapeHtml(r) + '</option>').join('');
+  const aktualniRok = String(new Date().getFullYear());
+  if (roky.includes(aktualniRok)) vyberRok.value = aktualniRok;
+}
+document.getElementById('kj-souhrn-vyber-rok').addEventListener('change', () => vykresliKnihaJizdSouhrn());
+
+function vykresliKnihaJizdSouhrn() {
+  const data = knihaJizdSouhrnData;
+  if (!data) return;
+
+  const rok = document.getElementById('kj-souhrn-vyber-rok').value;
+  const telo = document.getElementById('kj-souhrn-tabulka-telo');
+  telo.innerHTML = '';
+
+  if (!rok) {
+    telo.innerHTML = '<tr><td colspan="4" class="popis">Zatím žádná data ke Knize jízd.</td></tr>';
+    return;
+  }
+
+  const souhrnRokAuta = (data.souhrnRocni || {})[rok] || {};
+  const autaKZobrazeni = Object.keys(souhrnRokAuta).sort();
+
+  if (autaKZobrazeni.length === 0) {
+    telo.innerHTML = '<tr><td colspan="4" class="popis">Za vybraný rok appka nemá žádná data (ani jízdy, ani tankování).</td></tr>';
+    return;
+  }
+
+  function bunkyRadku(prvniSloupecHtml, souhrn) {
+    const km = souhrn ? souhrn.km : 0;
+    const litry = souhrn ? souhrn.litry : 0;
+    const spotreba = souhrn && souhrn.prumSpotreba !== null && souhrn.prumSpotreba !== undefined
+      ? souhrn.prumSpotreba + ' l/100 km'
+      : '<span class="popis">—</span>';
+    return (
+      '<td>' + prvniSloupecHtml + '</td>' +
+      '<td>' + km + ' km</td>' +
+      '<td>' + litry + ' l</td>' +
+      '<td>' + spotreba + '</td>'
+    );
+  }
+
+  autaKZobrazeni.forEach((auto) => {
+    const trRok = document.createElement('tr');
+    trRok.className = 'prehled-radek-rok';
+    trRok.innerHTML = bunkyRadku(
+      '<span class="prehled-sipka">▶</span><strong>' + escapeHtml(auto) + '</strong>',
+      souhrnRokAuta[auto]
+    );
+    telo.appendChild(trRok);
+
+    const radkyMesicu = [];
+    for (let mesic = 1; mesic <= 12; mesic++) {
+      const klicMesice = rok + '-' + String(mesic).padStart(2, '0');
+      const souhrnMesic = ((data.souhrnMesicni || {})[klicMesice] || {})[auto];
+
+      const trMesic = document.createElement('tr');
+      trMesic.className = 'prehled-radek-mesic skryto';
+      trMesic.innerHTML = bunkyRadku('<span class="prehled-mesic-label">' + escapeHtml(klicMesice) + '</span>', souhrnMesic);
+      telo.appendChild(trMesic);
+      radkyMesicu.push(trMesic);
+    }
+
+    trRok.addEventListener('click', () => {
+      const zobrazit = !trRok.classList.contains('rozbaleno');
+      trRok.classList.toggle('rozbaleno', zobrazit);
+      radkyMesicu.forEach((trMesic) => trMesic.classList.toggle('skryto', !zobrazit));
+    });
+  });
+}
+
 // ---------- POMOCNÉ ----------
 
 function escapeHtml(text) {
@@ -3808,6 +4218,9 @@ document.getElementById('sm-pole-soubor').addEventListener('change', (e) => zpra
 document.getElementById('sm-tlacitko-nahrat').addEventListener('click', nahratSmlouvu);
 document.getElementById('sm-sekce-aktivni').addEventListener('click', () => prepniSmlouvySekci('aktivni'));
 document.getElementById('sm-sekce-neaktivni').addEventListener('click', () => prepniSmlouvySekci('neaktivni'));
+document.getElementById('tlacitko-pridat-jizdu').addEventListener('click', pridatJizdu);
+document.getElementById('kj-sekce-jizdy').addEventListener('click', () => prepniKnihaJizdSekci('jizdy'));
+document.getElementById('kj-sekce-souhrn').addEventListener('click', () => prepniKnihaJizdSekci('souhrn'));
 document.getElementById('tlacitko-pripojit-google').addEventListener('click', () => {
   if (!stav || !stav.token) return;
   window.open('/.netlify/functions/google-oauth-start?token=' + encodeURIComponent(stav.token), '_blank');

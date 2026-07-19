@@ -262,6 +262,28 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .vf-radek.radek-vf-zpracovava { background: #f0f3ff; border-left: 3px solid var(--barva-primarni); }
 .vf-radek.radek-vf-castecne { background: #eaf3ff; border-left: 3px solid var(--barva-primarni); }
 
+/* Kniha jízd (backlog, položka 16) - stejný skládací vzor a stejný
+   6sloupcový grid jako Smlouvy výše (šipka/Datum/Auto/Odkud-kam/Ujeté km/
+   Řidič), ať se vejde na obrazovku bez vodorovného scrollu. */
+.kj-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
+.kj-radek-hlava, .kj-radek-hlavicka {
+  display: grid;
+  grid-template-columns: 16px 95px minmax(120px, 1fr) minmax(140px, 1.3fr) 90px 110px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.kj-radek-hlava { padding: 8px 10px; cursor: pointer; }
+.kj-radek-hlava > span, .kj-radek-hlavicka > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.kj-radek-hlavicka { padding: 0 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
+.kj-radek-hlava:hover { filter: brightness(0.97); }
+.kj-radek-hlava .castka { text-align: right; }
+.kj-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.kj-radek.rozbaleno .kj-radek-detail { display: block; }
+.kj-radek.rozbaleno .kj-sipka { transform: rotate(90deg); }
+.kj-sipka { display: inline-block; transition: transform 0.15s; }
+.kj-radek-detail .radek-akci { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+
 .mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .polozka-souhrn { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 13px; }
 .polozka-souhrn:last-child { border-bottom: none; }
@@ -289,12 +311,91 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 
 input[type="file"] { margin-top: 8px; }
 
+/* ---------- RESPONZIVITA / MOBIL (backlog, položka 17) ----------
+   Appka do v4.6.2 řešila responzivitu jen bodově (skládací řádky od v3.7,
+   jeden úzký breakpoint na tabulky níž) - tenhle blok appka prochází
+   SYSTEMATICKY napříč celou appkou (Jan 2026-07-19: "projdi systematicky
+   úplně všechno"), ne jen jednu vybranou obrazovku. Appka zůstává JEDEN
+   kód/jedna appka (žádná detekce zařízení) - jen se přeskládá podle šířky
+   okna, funguje tedy stejně na mobilu i na zúženém okně na PC. */
+
+/* 640px - tablet na výšku / širší mobil: appka zúží odsazení, zvětší
+   dotykové plochy a zúží mřížky karet (Dashboard/Export/souhrny), ať se
+   nevynucuje sloupec širší, než se na obrazovku vejde. */
+@media (max-width: 640px) {
+  #app { padding: 10px; }
+  .karta { padding: 12px; margin-bottom: 10px; }
+
+  /* Hlavička appky - logo/jméno appka nechá zalomit, ať se na úzkém okně
+     nesplácnou vedle sebe. */
+  .hlavicka-app { flex-wrap: wrap; gap: 8px; }
+  .hlavicka-app .uzivatel { text-align: left; }
+
+  /* Tlačítka hlavní navigace appka zvětší na výšku (snazší dotykový cíl)
+     a nechá je rovnoměrně růst do řádku, ať appka nemá spoustu miniaturních
+     tlačítek vedle sebe. */
+  nav.zalozky { gap: 6px 8px; }
+  nav.zalozky button { padding: 9px 10px; font-size: 12.5px; flex: 1 1 auto; min-height: 38px; }
+
+  /* Karty s auto-fit mřížkou (Export filtry, Dashboard firmy, souhrn
+     Přehledu) appka zúží minimální šířku sloupce, ať se na mobilu vejde
+     i jeden sloupec bez vodorovného přetečení. */
+  .mriz-filtru { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .mriz-souhrn { grid-template-columns: 1fr; }
+  .mriz-dashboard-firmy { grid-template-columns: 1fr; }
+
+  /* Tlačítka nahrání dokladu/smlouvy appka nechá růst přes celou šířku
+     místo vedle sebe s pevným minimem 140px (to na úzkém mobilu přetékalo). */
+  .tlacitka-nahrani { flex-direction: column; }
+  .tlacitka-nahrani button { min-width: 0; width: 100%; }
+
+  /* Dotykové cíle přepínačů (den/noc, sekce Ke schválení/Schválené apod.)
+     appka mírně zvětší, ať se na dotykové obrazovce netrefují vedle. */
+  .prepinac-sekce-tlacitko, .prepinac-ikona, button.maly { min-height: 34px; }
+
+  /* Skládací řádky (Doklady/Smlouvy/Vydané faktury/Kniha jízd/Bankovní
+     výpisy) appka zúží - poslední (nejméně důležitý) sloupec hlavičky i
+     řádku appka na mobilu schová, ať zbylé sloupce nemusí přetékat mimo
+     obrazovku ani se nezmenšují na nečitelnou šířku. Zbytek appka pořád
+     najdete po rozkliknutí řádku (detail appka nijak nemění). */
+  .smlouva-radek-hlava, .smlouva-radek-hlavicka {
+    grid-template-columns: 14px 74px minmax(90px, 1fr) minmax(90px, 1fr) 70px;
+  }
+  .smlouva-radek-hlava > span:nth-child(6), .smlouva-radek-hlavicka > span:nth-child(6) { display: none; }
+
+  .vf-radek-hlava, .vf-radek-hlavicka {
+    grid-template-columns: 14px 60px 80px minmax(90px, 1fr) 80px;
+  }
+  .vf-radek-hlava > span:nth-child(5), .vf-radek-hlavicka > span:nth-child(5) { display: none; }
+
+  .kj-radek-hlava, .kj-radek-hlavicka {
+    grid-template-columns: 14px 74px minmax(90px, 1fr) minmax(90px, 1fr) 70px;
+  }
+  .kj-radek-hlava > span:nth-child(6), .kj-radek-hlavicka > span:nth-child(6) { display: none; }
+
+  /* Doklady/Bankovní výpisy (flex, ne grid) appka nechá dál zalamovat
+     (flex-wrap už mají), jen appka odsazení/velikost trochu utáhne. */
+  .doklad-radek-hlava, .banka-radek-hlava { padding: 8px; gap: 6px; }
+}
+
 @media (max-width: 480px) {
   table, thead, tbody, th, td, tr { display: block; }
   thead { display: none; }
   tr { border-bottom: 2px solid var(--barva-hranice); padding: 8px 0; }
   td { border-bottom: none; padding: 4px 0; }
   td::before { content: attr(data-label) ": "; font-weight: 600; color: var(--barva-text-tlumena); }
+
+  /* Na opravdu úzkém mobilu appka schová i předposlední sloupec skládaných
+     řádků (Částka/Ujeté km), ať zbydou jen 4 nejdůležitější pole vedle
+     sebe - zbytek je vždy dostupný po rozkliknutí. */
+  .smlouva-radek-hlava, .smlouva-radek-hlavicka { grid-template-columns: 14px 70px minmax(80px, 1fr) minmax(80px, 1fr); }
+  .smlouva-radek-hlava > span:nth-child(5), .smlouva-radek-hlavicka > span:nth-child(5) { display: none; }
+
+  .vf-radek-hlava, .vf-radek-hlavicka { grid-template-columns: 14px 60px minmax(80px, 1fr) 70px; }
+  .vf-radek-hlava > span:nth-child(3), .vf-radek-hlavicka > span:nth-child(3) { display: none; }
+
+  .kj-radek-hlava, .kj-radek-hlavicka { grid-template-columns: 14px 66px minmax(80px, 1fr) 70px; }
+  .kj-radek-hlava > span:nth-child(4), .kj-radek-hlavicka > span:nth-child(4) { display: none; }
 }
 
 .patka-verze { text-align: center; font-size: 11px; color: var(--barva-text-tlumena); padding: 14px 0 8px; }

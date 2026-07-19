@@ -1876,6 +1876,41 @@ daty i měsíc bez dat) + jednorázovým vizuálním Playwright skriptem
 (screenshoty login obrazovky, hlavičky appky a rozbaleného přehledu -
 potvrzeno větší logo bez rozbití layoutu a správné zarovnání sloupců).
 
+## 47. Kniha jízd (bez importu CSV) + systematická mobilní responzivita (v4.7)
+
+Jan potvrdil „curl jsem udělal a funguje, spusť obsah backlogu, se vším
+souhlas“ - appka implementovala backlogové položky 16 (Kniha jízd) a 17
+(mobilní responzivita), kromě jedné výslovně identifikované části (viz
+níže).
+
+- **Kniha jízd** - nový list `Kniha_jizd` (jednotlivé jízdy, ruční
+  zadání), nová záložka v appce s formulářem a souhrnem km/litrů/
+  průměrné spotřeby podle měsíce a auta. Doklady s `Kategorie = "Palivo"`
+  appka teď navíc vytěžuje o množství litrů a druh paliva (nová pole
+  `Mnozstvi_litru`/`Druh_paliva`). Auto appka pozná stejným řetězcem jako
+  u Střediska (např. „Auto - Tesla“) - žádné nové pole SPZ.
+  **Import CSV uložených cest appka NEIMPLEMENTOVALA** - appka nemá k
+  dispozici ukázkový soubor, na kterém by šlo navrhnout parser (stejná
+  zásada jako u bankovního CSV importu, v3.6) - záložka Kniha jízd na
+  tohle zatím jen upozorňuje informační poznámkou.
+- **Mobilní responzivita** - appka prošla systematicky celou appku (ne
+  jen jednu záložku) a přidala dva nové CSS breakpointy (640px, 480px) -
+  větší dotykové plochy, jednosloupcová rozvržení mřížek, a postupné
+  schovávání nejméně důležitých sloupců u skládacích řádků (Smlouvy,
+  Vydané faktury, Kniha jízd).
+
+**Po nasazení téhle verze je nutné znovu spustit `/api/setup`** - založí
+nový list `Kniha_jizd` a doplní sloupce `Mnozstvi_litru`/`Druh_paliva` do
+listu `Doklady` (bezpečné, nic nemaže). Bez tohohle kroku appka nová pole
+tiše nezapíše - stejný mechanismus, který dřív způsobil problém s
+chybějícím `Typ_dane` u Daňového přehledu (viz poznámka v
+`nomis-faktury-backlog.md`, položka 9).
+
+Viz `claude/nomis-faktury-architektura.md`, sekce „Novinky v4.7“, pro
+plný technický popis. Ověřeno novým testem `test_kniha_jizd.js` (CRUD,
+přístupová kontrola, souhrn km/litrů/spotřeby bez dělení nulou) a plnou
+regresí 40 backendových testů - žádná regrese.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

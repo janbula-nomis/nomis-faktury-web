@@ -31,6 +31,7 @@ const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { UCTY_HEADERS } = require('../../lib/uctySchema');
 const { SMLOUVY_HEADERS } = require('../../lib/smlouvySchema');
 const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
+const { KNIHA_JIZD_HEADERS } = require('../../lib/knihaJizdSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
 
@@ -76,6 +77,13 @@ const LISTY = [
     // lib/smlouvyPrilohySchema.js).
     nazev: 'Smlouvy_Prilohy',
     hlavicky: SMLOUVY_PRILOHY_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Kniha jízd (od backlogu, položka 16) - jednotlivé jízdy (ruční zadání
+    // nebo budoucí import CSV), viz lib/knihaJizdSchema.js.
+    nazev: 'Kniha_jizd',
+    hlavicky: KNIHA_JIZD_HEADERS,
     ukazka: [],
   },
   { nazev: 'Log', hlavicky: ['Cas', 'Uzivatel', 'Akce', 'Doklad_ID', 'Detail'], ukazka: [] },
