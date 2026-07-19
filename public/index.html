@@ -126,10 +126,9 @@
     <!-- KNIHA JÍZD (backlog, položka 16) -->
     <div id="zalozka-kniha-jizd" class="karta skryto">
       <h2>Kniha jízd</h2>
-      <p class="popis">Evidence jízd podle auta - ruční zadání jízdy níž, tankování (litry/druh paliva) appka
-        vytěží automaticky z dokladů s kategorií „Palivo“ (viz záložka Přijaté faktury). Souhrn ukazuje ujeté
-        km, natankované litry a průměrnou spotřebu podle auta a měsíce/roku. Import CSV uložených cest zatím
-        appka neumí - čeká na ukázkový soubor od Jana.</p>
+      <p class="popis">Evidence jízd podle auta - ruční zadání jízdy nebo import CSV níž, tankování (litry/druh
+        paliva) appka vytěží automaticky z dokladů s kategorií „Palivo“ (viz záložka Přijaté faktury). Souhrn
+        ukazuje ujeté km, natankované litry a průměrnou spotřebu podle auta a měsíce/roku.</p>
 
       <details class="panel-skladaci" style="margin-top:16px">
         <summary>Přidat jízdu ručně</summary>
@@ -153,6 +152,24 @@
         <input type="text" id="nova-kj-poznamka" />
         <button id="tlacitko-pridat-jizdu">Přidat jízdu</button>
         <div id="kniha-jizd-zprava"></div>
+      </details>
+
+      <details class="panel-skladaci" style="margin-top:10px">
+        <summary>Import CSV uložených cest (od v4.8)</summary>
+        <p class="popis">Soubor exportu jízd z auta appka očekává za JEDNO konkrétní auto najednou (appka
+          auto ze souboru sama nepozná) - vyberte firmu a auto, ke kterému export patří, řidiče volitelně
+          (appka ho zapíše ke všem importovaným jízdám stejně). Appka opakovaný import stejného souboru
+          bezpečně přeskočí (žádné duplicity).</p>
+        <label for="kj-import-firma">Firma</label>
+        <select id="kj-import-firma"></select>
+        <label for="kj-import-auto">Auto</label>
+        <select id="kj-import-auto"></select>
+        <label for="kj-import-ridic">Řidič (nepovinné, appka ho zapíše ke všem jízdám ze souboru)</label>
+        <input type="text" id="kj-import-ridic" />
+        <label for="kj-import-soubor">Soubor CSV</label>
+        <input type="file" id="kj-import-soubor" accept=".csv" />
+        <button id="tlacitko-import-jizd">Importovat</button>
+        <div id="kj-import-zprava"></div>
       </details>
 
       <div class="prepinac-sekce" style="margin-top:16px">

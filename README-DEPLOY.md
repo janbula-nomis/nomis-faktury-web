@@ -1911,6 +1911,76 @@ plný technický popis. Ověřeno novým testem `test_kniha_jizd.js` (CRUD,
 přístupová kontrola, souhrn km/litrů/spotřeby bez dělení nulou) a plnou
 regresí 40 backendových testů - žádná regrese.
 
+## 48. Import CSV uložených cest pro Knihu jízd (v4.8)
+
+Jan poslal reálný ukázkový soubor („Trips.csv“, export uložených cest pro
+auto Defender, 300 řádků) - appka podle něj doladila a implementovala
+import, který v backlogové položce 16 zůstal jako jediná nedodělaná část
+v4.7.
+
+- Appka soubor parsuje PODLE PEVNÉ POZICE sloupce (appka ověřila strukturu
+  na celém reálném souboru) - datum/čas odjezdu a příjezdu, adresa a
+  souřadnice odjezdu/příjezdu, trvání, vzdálenost (km), spotřeba dle
+  vlastního výpočtu vozu (l/100 km) a průměrná rychlost. Appka NEPÁRUJE
+  jednotlivou jízdu s konkrétním tankováním (dle rozhodnutí Jana - appka
+  páruje jen agregovaně po měsíci/autě, viz „Novinky v4.7“) - sloupec se
+  spotřebou dle vozu appka jen archivuje do poznámky jízdy pro informaci.
+- Appka export dostává vždy za JEDNO konkrétní auto (soubor auto samo
+  neobsahuje) - appka proto v novém panelu „Import CSV uložených cest“
+  vyžaduje výběr Firmy a Auta (řidiče volitelně, appka ho zapíše ke všem
+  importovaným jízdám stejně).
+- Dedup: appka počítá otisk (hash) z auta + data/času/vzdálenosti jízdy -
+  opakovaný import stejného (nebo částečně překrývajícího se) souboru
+  appka bezpečně přeskočí, žádné duplicity. Nový sloupec `Zdroj_hash` v
+  listu `Kniha_jizd` (appka ho vyplňuje jen u řádků ze CSV importu, ruční
+  zadání ho nechává prázdné).
+- Nové soubory: `lib/knihaJizdImportCest.js` (parser), `netlify/functions/
+  kniha-jizd-import.js` (endpoint), nový panel v záložce Kniha jízd
+  (`public/index.html`/`app.js`).
+
+**Appka po nasazení potřebuje znovu spustit `/api/setup`** - doplní nový
+sloupec `Zdroj_hash` do listu `Kniha_jizd` (bezpečné, nic nemaže). Pokud
+jste `/api/setup` už spustili po v4.7, stačí ho spustit jednou navíc pro
+tenhle nový sloupec - appka je vůči opakovanému spuštění vždy bezpečná.
+
+Viz `claude/nomis-faktury-architektura.md`, sekce „Novinky v4.8“, pro
+plný technický popis. Ověřeno novým testem `test_kniha_jizd_import.js`
+(import reálného 300řádkového souboru, opakovaný import stejného souboru
+nezaloží duplicity, stejný soubor pro jiné auto appka NEpovažuje za
+duplicitu, chybějící auto appka odmítne) a plnou regresí 41 backendových
+testů - žádná regrese.
+
+## 49. Zarovnání tlačítek hlavní navigace do pravidelné mřížky (v4.9)
+
+Jan si na hlavní navigaci (10 záložek nahoře) všiml, že tlačítka vypadají
+"rozhazená" - potvrdil, že jde o hlavní navigaci nahoře, a z nabídnutých
+variant zvolil "Stejně široká tlačítka". Čistě kosmetická úprava, žádná
+změna funkce/dat.
+
+- **Příčina**: `nav.zalozky` používala `display: flex; flex-wrap: wrap`
+  se šířkou tlačítka podle vlastního textu - u 10 záložek s hodně různě
+  dlouhými popisky ("Dashboard" vs. "Bankovní výpisy") se řádky lomily
+  nepravidelně a poslední řádek často měl jen 1-2 užší tlačítka jinam
+  zarovnaná než zbytek.
+- **Oprava** (`public/style.css`): `nav.zalozky` appka přepnula na
+  `display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,
+  1fr))` - všechna tlačítka mají teď stejnou šířku (podle nejširšího
+  sloupce, který se do řádku vejde) a řádky se lomí vždy pravidelně.
+  Appka záměrně NEPOUŽILA pevný počet sloupců (`repeat(N, ...)`), protože
+  appka podle role skrývá část tlačítek (`.skryto`, `display:none`) -
+  `auto-fit` počet sloupců dopočítá jen z viditelných tlačítek, takže
+  zarovnání zůstává pravidelné i uživateli bez admin/účetní role (méně
+  viditelných tlačítek, ověřeno vizuálně). Na užších obrazovkách (pod
+  640px) appka minimální šířku sloupce zúžila na 105px, ať se vejde víc
+  tlačítek vedle sebe místo jednoho přes celou šířku.
+- Ověřeno jednorázovým vizuálním Playwright skriptem (screenshoty
+  navigace na 1280/700/640/480/360px, světlý i tmavý režim, i se
+  simulovanou omezenou rolí s méně viditelnými tlačítky - zarovnání
+  zůstává pravidelné ve všech případech) + plnou regresí 41 backendových
+  testů (čistě frontendová změna, žádný test se nerozbil).
+- Čistě frontendová CSS změna - žádný nový sloupec v Sheets, není potřeba
+  `/api/setup`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

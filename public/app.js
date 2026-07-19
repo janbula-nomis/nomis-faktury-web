@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.7 – 2026-07-19';
+const APP_VERZE = 'v4.9 – 2026-07-19';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -3833,9 +3833,14 @@ async function nactiKnihaJizd() {
     ]);
     firmyProVyberKnihaJizd = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
     vyplnVyberFirem('nova-kj-firma', firmyProVyberKnihaJizd);
+    vyplnVyberFirem('kj-import-firma', firmyProVyberKnihaJizd);
     if (!document.getElementById('nova-kj-auto').dataset.naplneno) {
       document.getElementById('nova-kj-auto').innerHTML = moznostiAuta('');
       document.getElementById('nova-kj-auto').dataset.naplneno = '1';
+    }
+    if (!document.getElementById('kj-import-auto').dataset.naplneno) {
+      document.getElementById('kj-import-auto').innerHTML = moznostiAuta('');
+      document.getElementById('kj-import-auto').dataset.naplneno = '1';
     }
     nacitani.classList.add('skryto');
     vykresliKnihaJizd(dataJizdy.jizdy || []);
@@ -3863,7 +3868,7 @@ function vykresliKnihaJizd(jizdy) {
   serazene.forEach((j) => kontejner.appendChild(vytvorRadekJizda(j)));
 
   if (serazene.length === 0) {
-    kontejner.innerHTML = '<div class="nacitani">Zatím žádné jízdy - přidejte první ručně výš, nebo počkejte na import CSV (zatím nedostupný).</div>';
+    kontejner.innerHTML = '<div class="nacitani">Zatím žádné jízdy - přidejte první ručně, nebo naimportujte CSV výš.</div>';
   }
 }
 
@@ -4066,6 +4071,53 @@ async function pridatJizdu() {
   }
 }
 
+// Import CSV uložených cest (od v4.8) - appka soubor čte jako obyčejný text
+// (ne base64 jako u binárního XLS/XLSX u bankovních výpisů), stejný vzor
+// jako CSV import bankovního výpisu (viz nahratVypis výš).
+async function importovatKnihaJizdCsv() {
+  const zprava = document.getElementById('kj-import-zprava');
+  zprava.innerHTML = '';
+
+  const pole = document.getElementById('kj-import-soubor');
+  const soubor = pole.files && pole.files[0];
+  const firma = document.getElementById('kj-import-firma').value;
+  const auto = document.getElementById('kj-import-auto').value;
+  if (!soubor) {
+    zprava.innerHTML = '<div class="zprava chyba">Vyberte soubor CSV.</div>';
+    return;
+  }
+  if (!firma) {
+    zprava.innerHTML = '<div class="zprava chyba">Vyberte firmu.</div>';
+    return;
+  }
+  if (!auto) {
+    zprava.innerHTML = '<div class="zprava chyba">Vyberte auto, ke kterému soubor patří.</div>';
+    return;
+  }
+
+  zprava.innerHTML = '<div class="zprava">Nahrávám a zpracovávám soubor…</div>';
+  try {
+    const obsah = await soubor.text();
+    const vysledek = await zavolejApi('/kniha-jizd-import', {
+      method: 'POST',
+      body: JSON.stringify({
+        Firma: firma,
+        Auto: auto,
+        Ridic: document.getElementById('kj-import-ridic').value.trim(),
+        obsahSouboru: obsah,
+      }),
+    });
+    zprava.innerHTML =
+      '<div class="zprava uspech">Naimportováno ' + vysledek.naimportovano + ' z ' +
+      vysledek.celkemVSouboru + ' jízd v souboru (' + vysledek.duplicitni +
+      ' appka už měla z dřívějška, přeskočeno).</div>';
+    pole.value = '';
+    await nactiKnihaJizd();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
 async function ulozJizdu(id, zmeny, tlacitko) {
   tlacitko.disabled = true;
   try {
@@ -4219,6 +4271,7 @@ document.getElementById('sm-tlacitko-nahrat').addEventListener('click', nahratSm
 document.getElementById('sm-sekce-aktivni').addEventListener('click', () => prepniSmlouvySekci('aktivni'));
 document.getElementById('sm-sekce-neaktivni').addEventListener('click', () => prepniSmlouvySekci('neaktivni'));
 document.getElementById('tlacitko-pridat-jizdu').addEventListener('click', pridatJizdu);
+document.getElementById('tlacitko-import-jizd').addEventListener('click', importovatKnihaJizdCsv);
 document.getElementById('kj-sekce-jizdy').addEventListener('click', () => prepniKnihaJizdSekci('jizdy'));
 document.getElementById('kj-sekce-souhrn').addEventListener('click', () => prepniKnihaJizdSekci('souhrn'));
 document.getElementById('tlacitko-pripojit-google').addEventListener('click', () => {

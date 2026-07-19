@@ -68,7 +68,24 @@ button.sekundarni { background: transparent; color: var(--barva-primarni); borde
 button.maly { padding: 5px 9px; font-size: 12px; margin-top: 0; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-nav.zalozky { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+/* Jan (2026-07-19): tlačítka hlavní navigace dřív měla šířku podle
+   délky vlastního textu (flex-wrap) - u 10 záložek s hodně různě
+   dlouhými popisky ("Dashboard" vs. "Bankovní výpisy") se řádky lomily
+   nepravidelně a poslední řádek často vypadal "osiřele" (jen 1-2 užší
+   tlačítka jinam zarovnaná než zbytek). Appka přešla na CSS grid s
+   `auto-fit`/`minmax` - všechna tlačítka mají STEJNOU šířku (podle
+   nejširšího sloupce, který se do řádku vejde) a řádky se lomí vždy
+   pravidelně. Appka NEPOUŽÍVA pevný počet sloupců (`repeat(N, ...)`),
+   protože appka podle role skrývá část tlačítek (`.skryto`,
+   `display:none`) - `auto-fit` počet sloupců sám dopočítá jen z
+   viditelných tlačítek, takže zarovnání zůstane pravidelné i uživateli
+   bez admin/účetní role (méně viditelných tlačítek). */
+nav.zalozky {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 6px;
+  margin-bottom: 14px;
+}
 nav.zalozky button {
   background: var(--barva-karta);
   color: var(--barva-text);
@@ -77,6 +94,9 @@ nav.zalozky button {
   font-weight: 600;
   padding: 7px 12px;
   margin-top: 0;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
 }
 nav.zalozky button.aktivni { background: var(--barva-primarni); color: white; border-color: var(--barva-primarni); }
 
@@ -332,10 +352,11 @@ input[type="file"] { margin-top: 8px; }
   .hlavicka-app .uzivatel { text-align: left; }
 
   /* Tlačítka hlavní navigace appka zvětší na výšku (snazší dotykový cíl)
-     a nechá je rovnoměrně růst do řádku, ať appka nemá spoustu miniaturních
-     tlačítek vedle sebe. */
-  nav.zalozky { gap: 6px 8px; }
-  nav.zalozky button { padding: 9px 10px; font-size: 12.5px; flex: 1 1 auto; min-height: 38px; }
+     a zúží minimální šířku sloupce gridu (od v4.9 grid místo flexu, viz
+     výše), ať se na užší obrazovce vejde víc tlačítek vedle sebe místo
+     jednoho přes celou šířku. */
+  nav.zalozky { gap: 6px 8px; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); }
+  nav.zalozky button { padding: 9px 10px; font-size: 12.5px; min-height: 38px; }
 
   /* Karty s auto-fit mřížkou (Export filtry, Dashboard firmy, souhrn
      Přehledu) appka zúží minimální šířku sloupce, ať se na mobilu vejde
