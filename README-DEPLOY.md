@@ -1981,6 +1981,50 @@ změna funkce/dat.
 - Čistě frontendová CSS změna - žádný nový sloupec v Sheets, není potřeba
   `/api/setup`.
 
+## 50. Běžný uživatel: jen 4 záložky + oprava scopingu GET /firmy (v4.10)
+
+Jan: „pokud má uživatel určitá práva, musí to být jen pro definované
+firmy, uživatel vidí pouze nahrát doklady, přijaté faktury, vydané
+faktury a daňový přehled, jen vybrané firmy.“ Přes AskUserQuestion appka
+potvrdila, že se toto NEMÁ řešit novou rolí navíc, ale úpravou chování
+pro VŠECHNY uživatele s dnešní běžnou (prázdnou) rolí - tedy ne admin,
+ne účetní.
+
+- **Zúžená hlavní navigace pro běžnou roli.** `nav-dashboard` a
+  `nav-kniha-jizd` appka dřív nikdy neschovávala (na rozdíl od
+  `nav-banka`/`nav-smlouvy`/`nav-export`/`nav-nastaveni`, které appka už
+  schovávala podle role) - byly viditelné komukoli přihlášenému bez
+  ohledu na roli. `public/app.js` (`zobrazApp()`) teď schovává i tyhle
+  dvě záložky pro každého, kdo NENÍ admin ani účetní - běžnému uživateli
+  tak v hlavní navigaci zbydou přesně 4 záložky: Nahrát doklady, Přijaté
+  faktury, Vydané faktury, Daňový přehled. Admin a účetní mají navigaci
+  beze změny (vč. Dashboardu a Knihy jízd).
+- **Oprava: `GET /firmy` appka dřív vracela úplně všechny firmy komukoli
+  přihlášenému, bez ohledu na roli/přiřazené firmy.** Doklady, Vydané
+  faktury i Daňový přehled už dřív správně scopovaly DATA jen na firmy
+  přiřazené uživateli (`Uzivatele.Firmy`) - appka to ověřila v kódu všech
+  tří funkcí. Ale výběr firmy v appce (např. při potvrzení dokladu,
+  `<select>` naplněný z `GET /firmy`) appka plnila úplně VŠEMI firmami
+  v Sheets, takže i běžný uživatel v dropdownu viděl a teoreticky mohl
+  zvolit i firmu, ke které nemá mít přístup vůbec. `netlify/functions/
+  firmy.js` (GET) appka opravila, ať vrací stejně scopovaný seznam jako
+  ostatní firemní funkce - role `admin` vidí vše, každý jiný (včetně
+  `ucetni`) jen firmy ze svého seznamu `Uzivatele.Firmy`. Účetní appka
+  typicky přiřazuje ke všem firmám skupiny (zavedená konvence), takže se
+  jí funkčně nic nemění - jde čistě o dřívější mezeru u běžné role.
+- Beze změny: appka NEZAVÁDÍ žádnou novou roli - jde o úpravu chování
+  existující prázdné role. Kdo dnes má roli `admin`/`ucetni`, žádnou
+  změnu nepozná.
+- Žádný nový sloupec v Sheets, není potřeba `/api/setup` - appka jen
+  změnila, co vrací/zobrazuje pro existující data.
+- Ověřeno novým testem `test_firmy_scope.js` (admin vidí všechny firmy,
+  běžná role vidí jen svoje přiřazené, účetní se dvěma přiřazenými
+  firmami nevidí třetí nepřiřazenou, uživatel bez jakékoli přiřazené
+  firmy nevidí žádnou) + jednorázovým vizuálním Playwright skriptem
+  (navigace pro běžnou roli/účetní/admin - běžná role má přesně 4
+  tlačítka, účetní a admin beze změny) + plnou regresí 42 backendových
+  testů, žádná regrese.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

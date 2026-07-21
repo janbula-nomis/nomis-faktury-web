@@ -5,6 +5,15 @@
  * GET    -> { firmy: [...] }  smí kterýkoli přihlášený uživatel (potřeba
  *           např. pro výběr firmy v záložce Bankovní výpisy),
  *           POST/PATCH/DELETE jen role "admin".
+ *
+ * Pozn. (v4.10): GET dřív vracel VŠECHNY firmy komukoli přihlášenému bez
+ * ohledu na roli/přiřazené firmy - běžný uživatel tak sice měl doklady/
+ * vydané faktury/daňový přehled správně scoped jen na svoje přiřazené
+ * firmy (viz `maPristupKFirme`/`maPristupKDokladu` v jednotlivých
+ * funkcích), ale ve VÝBĚRU firmy (např. při potvrzení dokladu) viděl a
+ * mohl zvolit i firmu, ke které nemá přístup. Appka teď GET odpověď
+ * scopuje stejně jako ostatní firemní data - role "admin" vidí vše,
+ * ostatní (vč. "ucetni") jen firmy ze svého seznamu `Uzivatele.Firmy`.
  * POST   { Nazev, ICO, DIC, Platce_DPH, Bankovni_ucet } -> nová firma
  * PATCH  { row, zmeny } -> úprava firmy (Nazev se z bezpečnostních důvodů
  *          nemění přes appku - viz poznámka níže, jen ostatní pole)
@@ -50,7 +59,10 @@ exports.handler = async (event) => {
   try {
     if (event.httpMethod === 'GET') {
       const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Firmy');
-      return json(200, { firmy: rows });
+      const viditelne = uzivatel.role === 'admin'
+        ? rows
+        : rows.filter((f) => (uzivatel.firmy || []).includes(f.Nazev));
+      return json(200, { firmy: viditelne });
     }
 
     if (event.httpMethod === 'POST') {

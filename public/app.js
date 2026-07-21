@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.9 – 2026-07-19';
+const APP_VERZE = 'v4.10 – 2026-07-19';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -162,6 +162,14 @@ function zobrazApp() {
   document.getElementById('nav-banka').classList.toggle('skryto', !jeUcetniNeboAdmin);
   document.getElementById('nav-smlouvy').classList.toggle('skryto', !jeUcetniNeboAdmin);
   document.getElementById('nav-export').classList.toggle('skryto', !jeUcetniNeboAdmin);
+
+  // Jan (2026-07-19, v4.10): běžný uživatel (role "" - ne admin, ne účetní)
+  // má v hlavní navigaci vidět JEN Nahrát doklady/Přijaté faktury/Vydané
+  // faktury/Daňový přehled - appka mu Dashboard a Knihu jízd schová (dřív
+  // je viděl každý přihlášený bez ohledu na roli). Admin i účetní vidí
+  // obojí beze změny.
+  document.getElementById('nav-dashboard').classList.toggle('skryto', !jeUcetniNeboAdmin);
+  document.getElementById('nav-kniha-jizd').classList.toggle('skryto', !jeUcetniNeboAdmin);
 
   prepniZalozku('nahrat');
 }
