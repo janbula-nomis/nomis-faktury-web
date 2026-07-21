@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.11 – 2026-07-19';
+const APP_VERZE = 'v4.12 – 2026-07-21';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -159,9 +159,12 @@ function zobrazApp() {
   const jeAdmin = stav.role === 'admin';
   const jeUcetniNeboAdmin = stav.role === 'admin' || stav.role === 'ucetni';
   document.getElementById('nav-nastaveni').classList.toggle('skryto', !jeAdmin);
-  document.getElementById('nav-banka').classList.toggle('skryto', !jeUcetniNeboAdmin);
   document.getElementById('nav-smlouvy').classList.toggle('skryto', !jeUcetniNeboAdmin);
   document.getElementById('nav-export').classList.toggle('skryto', !jeUcetniNeboAdmin);
+  // Jan (2026-07-21, v4.12): Bankovní výpisy appka nově zobrazuje VŠEM
+  // přihlášeným (dřív jen adminovi/účetní, viz odstraněný toggle níže v
+  // historii) - viz poznámka o v4.12 níže pro plný kontext.
+  document.getElementById('nav-banka').classList.remove('skryto');
 
   // Jan (2026-07-19, v4.10): běžný uživatel (role "" - ne admin, ne účetní)
   // má v hlavní navigaci vidět JEN Nahrát doklady/Přijaté faktury/Vydané
@@ -170,6 +173,21 @@ function zobrazApp() {
   // obojí beze změny.
   document.getElementById('nav-dashboard').classList.toggle('skryto', !jeUcetniNeboAdmin);
   document.getElementById('nav-kniha-jizd').classList.toggle('skryto', !jeUcetniNeboAdmin);
+
+  // Jan (2026-07-21, v4.12): oprava v4.10 - Bankovní výpisy appka teď
+  // NESCHOVÁVÁ ani běžnému uživateli (dřív byly jen pro admina/účetní) -
+  // Jan chce, aby je viděl (jen náhled, jen k firmám, které má přiřazené -
+  // appka scopuje přes stejnou maPristupKFirme jako jinde, viz
+  // netlify/functions/banka.js). Naopak Daňový přehled appka běžnému
+  // uživateli teď SCHOVÁVÁ (byl součástí čtyř záložek z v4.10, Jan ho
+  // pro běžnou roli už nechce). Admin a účetní mají obojí beze změny.
+  document.getElementById('nav-prehled').classList.toggle('skryto', !jeUcetniNeboAdmin);
+  // Appka pro běžnou roli navíc schová akce se zápisem v Bankovních
+  // výpisech (nahrání výpisu, přepočet shod) - detail pohybu appka
+  // stejně odmítne PATCHnout (viz banka.js), appka jen zbytečně
+  // nenabízí ovládací prvky, které by beztak skončily chybou 403.
+  const bankaAkceZapis = document.getElementById('banka-akce-zapis');
+  if (bankaAkceZapis) bankaAkceZapis.classList.toggle('skryto', !jeUcetniNeboAdmin);
 
   // Jan (2026-07-19, v4.11): běžný uživatel vidí u Dokladů jen "Ke schválení"
   // (appka mu schválené doklady stejně vůbec nevrátí z backendu - viz
@@ -2551,17 +2569,32 @@ function vytvorDetailBanka(p) {
     }
   }
 
+  // Jan (2026-07-21, v4.12): běžný uživatel (role "" - ne admin, ne účetní)
+  // teď Bankovní výpisy vidí, ale jen jako NÁHLED - appka mu proto z
+  // detailu odstraní všechny akční prvky (tlačítka/select/input), které
+  // by beztak backend odmítl (viz netlify/functions/banka.js, PATCH je
+  // vyhrazené adminovi/účetní) - appka nechává jen informační text
+  // (přiřazený doklad, ke které smlouvě/faktuře je pohyb spárovaný apod.).
+  const jeUcetniNeboAdminBanka = stav.role === 'admin' || stav.role === 'ucetni';
+  if (!jeUcetniNeboAdminBanka) {
+    akce.querySelectorAll('button, select, input, textarea').forEach((el) => el.remove());
+  }
   wrap.appendChild(akce);
 
   const poznamkaDiv = document.createElement('div');
   poznamkaDiv.style.marginTop = '10px';
-  const poznamkaVstup = document.createElement('input');
-  poznamkaVstup.type = 'text';
-  poznamkaVstup.placeholder = 'Poznámka pro účetní…';
-  poznamkaVstup.value = p.Poznamka || '';
-  poznamkaVstup.style.fontSize = '13px';
-  poznamkaDiv.appendChild(poznamkaVstup);
-  poznamkaDiv.appendChild(tlacitkoBanka('Uložit poznámku', (e) => ulozZmenuBanka({ Poznamka: poznamkaVstup.value.trim() }, e.target)));
+  if (jeUcetniNeboAdminBanka) {
+    const poznamkaVstup = document.createElement('input');
+    poznamkaVstup.type = 'text';
+    poznamkaVstup.placeholder = 'Poznámka pro účetní…';
+    poznamkaVstup.value = p.Poznamka || '';
+    poznamkaVstup.style.fontSize = '13px';
+    poznamkaDiv.appendChild(poznamkaVstup);
+    poznamkaDiv.appendChild(tlacitkoBanka('Uložit poznámku', (e) => ulozZmenuBanka({ Poznamka: poznamkaVstup.value.trim() }, e.target)));
+  } else if (p.Poznamka) {
+    poznamkaDiv.className = 'popis';
+    poznamkaDiv.textContent = 'Poznámka: ' + p.Poznamka;
+  }
   wrap.appendChild(poznamkaDiv);
 
   return wrap;

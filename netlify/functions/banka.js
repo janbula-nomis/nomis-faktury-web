@@ -1,8 +1,18 @@
 /**
  * netlify/functions/banka.js
  * Bankovní výpisy a jejich párování s doklady. List "Bankovni_pohyby"
- * v Sheets. Přístup jen pro role "admin" a "ucetni" (běžný uživatel se
- * SPZ/dokladovými právy sem nevidí - jde o citlivější finanční data).
+ * v Sheets.
+ *
+ * Pozn. (v4.12): Jan zadal (mimo číslovaný backlog, jen v chatu) - "bankovní
+ * výpisy (jen povolené) musí vidět také, ale daňový přehled není třeba" -
+ * oprava v4.10, kde appka dala běžnému uživateli mezi 4 viditelné záložky
+ * Daňový přehled místo Bankovních výpisů. Appka si nechala přes
+ * AskUserQuestion potvrdit rozsah: běžný uživatel (role "", ne admin, ne
+ * účetní) má u Bankovních výpisů jen NÁHLED, scoped na firmy, které má
+ * přiřazené (stejný princip jako Doklady/Vydané faktury) - GET je proto
+ * dostupný komukoli přihlášenému s přístupem k dané firmě, ale POST
+ * (import výpisu, přepočet shod) a PATCH (potvrzení/zamítnutí/přiřazení,
+ * poznámka) zůstávají vyhrazené adminovi a účetní, viz kontrola níže.
  *
  * GET    ?firma=Nazev             -> { pohyby: [...] }
  * POST   { firma, obsahSouboru, format?, ignorovatNesouladUctu? }
@@ -86,8 +96,12 @@ exports.handler = async (event) => {
   } catch (e) {
     return json(e.statusCode || 401, { error: e.message });
   }
-  if (uzivatel.role !== 'admin' && uzivatel.role !== 'ucetni') {
-    return json(403, { error: 'Bankovní výpisy jsou dostupné jen administrátorovi a účetní.' });
+  // v4.12: GET (náhled) appka povoluje komukoli přihlášenému - scoping na
+  // konkrétní firmu řeší maPristupKFirme níž. Import výpisu, přepočet shod
+  // (POST) a potvrzení/zamítnutí/přiřazení/poznámka (PATCH) appka nechává
+  // vyhrazené adminovi a účetní - běžný uživatel má jen náhled.
+  if (uzivatel.role !== 'admin' && uzivatel.role !== 'ucetni' && event.httpMethod !== 'GET') {
+    return json(403, { error: 'Import a úpravu bankovních pohybů smí provést jen administrátor nebo účetní.' });
   }
 
   const sheets = await getSheetsClient();

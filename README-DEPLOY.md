@@ -2087,6 +2087,59 @@ appka zavedla i pro záložku Vydané faktury, ne jen pro Doklady.
   schválení/označení uhrazeno viditelné jen adminovi a účetní, Smazat jen
   u vlastního záznamu pro běžnou roli).
 
+## 52. Oprava v4.10: běžný uživatel místo Daňového přehledu vidí Bankovní výpisy (jen náhled) (v4.12)
+
+Jan: „bankovní výpisy (jen povolené) musí vidět také, ale daňový přehled
+není třeba, oprav to.“ Jde o opravu rozhodnutí z v4.10 (viz bod 50 výše),
+kde appka běžné roli dala přesně 4 záložky vč. Daňového přehledu, ale bez
+Bankovních výpisů - Jan teď chce tyhle dvě záložky prohodit. Appka si přes
+AskUserQuestion potvrdila, jestli má běžná role u Bankovních výpisů mít
+jen náhled, nebo stejná práva jako účetní (import výpisu, potvrzení/
+zamítnutí shody, přiřazení k dokladu/dani...) - Jan zvolil jen náhled.
+
+- **Navigace (`public/app.js`, `zobrazApp()`).** `nav-banka` appka už
+  neschovává nikomu přihlášenému (dřív jen adminovi/účetní) -
+  scoping na konkrétní firmy řeší `maPristupKFirme` v
+  `netlify/functions/banka.js` beze změny. `nav-prehled` (Daňový přehled)
+  appka nově schovává běžné roli stejně jako `nav-dashboard`/
+  `nav-kniha-jizd` (appka mu přidala `id="nav-prehled"` v
+  `public/index.html`, dřív žádné neměl). Admin a účetní mají navigaci
+  beze změny (obě záložky viditelné).
+- **Bankovní výpisy jen náhled pro běžnou roli
+  (`netlify/functions/banka.js`).** `GET` appka povoluje komukoli
+  přihlášenému, scoped na firmy z `Uzivatele.Firmy` (stejný princip jako
+  Doklady/Vydané faktury/Daňový přehled) - `role === 'admin'` vidí
+  všechny firmy beze změny. `POST` (import výpisu, přepočet shod) a
+  `PATCH` (potvrzení/zamítnutí shody, přiřazení k dokladu/dani, poznámka)
+  appka nechává vyhrazené adminovi a účetní bez ohledu na firmu - běžná
+  role dostane 403 i na pohyb vlastní firmy.
+- **Frontend (`public/app.js`, `public/index.html`).** Appka přestavěla
+  horní lištu záložky Bankovní výpisy: výběr formátu souboru + tlačítka
+  „Nahrát výpis“/„Spustit kontrolu dokladů“ appka obalila do
+  `<div id="banka-akce-zapis">`, které schovává běžné roli. Tlačítko
+  „Aktualizovat“ appka záměrně nechala MIMO tenhle obal - jde o neškodné
+  znovunačtení dat, ne zápisovou akci, takže zůstává viditelné všem. V
+  detailu jednotlivého pohybu (`vytvorDetailBanka`) appka běžné roli
+  odstraní všechna tlačítka/select/input (Přiřadit, Nahrát nový doklad,
+  Přiřadit k dani, Označit „Bez dokladu“) - backend by je stejně odmítl
+  (403), appka je proto rovnou nenabízí. Pole poznámky appka běžné roli
+  zobrazí jako prostý text („Poznámka: ...“) místo editovatelného vstupu.
+- Role `ucetni` a `admin` mají u Bankovních výpisů beze změny plná práva
+  (import, potvrzení/zamítnutí, přiřazení, editace poznámky) v rámci
+  svých přiřazených firem.
+- Žádný nový sloupec v Sheets, není potřeba `/api/setup` - appka jen
+  změnila, co zobrazuje/povoluje pro existující data.
+- Ověřeno novým testem `test_banka_omezeny_uzivatel.js` (GET běžné roli
+  vrátí pohyby jen přiřazené firmy, GET bez přiřazené firmy 403, POST
+  import/přepočet shod běžné roli 403 i pro vlastní firmu, PATCH běžné
+  roli 403 i pro pohyb vlastní firmy, admin/účetní GET i PATCH beze
+  změny) + plnou regresí 45 backendových testů, žádná regrese +
+  jednorázovým vizuálním Playwright skriptem (navigace pro běžnou roli/
+  účetní/admin - běžná role má Bankovní výpisy místo Daňového přehledu,
+  detail pohybu pro běžnou roli bez tlačítek a s needitovatelnou
+  poznámkou, tlačítko Aktualizovat viditelné všem, účetní a admin s
+  plnou funkčností beze změny).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

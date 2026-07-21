@@ -46,7 +46,7 @@
       <button data-zalozka="dashboard" id="nav-dashboard">Dashboard</button>
       <button data-zalozka="doklady">Přijaté faktury</button>
       <button data-zalozka="vydane-faktury">Vydané faktury</button>
-      <button data-zalozka="prehled">Daňový přehled</button>
+      <button data-zalozka="prehled" id="nav-prehled">Daňový přehled</button>
       <button data-zalozka="kniha-jizd" id="nav-kniha-jizd">Kniha jízd</button>
       <button data-zalozka="banka" id="nav-banka" class="skryto">Bankovní výpisy</button>
       <button data-zalozka="smlouvy" id="nav-smlouvy" class="skryto">Registr smluv</button>
@@ -289,20 +289,22 @@
       <label for="banka-vyber-firmy">Firma</label>
       <select id="banka-vyber-firmy"></select>
 
-      <label for="banka-vyber-formatu" style="margin-top:10px">Formát souboru</label>
-      <select id="banka-vyber-formatu">
-        <option value="auto">Poznat automaticky podle přípony</option>
-        <option value="json">JSON (George Business export)</option>
-        <option value="csv">CSV</option>
-        <option value="xlsx">XLS / XLSX</option>
-      </select>
+      <div id="banka-akce-zapis">
+        <label for="banka-vyber-formatu" style="margin-top:10px">Formát souboru</label>
+        <select id="banka-vyber-formatu">
+          <option value="auto">Poznat automaticky podle přípony</option>
+          <option value="json">JSON (George Business export)</option>
+          <option value="csv">CSV</option>
+          <option value="xlsx">XLS / XLSX</option>
+        </select>
 
-      <div class="tlacitka-nahrani" style="margin-top:12px">
-        <button id="tlacitko-nahrat-vypis" type="button">Nahrát výpis (JSON/CSV/XLS)</button>
-        <input type="file" id="pole-vypis" accept=".json,.csv,.xls,.xlsx,application/json,text/csv" class="skryto" />
-        <button id="tlacitko-banka-aktualizovat" type="button" class="sekundarni" title="Znovu načíst pohyby a doklady ze Sheets (např. po úpravě jinde/na jiném zařízení)">Aktualizovat</button>
-        <button id="tlacitko-banka-kontrola" type="button" class="sekundarni" title="Zkusit znovu navrhnout doklad u pohybů, které appka zatím nepárovala (např. protože doklad k nim přibyl až později)">Spustit kontrolu dokladů</button>
+        <div class="tlacitka-nahrani" style="margin-top:12px">
+          <button id="tlacitko-nahrat-vypis" type="button">Nahrát výpis (JSON/CSV/XLS)</button>
+          <input type="file" id="pole-vypis" accept=".json,.csv,.xls,.xlsx,application/json,text/csv" class="skryto" />
+          <button id="tlacitko-banka-kontrola" type="button" class="sekundarni" title="Zkusit znovu navrhnout doklad u pohybů, které appka zatím nepárovala (např. protože doklad k nim přibyl až později)">Spustit kontrolu dokladů</button>
+        </div>
       </div>
+      <button id="tlacitko-banka-aktualizovat" type="button" class="sekundarni" style="margin-top:12px" title="Znovu načíst pohyby a doklady ze Sheets (např. po úpravě jinde/na jiném zařízení)">Aktualizovat</button>
       <div id="banka-import-zprava"></div>
 
       <div class="banka-souhrn-radek" style="margin-top:16px">
