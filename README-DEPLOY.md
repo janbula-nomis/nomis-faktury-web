@@ -2025,6 +2025,68 @@ ne účetní.
   tlačítka, účetní a admin beze změny) + plnou regresí 42 backendových
   testů, žádná regrese.
 
+## 51. Běžný uživatel: jen faktury/doklady ke schválení, schvaluje jen admin/účetní (v4.11)
+
+Jan: „můžeme to udělat tak, aby uživatel viděl jen faktury ke schválení,
+schvaluje jen admin a účetní, uživatel nahrává a scanuje faktury, ale
+nesmí vidět do ostatních firem.“ Appka si přes AskUserQuestion potvrdila
+tři otevřené otázky, než začala implementovat: (a) běžný uživatel u
+dokladu/faktury čekající na schválení SMÍ opravit údaje (Firma,
+Kategorie, Částka, Středisko...) - appka mu zakázala jen samotnou akci
+schválení; (b) běžný uživatel smí smazat jen SVŮJ VLASTNÍ nahraný/vytvořený
+doklad/fakturu, a jen dokud není schválený/uhrazený; (c) stejné omezení
+appka zavedla i pro záložku Vydané faktury, ne jen pro Doklady.
+
+- **Doklady (`netlify/functions/doklady.js`).** Nová funkce
+  `smiVidetDoklad` appce zajišťuje, že `GET /doklady` běžnému uživateli
+  (role `""`, ne admin, ne účetní) vůbec nevrátí doklady se `Stav =
+  "Schváleno"` - appka je nefiltruje jen na frontendu, ale rovnou je
+  nepošle v odpovědi. `PATCH` appka běžnému uživateli odmítne (403), pokud
+  by se pokusil nastavit `Stav: "Schváleno"`, nebo pokud se pokusí
+  cokoliv upravit na dokladu, který už schválený je - jiné úpravy
+  (Firma_potvrzena, Kategorie, Částka, Středisko, ...) appka běžnému
+  uživateli povoluje beze změny. `DELETE` appka běžnému uživateli odmítne
+  (403), pokud doklad už je schválený, nebo pokud doklad nenahrál sám
+  (pole `Nahral_uzivatel`) - admin a účetní mažou/schvalují/vidí vše beze
+  změny, v rámci svých přiřazených firem.
+- **Vydané faktury (`netlify/functions/vydaneFaktury.js`).** Stejný vzor:
+  `GET` appka běžnému uživateli nevrátí faktury se `Stav = "Uhrazeno"`.
+  `PATCH` appka odmítne nastavení `Stav: "Uhrazeno"` běžným uživatelem i
+  jakoukoli úpravu už uhrazené faktury, jiné opravy povoluje. `DELETE`
+  appka běžnému uživateli povolí jen u faktury, kterou sám vytvořil (pole
+  `Vytvoril`, appka ho plní stejně u ručního zadání i AI uploadu), a jen
+  dokud není uhrazená.
+- **Frontend (`public/app.js`).** Přepínač „Ke schválení/Schválené“ v
+  záložce Doklady appka běžnému uživateli celý schová (backend mu
+  schválené doklady stejně nikdy nevrátí, takže by sekce „Schválené“ byla
+  vždy prázdná). Tlačítko „Schválit“ (Doklady) a „Označit uhrazeno/Zrušit
+  uhrazení“ (Vydané faktury) appka vykresluje jen adminovi a účetní.
+  Tlačítko „Smazat“ appka běžnému uživateli vykresluje jen u dokladu/
+  faktury, kterou sám nahrál/vytvořil - admin a účetní mažou beze změny
+  cokoli v rámci svých firem.
+- Role `ucetni` má u obou záložek beze změny stejná práva jako `admin`
+  (schvaluje/označuje uhrazeno, vidí i finalizované záznamy, maže cokoli
+  v rámci svých přiřazených firem) - appka tuhle roli zámerně nijak
+  neomezila, jde čistě o novou vrstvu nad rolí `""`.
+- Žádný nový sloupec v Sheets, není potřeba `/api/setup` - appka jen
+  změnila, co vrací/zobrazuje/povoluje pro existující data
+  (`Nahral_uzivatel` u Dokladů a `Vytvoril` u Vydaných faktur appka
+  používala i dřív, jen ne pro tenhle účel).
+- Ověřeno dvěma novými testy (`test_doklady_omezeny_uzivatel.js`,
+  `test_vf_omezeny_uzivatel.js` - GET filtruje finalizované záznamy,
+  PATCH odmítá schválení/označení uhrazeno i editaci finalizovaného
+  záznamu běžným uživatelem, DELETE povolen jen na vlastní nefinalizovaný
+  záznam, admin/účetní beze změny) + úpravou dvou existujících testů
+  (`test_doklady_delete.js`, `test_vf_delete.js`, `test_vf.js`), které
+  dřív předpokládaly, že běžná role smaže/označí cokoli v rámci svých
+  firem bez ohledu na vlastnictví/stav - teď simulují vlastníka
+  záznamu, resp. přepínají na účetní pro akce vyhrazené
+  adminovi/účetní + plnou regresí 44 backendových testů, žádná regrese +
+  jednorázovým vizuálním Playwright skriptem (Doklady/Vydané faktury -
+  detail vlastního vs. cizího záznamu pro běžnou roli/účetní/admin,
+  schválení/označení uhrazeno viditelné jen adminovi a účetní, Smazat jen
+  u vlastního záznamu pro běžnou roli).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

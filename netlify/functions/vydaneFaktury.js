@@ -19,6 +19,16 @@
  * dvoufázový vzor jako u Dokladů/Smluv. Faktura ve stavu "Zpracovává se"
  * (placeholder z fáze 1) appka zobrazuje jen tomu, kdo ji nahrál, nebo
  * adminovi/účetní (ještě nemá potvrzenou Firmu).
+ *
+ * Pozn. (v4.11): stejné omezení jako appka zavedla u Dokladů (viz
+ * netlify/functions/doklady.js) - Jan potvrdil, že se má "schvalování"
+ * (u Vydaných faktur = označení Uhrazeno) týkat i tohohle listu. Běžný
+ * uživatel (role "", ne admin/účetní) smí vidět jen faktury, které ještě
+ * NEJSOU označené jako "Uhrazeno" (appka je vůbec nevrátí v GET odpovědi),
+ * smí je editovat (oprava údajů), ale nesmí sám nastavit Stav na
+ * "Uhrazeno" ani upravovat/mazat už uhrazenou fakturu - to zůstává na
+ * adminovi/účetní. Smazat smí jen fakturu, kterou sám vytvořil (pole
+ * `Vytvoril`, appka ho appka plní stejně u ručního zadání i AI uploadu).
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -27,6 +37,10 @@ const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
+
+function jeUcetniNeboAdmin(uzivatel) {
+  return uzivatel.role === 'admin' || uzivatel.role === 'ucetni';
+}
 
 function maPristupKFirme(uzivatel, firma) {
   return uzivatel.role === 'admin' || uzivatel.role === 'ucetni' || (uzivatel.firmy || []).includes(firma);
@@ -54,9 +68,17 @@ exports.handler = async (event) => {
       // souboru) ještě nemá potvrzenou Firmu - appka ji přesto ukáže tomu,
       // kdo ji nahrál (nebo adminovi/účetní), stejná logika jako u
       // placeholder Dokladů/Smluv.
-      const viditelnostFaktury = (r) =>
-        (r.Firma && maPristupKFirme(uzivatel, r.Firma)) ||
-        (!r.Firma && (uzivatel.role === 'admin' || uzivatel.role === 'ucetni' || r.Nahral_uzivatel === uzivatel.jmeno));
+      const viditelnostFaktury = (r) => {
+        const zakladniPristup =
+          (r.Firma && maPristupKFirme(uzivatel, r.Firma)) ||
+          (!r.Firma && (jeUcetniNeboAdmin(uzivatel) || r.Nahral_uzivatel === uzivatel.jmeno));
+        if (!zakladniPristup) return false;
+        // v4.11: běžný uživatel vidí jen faktury, které ještě nejsou uhrazené -
+        // jakmile appka fakturu označí "Uhrazeno", mizí mu z pohledu úplně
+        // (obdoba "ke schválení" u Dokladů).
+        if (!jeUcetniNeboAdmin(uzivatel) && r.Stav === 'Uhrazeno') return false;
+        return true;
+      };
 
       const viditelne = rows.filter(viditelnostFaktury);
       const vysledek = firmaFiltr ? viditelne.filter((r) => r.Firma === firmaFiltr) : viditelne;
@@ -105,6 +127,14 @@ exports.handler = async (event) => {
       const faktura = rows.find((r) => r.ID === id);
       if (!faktura) return json(404, { error: 'Faktura nenalezena.' });
       if (!maPristupKFirme(uzivatel, faktura.Firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
+      if (!jeUcetniNeboAdmin(uzivatel)) {
+        if (faktura.Stav === 'Uhrazeno') {
+          return json(403, { error: 'Tato faktura už byla označena jako uhrazená - úpravy provádí administrátor nebo účetní.' });
+        }
+        if (zmeny && zmeny.Stav === 'Uhrazeno') {
+          return json(403, { error: 'Označení faktury jako uhrazené smí provést jen administrátor nebo účetní.' });
+        }
+      }
 
       const aktualizovana = Object.assign({}, faktura, zmeny || {});
       await updateRow(sheets, spreadsheetId, 'Vydane_faktury', VYDANE_FAKTURY_HEADERS, faktura._row, aktualizovana);
@@ -120,6 +150,14 @@ exports.handler = async (event) => {
       const faktura = rows.find((r) => r.ID === id);
       if (!faktura) return json(404, { error: 'Faktura nenalezena.' });
       if (!maPristupKFirme(uzivatel, faktura.Firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
+      if (!jeUcetniNeboAdmin(uzivatel)) {
+        if (faktura.Stav === 'Uhrazeno') {
+          return json(403, { error: 'Uhrazenou fakturu může smazat jen administrátor nebo účetní.' });
+        }
+        if (faktura.Vytvoril !== uzivatel.jmeno) {
+          return json(403, { error: 'Smazat můžete jen fakturu, kterou jste sami vytvořili.' });
+        }
+      }
 
       await deleteRow(sheets, spreadsheetId, 'Vydane_faktury', faktura._row);
 

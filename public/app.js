@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.10 – 2026-07-19';
+const APP_VERZE = 'v4.11 – 2026-07-19';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -170,6 +170,15 @@ function zobrazApp() {
   // obojí beze změny.
   document.getElementById('nav-dashboard').classList.toggle('skryto', !jeUcetniNeboAdmin);
   document.getElementById('nav-kniha-jizd').classList.toggle('skryto', !jeUcetniNeboAdmin);
+
+  // Jan (2026-07-19, v4.11): běžný uživatel vidí u Dokladů jen "Ke schválení"
+  // (appka mu schválené doklady stejně vůbec nevrátí z backendu - viz
+  // netlify/functions/doklady.js, smiVidetDoklad) - přepínač Ke schválení/
+  // Schválené appka mu proto celý schová, ať nesvádí k přepnutí na sekci,
+  // která bude vždy prázdná.
+  const prepinacDokladySekce = document.querySelector('#zalozka-doklady .prepinac-sekce');
+  if (prepinacDokladySekce) prepinacDokladySekce.classList.toggle('skryto', !jeUcetniNeboAdmin);
+  if (!jeUcetniNeboAdmin) dokladySekce = 'keSchvaleni';
 
   prepniZalozku('nahrat');
 }
@@ -884,7 +893,12 @@ function vytvorDetailDoklad(d) {
   tlacitkoUlozit.onclick = () => ulozZmenu(d.ID, ziskejZmeny(), tlacitkoUlozit);
   akce.appendChild(tlacitkoUlozit);
 
-  if (d.Stav !== 'Schváleno') {
+  // Jan (2026-07-19, v4.11): tlačítko "Schválit" appka ukáže jen adminovi
+  // a účetní - běžný uživatel doklad smí jen opravit ("Uložit"), samotné
+  // schválení zůstává na adminovi/účetní (viz netlify/functions/doklady.js,
+  // PATCH - appka by stejně vrátila 403, kdyby to zkusil obejít).
+  const jeUcetniNeboAdminDoklad = stav.role === 'admin' || stav.role === 'ucetni';
+  if (d.Stav !== 'Schváleno' && jeUcetniNeboAdminDoklad) {
     const tlacitkoSchvalit = document.createElement('button');
     tlacitkoSchvalit.className = 'maly';
     tlacitkoSchvalit.textContent = 'Schválit';
@@ -896,11 +910,17 @@ function vytvorDetailDoklad(d) {
     akce.appendChild(tlacitkoSchvalit);
   }
 
-  const tlacitkoSmazat = document.createElement('button');
-  tlacitkoSmazat.className = 'maly sekundarni';
-  tlacitkoSmazat.textContent = 'Smazat';
-  tlacitkoSmazat.onclick = () => smazDoklad(d.ID, d.Dodavatel, tlacitkoSmazat);
-  akce.appendChild(tlacitkoSmazat);
+  // Jan (2026-07-19, v4.11): "Smazat" appka běžnému uživateli ukáže jen u
+  // dokladu, který sám nahrál (Nahral_uzivatel) - admin/účetní mažou beze
+  // změny cokoli v rámci svých firem (viz netlify/functions/doklady.js,
+  // DELETE, stejná podmínka).
+  if (jeUcetniNeboAdminDoklad || d.Nahral_uzivatel === stav.jmeno) {
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.onclick = () => smazDoklad(d.ID, d.Dodavatel, tlacitkoSmazat);
+    akce.appendChild(tlacitkoSmazat);
+  }
 
   wrap.appendChild(akce);
 
@@ -1677,26 +1697,40 @@ function vytvorDetailVydanaFaktura(f) {
   tlacitkoUlozit.onclick = () => ulozZmenuVydaneFaktury(f.ID, ziskejZmeny(), tlacitkoUlozit);
   akce.appendChild(tlacitkoUlozit);
 
-  const tlacitkoStav = document.createElement('button');
-  tlacitkoStav.className = 'maly';
-  if (f.Stav === 'Uhrazeno') {
-    tlacitkoStav.textContent = 'Zrušit uhrazení';
-    tlacitkoStav.onclick = () => ulozZmenuVydaneFaktury(f.ID, { Stav: 'Neuhrazeno', Datum_uhrady: '' }, tlacitkoStav);
-  } else {
-    tlacitkoStav.textContent = 'Označit uhrazeno';
-    tlacitkoStav.onclick = () => ulozZmenuVydaneFaktury(
-      f.ID,
-      { Stav: 'Uhrazeno', Datum_uhrady: new Date().toISOString().slice(0, 10) },
-      tlacitkoStav
-    );
+  // Jan (2026-07-19, v4.11): "Označit uhrazeno"/"Zrušit uhrazení" appka ukáže
+  // jen adminovi a účetní - běžný uživatel fakturu smí jen opravit
+  // ("Uložit"), samotné označení uhrazení zůstává na adminovi/účetní (viz
+  // netlify/functions/vydaneFaktury.js, PATCH - appka by stejně vrátila 403,
+  // kdyby to zkusil obejít). Stejný vzor jako u Dokladů/Schválit.
+  const jeUcetniNeboAdminVf = stav.role === 'admin' || stav.role === 'ucetni';
+  if (jeUcetniNeboAdminVf) {
+    const tlacitkoStav = document.createElement('button');
+    tlacitkoStav.className = 'maly';
+    if (f.Stav === 'Uhrazeno') {
+      tlacitkoStav.textContent = 'Zrušit uhrazení';
+      tlacitkoStav.onclick = () => ulozZmenuVydaneFaktury(f.ID, { Stav: 'Neuhrazeno', Datum_uhrady: '' }, tlacitkoStav);
+    } else {
+      tlacitkoStav.textContent = 'Označit uhrazeno';
+      tlacitkoStav.onclick = () => ulozZmenuVydaneFaktury(
+        f.ID,
+        { Stav: 'Uhrazeno', Datum_uhrady: new Date().toISOString().slice(0, 10) },
+        tlacitkoStav
+      );
+    }
+    akce.appendChild(tlacitkoStav);
   }
-  akce.appendChild(tlacitkoStav);
 
-  const tlacitkoSmazat = document.createElement('button');
-  tlacitkoSmazat.className = 'maly sekundarni';
-  tlacitkoSmazat.textContent = 'Smazat';
-  tlacitkoSmazat.onclick = () => smazVydanouFakturu(f.ID, f.Cislo_faktury, tlacitkoSmazat);
-  akce.appendChild(tlacitkoSmazat);
+  // Jan (2026-07-19, v4.11): "Smazat" appka běžnému uživateli ukáže jen u
+  // faktury, kterou sám vytvořil (Vytvoril) - admin/účetní mažou beze změny
+  // cokoli v rámci svých firem (viz netlify/functions/vydaneFaktury.js,
+  // DELETE, stejná podmínka).
+  if (jeUcetniNeboAdminVf || f.Vytvoril === stav.jmeno) {
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.onclick = () => smazVydanouFakturu(f.ID, f.Cislo_faktury, tlacitkoSmazat);
+    akce.appendChild(tlacitkoSmazat);
+  }
 
   wrap.appendChild(akce);
 

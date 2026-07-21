@@ -11,6 +11,20 @@
  *
  * Přístup: role "admin" vidí vše, ostatní jen doklady, kde Firma_potvrzena
  * (nebo pokud ještě není potvrzená, Firma_AI_odhad) je v jejich seznamu firem.
+ *
+ * Pozn. (v4.11): Jan zadal (mimo číslovaný backlog, jen v chatu) - "uděláme
+ * to tak, aby uživatel viděl jen faktury ke schválení, schvaluje jen admin
+ * a účetní, uživatel nahrává a scanuje faktury, ale nesmí vidět do
+ * ostatních firem." Appce si nechala přes AskUserQuestion potvrdit tři
+ * otevřené otázky, než začala implementovat: (a) běžný uživatel SMÍ opravit
+ * údaje (Firma/Kategorie/Částka/Středisko...) u dokladu čekajícího na
+ * schválení - jen tlačítko/akci "Schválit" appka pro něj zakázala; (b) běžný
+ * uživatel smí smazat SVŮJ VLASTNÍ nahraný doklad, dokud ho nikdo neschválil
+ * - po schválení mazání zůstává na adminovi/účetní; (c) totéž omezení appka
+ * zavedla i pro Vydané faktury (viz netlify/functions/vydaneFaktury.js).
+ * Role "ucetni" má u Dokladů beze změny stejná práva jako "admin" (obojí
+ * schvaluje, obojí vidí i schválené, obojí může smazat cokoli v rámci svých
+ * přiřazených firem).
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -19,10 +33,23 @@ const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { json } = require('../../lib/http');
 
+function jeUcetniNeboAdmin(uzivatel) {
+  return uzivatel.role === 'admin' || uzivatel.role === 'ucetni';
+}
+
 function maPristupKDokladu(uzivatel, doklad) {
   if (uzivatel.role === 'admin') return true;
   const firma = doklad.Firma_potvrzena || doklad.Firma_AI_odhad;
-  return uzivatel.firmy.includes(firma);
+  return (uzivatel.firmy || []).includes(firma);
+}
+
+// v4.11: běžný uživatel (role "", ne admin/účetní) smí vidět jen doklady
+// čekající na schválení - jakmile appka doklad schválí, mizí mu z pohledu
+// úplně (appka ho vůbec nevrátí v GET odpovědi, ne jen skryje na frontendu).
+function smiVidetDoklad(uzivatel, doklad) {
+  if (!maPristupKDokladu(uzivatel, doklad)) return false;
+  if (jeUcetniNeboAdmin(uzivatel)) return true;
+  return doklad.Stav !== 'Schváleno';
 }
 
 exports.handler = async (event) => {
@@ -40,7 +67,7 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'GET') {
     try {
       const { rows } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Doklady');
-      const viditelne = rows.filter((r) => maPristupKDokladu(uzivatel, r));
+      const viditelne = rows.filter((r) => smiVidetDoklad(uzivatel, r));
 
       // Doplněk v3.16: appka u KAŽDÉHO dokladu dopočítá, jestli k němu už
       // našla (nebo účetní potvrdila) odpovídající bankovní pohyb - Jan
@@ -85,6 +112,14 @@ exports.handler = async (event) => {
       if (!maPristupKDokladu(uzivatel, doklad)) {
         return json(403, { error: 'Nemáte přístup k tomuto dokladu.' });
       }
+      if (!jeUcetniNeboAdmin(uzivatel)) {
+        if (doklad.Stav === 'Schváleno') {
+          return json(403, { error: 'Tento doklad už byl schválen - úpravy provádí administrátor nebo účetní.' });
+        }
+        if (zmeny && zmeny.Stav === 'Schváleno') {
+          return json(403, { error: 'Schválení dokladu smí provést jen administrátor nebo účetní.' });
+        }
+      }
 
       const aktualizovany = Object.assign({}, doklad, zmeny || {});
       await updateRow(
@@ -112,6 +147,14 @@ exports.handler = async (event) => {
       if (!doklad) return json(404, { error: 'Doklad nenalezen.' });
       if (!maPristupKDokladu(uzivatel, doklad)) {
         return json(403, { error: 'Nemáte přístup k tomuto dokladu.' });
+      }
+      if (!jeUcetniNeboAdmin(uzivatel)) {
+        if (doklad.Stav === 'Schváleno') {
+          return json(403, { error: 'Schválený doklad může smazat jen administrátor nebo účetní.' });
+        }
+        if (doklad.Nahral_uzivatel !== uzivatel.jmeno) {
+          return json(403, { error: 'Smazat můžete jen doklad, který jste sami nahráli.' });
+        }
       }
 
       await deleteRow(sheets, process.env.SPREADSHEET_ID, 'Doklady', doklad._row);
