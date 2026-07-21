@@ -2140,6 +2140,49 @@ zamítnutí shody, přiřazení k dokladu/dani...) - Jan zvolil jen náhled.
   poznámkou, tlačítko Aktualizovat viditelné všem, účetní a admin s
   plnou funkčností beze změny).
 
+## 53. Oprava: seznam firem v Bankovních výpisech (a jinde) zůstával zacachovaný po předchozím uživateli (v4.13)
+
+Jan po v4.12 nahlásil, že práva u Bankovních výpisů „nesedí“ - u účetní
+appka nejdřív ukazovala firmy, ke kterým přístup nemá, a naopak
+neukazovala firmy, ke kterým přístup má. Po ověření se ukázalo, že
+backend (`banka.js`/`firmy.js`) firmy scopuje správně - šlo o čistě
+frontendovou chybu, kterou Jan sám přesně diagnostikoval druhým
+hlášením: „Bankovní výpisy jen Los Monteros a Sun Valley vidí i admin,
+ale ostatní nevidí“ - tedy že appka ukazuje STEJNÝ (špatný, zbylý)
+seznam firem bez ohledu na to, kdo je zrovna přihlášený.
+
+- **Příčina.** `public/app.js` drží řadu seznamů (výběr firmy pro danou
+  záložku, už načtené záznamy) jako modulové proměnné, které appka mezi
+  jednotlivými návštěvami STEJNÉ záložky záměrně znovu nenačítá (typicky
+  `if (promenna.length === 0) { ... }` u Bankovních výpisů/Vydaných
+  faktur) - ať appka nemusí volat API znovu při každém přepnutí na tu
+  samou záložku. Tyhle proměnné se ale dřív nikdy nemazaly - takže když
+  se appka odhlásila a v TÉŽE kartě prohlížeče (bez tvrdého obnovení
+  stránky, F5) přihlásil JINÝ uživatel, appka mu klidně ukázala zbytky
+  dat po tom prvním uživateli (typicky seznam firem v Bankovních
+  výpisech, appka ho natáhla jen jednou za život té karty).
+- **Oprava.** Nová funkce `vynulujCacheAppky()` (`public/app.js`)
+  vynuluje VŠECHNY tyhle modulové cache (nejen bankovní - i Doklady,
+  Vydané faktury, Smlouvy, Kniha jízd, Export, Daňový přehled) zpátky na
+  jejich výchozí prázdný stav. Appka ji volá jak po úspěšném přihlášení
+  (`prihlasit()`), tak při odhlášení (`odhlasit()`) - dvojitá pojistka,
+  ať se stejná věc nestane příště na jiné záložce, i kdyby appka příště
+  přidala další podobně cachovaný seznam.
+- Appka NEMĚNÍ, jak appka kontroluje přístup na backendu (`banka.js`,
+  `firmy.js` apod. byly a jsou v pořádku) - jde čistě o to, že appka po
+  přepnutí uživatele ve stejné kartě prohlížeče teď VŽDY natáhne
+  čerstvá data znovu, místo aby recyklovala to, co appka měla v paměti
+  z předchozího přihlášení.
+- Čistě frontendová oprava - žádný nový sloupec v Sheets, není potřeba
+  `/api/setup`.
+- Ověřeno jednorázovým Playwright skriptem, který přesně reprodukuje
+  Janův scénář - přihlášení jako účetní (2 přiřazené firmy) přes
+  skutečný přihlašovací formulář, odhlášení tlačítkem, přihlášení jako
+  admin ve STEJNÉ kartě BEZ obnovení stránky - admin teď správně uvidí
+  všech 5 firem (dřív by mu zůstaly jen ty 2 zbylé po účetní) + plnou
+  regresí 46 backendových testů (čistě frontendová změna, žádná
+  regrese).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

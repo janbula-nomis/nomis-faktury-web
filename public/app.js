@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.12 – 2026-07-21';
+const APP_VERZE = 'v4.13 – 2026-07-21';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -131,6 +131,7 @@ async function prihlasit() {
     const data = await zavolejApi('/login', { method: 'POST', body: JSON.stringify({ jmeno, pin }) });
     ulozStav({ token: data.token, jmeno: data.jmeno, firmy: data.firmy, role: data.role });
     document.getElementById('pole-pin').value = '';
+    vynulujCacheAppky();
     zobrazApp();
   } catch (e) {
     zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
@@ -139,8 +140,46 @@ async function prihlasit() {
 
 function odhlasit() {
   ulozStav(null);
+  vynulujCacheAppky();
   zobrazLogin();
   nactiJmenaProPrihlaseni();
+}
+
+// Oprava (v4.13): appka drží řadu seznamů (firmy pro výběr, načtené
+// záznamy dané záložky) jako modulové proměnné, které appka mezi
+// jednotlivými návštěvami STEJNÉ záložky znovu nenačítá (typicky
+// `if (X.length === 0)` - appka to dělá schválně, ať nemusí volat API
+// znovu při každém přepnutí na tu samou záložku). Tyhle proměnné se ale
+// dřív NIKDY nemazaly - takže když se appka odhlásila a v TÉŽE kartě
+// prohlížeče (bez tvrdého obnovení stránky) přihlásil JINÝ uživatel,
+// appka mu klidně ukázala zbytky dat po tom prvním (typicky seznam
+// firem v Bankovních výpisech/Vydaných fakturách) - viz nahlášený
+// problém „účetní/admin vidí jen firmy zbylé po předchozím uživateli“.
+// Appka teď při KAŽDÉM přihlášení i odhlášení všechny tyhle cache
+// vynuluje, ať se druhému uživateli vždy načtou čerstvá data scoped na
+// JEHO účet, ne zbytky po předchozím.
+function vynulujCacheAppky() {
+  firmyProVyberDokladu = [];
+  dokladySeznamAktualni = [];
+  dokladySekce = 'keSchvaleni';
+  danovyPrehledData = null;
+  exportDataDoklady = [];
+  vfFirmySeznam = [];
+  vfFakturySeznam = [];
+  bankaFirmySeznam = [];
+  bankaAktivniFirma = '';
+  bankaPohybySeznam = [];
+  bankaDokladySeznam = [];
+  bankaSmlouvySeznam = [];
+  bankaUctySeznam = [];
+  bankaFakturySeznam = [];
+  smlouvySeznamAktualni = [];
+  prilohySeznamAktualni = [];
+  smlouvySekce = 'aktivni';
+  firmyProVyberSmlouvy = [];
+  firmyProVyberKnihaJizd = [];
+  knihaJizdSekce = 'jizdy';
+  knihaJizdSouhrnData = null;
 }
 
 // ---------- PŘEPÍNÁNÍ POHLEDŮ ----------
