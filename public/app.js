@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.14 – 2026-07-21';
+const APP_VERZE = 'v4.15 – 2026-07-22';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -72,6 +72,51 @@ function prepniMotiv() {
 // takže tlačítko #tlacitko-motiv už v DOM existuje) - ať appka co nejdřív
 // vypadá podle uloženého motivu, ne jen na krátký okamžik ve světlém.
 aplikujMotiv(nactiMotiv());
+
+// ---------- SKINY (volitelné vzhledy appky) ----------
+// (v4.15) Jan chtěl "moderní, černá, zlatá a navy" redesign appky -
+// appka navrhla tři koncepty jako náhledy a Jan chtěl všechny tři
+// natrvalo, s možností přepínání, ne jen jednu pevnou volbu. Appka to
+// řeší úplně stejným vzorem jako existující světlý/tmavý motiv výše
+// (`data-motiv`) - `data-skin` atribut na <html>, hodnota se pamatuje
+// v localStorage, appka ho hned aplikuje při načtení skriptu.
+
+const SKIN_KLIC = 'nomisFakturySkin';
+
+function nactiSkin() {
+  try {
+    return localStorage.getItem(SKIN_KLIC) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function aplikujSkin(skin) {
+  document.documentElement.setAttribute('data-skin', skin);
+  const vyber = document.getElementById('vyber-skinu');
+  if (vyber) vyber.value = skin;
+  // Skin "plna-navy" mění appku na jeden pevný (tmavý) vzhled sám o
+  // sobě (viz public/style.css) - přepínač den/noc by u něj nic
+  // neměnil, appka ho proto radši rovnou schová, ať nenabízí ovladač
+  // bez efektu.
+  const tlacitkoMotiv = document.getElementById('tlacitko-motiv');
+  if (tlacitkoMotiv) {
+    tlacitkoMotiv.disabled = skin === 'plna-navy';
+    tlacitkoMotiv.classList.toggle('skryto', skin === 'plna-navy');
+  }
+}
+
+function zmenSkin(novy) {
+  try {
+    localStorage.setItem(SKIN_KLIC, novy);
+  } catch (e) {
+    // localStorage nedostupné (např. soukromý režim) - skin se prostě
+    // příště po obnovení stránky nezapamatuje, appka jinak funguje dál.
+  }
+  aplikujSkin(novy);
+}
+
+aplikujSkin(nactiSkin());
 
 async function zavolejApi(cesta, moznosti) {
   const opts = moznosti || {};
@@ -244,7 +289,12 @@ function prepniZalozku(nazev) {
   ['nahrat', 'dashboard', 'doklady', 'vydane-faktury', 'prehled', 'kniha-jizd', 'banka', 'smlouvy', 'export', 'nastaveni'].forEach((n) => {
     document.getElementById('zalozka-' + n).classList.toggle('skryto', n !== nazev);
   });
-  document.querySelectorAll('nav.zalozky button').forEach((btn) => {
+  // v4.15 - appka tlačítko "Nahrát doklady" přesunula MIMO nav.zalozky
+  // (vlastní řádek nad navigací, viz public/index.html/style.css), proto
+  // appka místo `nav.zalozky button` cílí na `[data-zalozka]` - appka
+  // ho drží na VŠECH záložkových tlačítkách bez ohledu na to, kde v DOM
+  // zrovna appka sedí, jediný sdílený identifikátor mezi nimi.
+  document.querySelectorAll('[data-zalozka]').forEach((btn) => {
     btn.classList.toggle('aktivni', btn.dataset.zalozka === nazev);
   });
   if (nazev === 'dashboard') nactiDashboard();
@@ -4505,12 +4555,15 @@ document.getElementById('vf-pole-foto').addEventListener('change', (e) => zpracu
 document.getElementById('vf-pole-soubor').addEventListener('change', (e) => zpracujVybranySouborVydaneFaktury(e.target.files[0]));
 document.getElementById('vf-tlacitko-nahrat').addEventListener('click', nahratVydanouFakturu);
 document.getElementById('tlacitko-motiv').addEventListener('click', prepniMotiv);
+document.getElementById('vyber-skinu').addEventListener('change', (e) => zmenSkin(e.target.value));
 document.getElementById('tlacitko-export-zobrazit').addEventListener('click', vykresliPrehledExport);
 ['export-firma', 'export-mesic', 'export-rok', 'export-stredisko'].forEach((id) => {
   document.getElementById(id).addEventListener('change', vykresliPrehledExport);
 });
 
-document.querySelectorAll('nav.zalozky button').forEach((btn) => {
+// v4.15 - viz poznámka u prepniZalozku() výše, stejný důvod pro
+// `[data-zalozka]` místo `nav.zalozky button`.
+document.querySelectorAll('[data-zalozka]').forEach((btn) => {
   btn.addEventListener('click', () => prepniZalozku(btn.dataset.zalozka));
 });
 

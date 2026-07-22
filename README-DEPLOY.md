@@ -2246,6 +2246,89 @@ podle Janovy volby (přes tři otázky) implementovala:
   změny u smluv, co pořadí už mají) + plná regrese 48 backendových
   testů.
 
+## 55. „Nahrát doklady" na vlastním řádku mimo mřížku + volitelný barevný skin appky (v4.15)
+
+Dvě samostatné Janovy žádosti ze stejné konverzace, appka je nasazuje
+společně jako jednu verzi.
+
+### a) „Nahrát doklady" – oprava proporcí (Varianta D)
+
+Po nasazení v4.14 Jan napsal: „musíme to udělat jinak, tohle není
+proporční" – appce vadil jak celý koncept (vlastní řádek přes celou
+šířku navigační mřížky), tak výška/tloušťka tlačítka. Appka přes
+Playwright ukázala šest variant (tři „v mřížce", tři „mimo mřížku") a
+Jan vybral variantu D: appka tlačítko „Nahrát doklady" přesunula
+ÚPLNĚ MIMO navigační mřížku (`nav.zalozky`) na vlastní řádek hned nad
+ní, s přirozenou (ne roztaženou) šířkou a stejnými hranatými rohy a
+běžnou velikostí písma jako ostatní tlačítka appky – žádné zvětšování.
+Appka přidala nový obal `.radek-nahrat-cta` v `public/index.html` a
+třídu `.tlacitko-nahrat-cta` v `public/style.css` (nahrazuje starý
+`grid-column: 1 / -1` přístup). Protože appka tlačítko vyjmula z
+`nav.zalozky`, appka musela v `public/app.js` opravit i přepínání
+záložek – obě místa, která dřív hledala tlačítka appky přes
+`nav.zalozky button`, appka přepsala na selektor podle atributu
+`[data-zalozka]`, nezávislý na tom, kde se tlačítko v DOM nachází.
+Ověřeno Playwright skriptem: tlačítko appka po startu appky ukazuje
+jako aktivní, přepínání záložek funguje oběma směry, appka
+nepřetéká na mobilu.
+
+### b) Volitelný barevný skin appky (výběr vzhledu)
+
+Jan: „navrhni redesign, moderní, černá, zlatá a navy, aspoň 3" – appka
+navrhla tři koncepty (odvozené z barev appčina loga – tmavě modrá +
+zlatá) a po jejich schválení Jan požádal o všechny tři najednou s
+možností přepínání: „udělej všechny 3 s možností výběru skinu". Appka
+přidala do hlavičky appky (`.hlavicka-app`) nový výběr `<select
+id="vyber-skinu">` vedle stávajícího přepínače světlý/tmavý režim, se
+čtyřmi možnostmi:
+
+- **Klasická** (výchozí, appka vypadá stejně jako v předchozích
+  verzích),
+- **Navy hlavička** – tmavě modrá hlavička appky + zlaté tlačítko
+  „Nahrát doklady", zbytek appky beze změny,
+- **Černá a zlatá** – černá hlavička i navigační lišta appky, zlatý
+  text nadpisu a zlatě zvýrazněná aktivní záložka,
+- **Celá navy** – appka přebarví celé pozadí/karty/text appky do
+  tmavě modré s zlatými akcenty (na rozdíl od předchozích dvou nejde
+  jen o „rámeček", appka mění vzhled celé appky).
+
+Appka řešení postavila na naprosto stejném vzoru, jaký appka už
+používala pro přepínač světlý/tmavý režim: atribut `data-skin` na
+`<html>`, appka ho ukládá do `localStorage` (klíč
+`nomisFakturySkin`), appka ho aplikuje/čte přes nové funkce
+`aplikujSkin()`/`nactiSkin()`/`zmenSkin()` v `public/app.js`. Barvy
+appka definuje jako nové bloky v `public/style.css`
+(`:root[data-skin="navy"]`, `:root[data-skin="cerna-zlata"]`,
+`:root[data-skin="plna-navy"]`), formou přepisu appčiných CSS
+proměnných (`--barva-primarni`, `--barva-pozadi`, `--barva-karta`
+atd.), takže appka nemusela měnit žádné HTML markup ani duplikovat
+styly.
+
+Dvě věci appka řeší speciálně:
+
+- Skin **„Celá navy"** appka záměrně vykresluje STEJNĚ bez ohledu na
+  to, jestli appka má zapnutý světlý nebo tmavý režim (jde o pevně
+  tmavý vzhled) – appka proto přepínač den/noc appky u tohoto skinu
+  automaticky schová a appka ho deaktivuje (nemá u tohoto skinu žádný
+  viditelný efekt).
+- Výběr skinu appka zobrazuje jen v hlavičce appky po přihlášení,
+  přihlašovací obrazovka appky žádný výběr skinu nenabízí – barevné
+  „rámečkové" skiny (Navy hlavička, Černá a zlatá) proto appka na
+  přihlašovací obrazovce vůbec neuplatní (tam appka žádnou hlavičku
+  appky nemá), skin „Celá navy" appka na přihlašovací obrazovce
+  přesto vidět je, protože ten mění barvy appky globálně.
+
+Ověřeno Playwright skriptem: appka správně nastavuje `data-skin`
+podle výběru, appka si vybraný skin pamatuje po obnovení stránky (i
+hodnota v `<select>`), appka správně schovává/zobrazuje přepínač
+den/noc, appka nemá žádnou regresi v přepínání záložek, a appka
+nemá žádné horizontální přetečení u žádné ze 7 kombinací
+skin/režim na šířce 1100px ani na mobilní šířce 390px. Čistě
+frontendová změna (`public/index.html`, `public/style.css`,
+`public/app.js`), žádný zásah do backendu ani Google Sheets – plná
+regrese 48 backendových testů proto appka pustila jen pro jistotu,
+beze změny výsledků.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

@@ -35,14 +35,28 @@
         <h1>NOMIS Group evidence dokladů</h1>
       </div>
       <div class="uzivatel">
+        <select id="vyber-skinu" title="Vzhled appky">
+          <option value="">Klasická</option>
+          <option value="navy">Navy hlavička</option>
+          <option value="cerna-zlata">Černá a zlatá</option>
+          <option value="plna-navy">Celá navy</option>
+        </select>
         <button class="prepinac-ikona" id="tlacitko-motiv" type="button" title="Přepnout světlý/tmavý režim" aria-pressed="false">🌙</button>
         <div id="jmeno-uzivatele"></div>
         <button class="sekundarni maly" id="tlacitko-odhlasit">Odhlásit</button>
       </div>
     </div>
 
+    <!-- (v4.15) Jan: plnořádkový banner "nesedí" a je "moc tlustý" -
+         appka tlačítko "Nahrát doklady" přesunula ÚPLNĚ MIMO mřížku
+         záložek (nav.zalozky), na vlastní řádek hned nad ní, přirozené
+         (ne roztažené) šířky - viz styl .radek-nahrat-cta/.tlacitko-
+         nahrat-cta v public/style.css. -->
+    <div class="radek-nahrat-cta">
+      <button data-zalozka="nahrat" class="aktivni tlacitko-nahrat-cta">⬆ Nahrát doklady</button>
+    </div>
+
     <nav class="zalozky">
-      <button data-zalozka="nahrat" class="aktivni">Nahrát doklady</button>
       <button data-zalozka="dashboard" id="nav-dashboard">Dashboard</button>
       <button data-zalozka="doklady">Přijaté faktury</button>
       <button data-zalozka="vydane-faktury">Vydané faktury</button>
