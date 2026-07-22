@@ -29,7 +29,7 @@ const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { UCTY_HEADERS } = require('../../lib/uctySchema');
-const { SMLOUVY_HEADERS } = require('../../lib/smlouvySchema');
+const { SMLOUVY_HEADERS, dalsiPoradiSmlouvy } = require('../../lib/smlouvySchema');
 const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
 const { KNIHA_JIZD_HEADERS } = require('../../lib/knihaJizdSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
@@ -195,6 +195,39 @@ exports.handler = async (event) => {
       }
     } catch (e) {
       vysledky.push('Smlouvy: doplnění čísla smlouvy se nezdařilo (' + e.message + ') - appka pokračuje dál.');
+    }
+
+    // Zpětné dopočítání Poradi u existujících smluv (od v4.14, Jan: "u
+    // smluv by šlo aby se daly posouvat jejich pořadí?") - smlouvy založené
+    // appkou PŘED zavedením vlastního pořadí ho ještě nemají. Appka jim
+    // přidělí pořadí PODLE STEJNÉHO řazení, jaké appka do teď používala
+    // (abecedně podle Názvu, stejný komparátor jako `public/app.js`), ať se
+    // seznam po nasazení téhle verze appce vizuálně nepřerovná - teprve
+    // odsud appka řadí podle Poradi, uživatel ho pak mění přetažením.
+    // Na rozdíl od Cislo_smlouvy appka NEVYNECHÁVÁ placeholder smlouvy bez
+    // Firmy ("Zpracovává se") - appka je totiž ukazuje v seznamu (v sekci
+    // Aktivní) hned, potřebují tedy vlastní pořadí stejně jako ostatní.
+    try {
+      const { rows: vsechnySmlouvyPoradi } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy');
+      const kDoplneniPoradi = vsechnySmlouvyPoradi
+        .filter((s) => String(s.Poradi || '').trim() === '')
+        .slice()
+        .sort((a, b) => (a.Nazev || '').localeCompare(b.Nazev || '', 'cs'));
+
+      if (kDoplneniPoradi.length > 0) {
+        let dalsiPoradi = dalsiPoradiSmlouvy(vsechnySmlouvyPoradi);
+        for (const smlouva of kDoplneniPoradi) {
+          const aktualizovana = Object.assign({}, smlouva, { Poradi: String(dalsiPoradi) });
+          await updateRow(sheets, spreadsheetId, 'Smlouvy', SMLOUVY_HEADERS, smlouva._row, aktualizovana);
+          dalsiPoradi += 1;
+        }
+        vysledky.push(
+          'Smlouvy: doplněno vlastní pořadí u ' + kDoplneniPoradi.length + ' existujících smluv ' +
+          '(zachovává dosavadní abecední pořadí podle Názvu).'
+        );
+      }
+    } catch (e) {
+      vysledky.push('Smlouvy: doplnění pořadí se nezdařilo (' + e.message + ') - appka pokračuje dál.');
     }
 
     const drive = await getDriveClient();

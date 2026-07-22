@@ -2183,6 +2183,69 @@ seznam firem bez ohledu na to, kdo je zrovna přihlášený.
   regresí 46 backendových testů (čistě frontendová změna, žádná
   regrese).
 
+## 54. „Nahrát doklady" jako výrazné tlačítko na vlastním řádku + přetahovací pořadí Smluv myší (v4.14)
+
+Dvě samostatné Janovy žádosti ze stejné konverzace, appka je nasazuje
+společně jako jednu verzi.
+
+### a) „Nahrát doklady" 2× větší, na vlastním řádku
+
+Jan: „šlo by aby nahrát doklady bylo 2x větší? ukaž mi to" - appka
+postupně (na základě tří ukázek přes Playwright screenshoty, včetně
+ověření na mobilu 390/360/320px) došla k finální podobě, kterou Jan
+výslovně potvrdil: tlačítko „Nahrát doklady" appka vykresluje na
+VLASTNÍM řádku přes celou šířku navigační mřížky
+(`grid-column: 1 / -1`), s dvojnásobným písmem (25px) a větším
+odsazením - zbytek navigace zůstává v původní velikosti a appka ho
+zalomí na řádky pod ním. Čistě CSS změna (`public/style.css`), žádný
+zásah do `app.js` ani backendu.
+
+### b) Registr smluv - přetahovací pořadí myší (drag & drop)
+
+Jan: „ještě u smluv by šlo aby se daly posouvat jejich pořadí?" - appka
+podle Janovy volby (přes tři otázky) implementovala:
+
+- **Přetažení myší** (ne šipky nahoru/dolů) - appka do prvního
+  (šipkového) sloupce seznamu smluv přidala tahadlo (ikona ⠿,
+  `.smlouva-tahadlo`) vedle dosavadní rozbalovací šipky - žádný nový
+  sloupec v gridu, appka jen rozšířila první sloupec (16px → 34px na
+  desktopu, obdobně na obou mobilních breakpointech).
+- **Vlastní pořadí ZVLÁŠŤ pro Aktivní/Neaktivní** sekci - appka v
+  danou chvíli v DOM vykresluje jen řádky JEDNÉ sekce, takže přesun v
+  jedné appku vůbec nedotkne pořadí té druhé.
+- **Nahrazuje** dosavadní abecední řazení podle Názvu úplně (žádný
+  přepínač) - appka nově řadí podle nového sloupce `Poradi` (celé
+  číslo, nižší = výš), s abecedním řazením jako záložním kritériem u
+  smluv se stejným/chybějícím pořadím.
+- Appka nové smlouvy (ruční založení i placeholder „Zpracovává se" u
+  nahrané smlouvy před AI zpracováním) vždy přidává AŽ ZA poslední
+  existující - nikdy doprostřed.
+- **Backend:** nový sloupec `Poradi` v listu `Smlouvy`
+  (`lib/smlouvySchema.js`), přidělovaný v `netlify/functions/smlouvy.js`
+  (POST) a `netlify/functions/smlouvy-upload.js` (placeholder), ukládaný
+  přes běžný PATCH. Existující smlouvy založené appkou PŘED v4.14 appka
+  jednorázově dočísluje při spuštění `/api/setup`
+  (`netlify/functions/setup.js`) - v pořadí, v jakém appka smlouvy do
+  té doby zobrazovala (abecedně podle Názvu), ať se seznam appce po
+  nasazení vizuálně nepřerovná. Na rozdíl od obdobného dočíslování
+  `Cislo_smlouvy` appka u `Poradi` NEVYNECHÁVÁ placeholder smlouvy -
+  ty se v seznamu zobrazují hned, potřebují tedy pořadí stejně jako
+  ostatní.
+- **Po nasazení této verze je potřeba jednou spustit `/api/setup`**,
+  ať appka doplní `Poradi` u smluv založených appkou před v4.14 (stejný
+  krok jako appka vyžadovala u předchozích podobných backfillů, např.
+  v4.2 u čísla smlouvy).
+- Ověřeno Playwright skriptem (simulace přetažení řádku přes
+  `dragstart`/`dragover`/`drop` eventy) - potvrzeno správné
+  přeuspořádání v DOM, správná PATCH volání jen u SKUTEČNĚ změněných
+  smluv, a že přesun v Aktivní sekci appka nedotkne Neaktivní. Dva nové
+  backendové testy (`test_smlouvy_poradi.js`,
+  `test_smlouvy_poradi_setup.js`) ověřují přidělování pořadí u
+  POST/upload i zpětné dočíslování v `/api/setup` (zachování
+  dosavadního abecedního pořadí, dočíslování i placeholderů, beze
+  změny u smluv, co pořadí už mají) + plná regrese 48 backendových
+  testů.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

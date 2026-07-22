@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.13 – 2026-07-21';
+const APP_VERZE = 'v4.14 – 2026-07-21';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -3409,6 +3409,11 @@ function stavTextSmlouva(s) {
   return 'Aktivní';
 }
 
+// v4.14 (Jan: "u smluv by šlo aby se daly posouvat jejich pořadí?") -
+// appka drží ID smlouvy zrovna tažené myší (drag & drop), appka ho čte v
+// dragover na JINÝCH řádcích, ať pozná, kterou smlouvu má přesouvat.
+let smlouvaTazenaId = null;
+
 function vykresliSmlouvy(smlouvy, prilohy) {
   smlouvySeznamAktualni = smlouvy;
   prilohySeznamAktualni = prilohy;
@@ -3419,7 +3424,18 @@ function vykresliSmlouvy(smlouvy, prilohy) {
   document.getElementById('sm-sekce-neaktivni').textContent = 'Neaktivní (' + neaktivniPocet + ')';
 
   const filtrovane = smlouvy.filter((s) => (smlouvySekce === 'neaktivni' ? jeSmlouvaNeaktivni(s) : !jeSmlouvaNeaktivni(s)));
-  const serazene = filtrovane.slice().sort((a, b) => (a.Nazev || '').localeCompare(b.Nazev || '', 'cs'));
+  // v4.14: appka řadí podle vlastního (přetažením měnitelného) pořadí
+  // Poradi místo dřívějšího abecedního řazení podle Názvu - smlouvy bez
+  // Poradi (mělo by appku dohnat /api/setup, viz setup.js) appka defenzivně
+  // zařadí až za všechny s vyplněným pořadím, ať appka nespadne na NaN.
+  const serazene = filtrovane.slice().sort((a, b) => {
+    const pa = Number(a.Poradi);
+    const pb = Number(b.Poradi);
+    const cislaA = Number.isFinite(pa) ? pa : Number.MAX_SAFE_INTEGER;
+    const cislaB = Number.isFinite(pb) ? pb : Number.MAX_SAFE_INTEGER;
+    if (cislaA !== cislaB) return cislaA - cislaB;
+    return (a.Nazev || '').localeCompare(b.Nazev || '', 'cs');
+  });
 
   kontejner.innerHTML = '';
   serazene.forEach((s) => {
@@ -3438,6 +3454,7 @@ function vykresliSmlouvy(smlouvy, prilohy) {
 function vytvorRadekSmlouva(s, prilohyTeto) {
   const radek = document.createElement('div');
   radek.className = 'smlouva-radek radek-' + stavTridaSmlouva(s);
+  radek.dataset.smlouvaId = s.ID;
 
   const hlava = document.createElement('div');
   hlava.className = 'smlouva-radek-hlava';
@@ -3450,10 +3467,18 @@ function vytvorRadekSmlouva(s, prilohyTeto) {
   // výš + `.radek-stav-*` v style.css), ne samostatným chipem v řádku.
   // Appka i tady vykresluje VŠECHNY gridové sloupce vždy (i prázdné), ať se
   // se zarovnáním napříč řádky nic nerozbije (stejný důvod jako v4.3).
+  // (v4.14): appka do prvního (šipkového) sloupce navíc přidala tahadlo
+  // (⠿) pro přetažení - appka ho schválně nechala ve STEJNÉM gridovém
+  // sloupci jako šipku rozbalení, ať appka nemusí přidávat další sloupec
+  // do gridu (a tím i měnit `nth-child` pravidla pro schovávání sloupců
+  // na mobilu, viz breakpoints níže).
   const smluvniStrany = [s.Firma, s.Druha_strana].filter(Boolean).join(' / ');
   const platnost = [s.Platnost_od, s.Platnost_do].filter(Boolean).join(' - ');
   hlava.innerHTML =
-    '<span class="smlouva-sipka">▶</span>' +
+    '<span class="smlouva-poradi-sipka">' +
+      '<span class="smlouva-tahadlo" draggable="true" title="Přetáhněte pro změnu pořadí">⠿</span>' +
+      '<span class="smlouva-sipka">▶</span>' +
+    '</span>' +
     '<span class="cislo-smlouvy">' + escapeHtml(s.Cislo_smlouvy || '') + '</span>' +
     '<span class="nazev-smlouvy">' +
       escapeHtml(s.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (s.Nazev || '(bez názvu)')) +
@@ -3473,9 +3498,79 @@ function vytvorRadekSmlouva(s, prilohyTeto) {
     }
   });
 
+  // v4.14 - drag & drop přesun pořadí. Appka tažení váže jen na samotné
+  // tahadlo (ne na celý řádek), ať se nebije s klikáním na řádek (rozbalení)
+  // ani s tlačítky uvnitř rozbaleného detailu.
+  const tahadlo = hlava.querySelector('.smlouva-tahadlo');
+  tahadlo.addEventListener('click', (e) => e.stopPropagation());
+  tahadlo.addEventListener('dragstart', (e) => {
+    smlouvaTazenaId = s.ID;
+    radek.classList.add('tazeny');
+    e.stopPropagation();
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', s.ID);
+  });
+  tahadlo.addEventListener('dragend', () => {
+    radek.classList.remove('tazeny');
+    smlouvaTazenaId = null;
+  });
+  // dragover/drop appka poslouchá na CELÉM řádku (ne jen na tahadle), ať
+  // appka pozná přetažení nad libovolnou částí cílového řádku.
+  radek.addEventListener('dragover', (e) => {
+    if (!smlouvaTazenaId || smlouvaTazenaId === s.ID) return;
+    e.preventDefault();
+    const kontejner = radek.parentElement;
+    const tazenyRadek = kontejner && kontejner.querySelector('.smlouva-radek[data-smlouva-id="' + smlouvaTazenaId + '"]');
+    if (!kontejner || !tazenyRadek || tazenyRadek === radek) return;
+    const obdelnik = radek.getBoundingClientRect();
+    const zaPolovinou = e.clientY - obdelnik.top > obdelnik.height / 2;
+    kontejner.insertBefore(tazenyRadek, zaPolovinou ? radek.nextSibling : radek);
+  });
+  radek.addEventListener('drop', (e) => {
+    e.preventDefault();
+    ulozNovePoradiSmluv();
+  });
+
   radek.appendChild(hlava);
   radek.appendChild(detail);
   return radek;
+}
+
+// v4.14 - appka po puštění přetaženého řádku přečte AKTUÁLNÍ pořadí
+// řádků přímo z DOM (appka ho během dragover živě přeuspořádávala) a
+// uloží nová Poradi jen u těch smluv, kterým se skutečně změnilo - appka
+// tím zároveň zajistí, že pořadí appka mění jen v RÁMCI zrovna zobrazené
+// sekce (Aktivní/Neaktivní), protože v kontejneru appka v danou chvíli
+// vykresluje vždy jen řádky jedné sekce.
+async function ulozNovePoradiSmluv() {
+  const kontejner = document.getElementById('smlouvy-seznam');
+  const idPoPoradi = Array.from(kontejner.querySelectorAll('.smlouva-radek[data-smlouva-id]')).map(
+    (el) => el.dataset.smlouvaId
+  );
+
+  const zmeny = [];
+  idPoPoradi.forEach((id, index) => {
+    const s = smlouvySeznamAktualni.find((x) => x.ID === id);
+    if (s && Number(s.Poradi) !== index) {
+      zmeny.push({ id, poradi: index });
+    }
+  });
+  if (zmeny.length === 0) return;
+
+  try {
+    await Promise.all(
+      zmeny.map((z) =>
+        zavolejApi('/smlouvy', { method: 'PATCH', body: JSON.stringify({ id: z.id, zmeny: { Poradi: String(z.poradi) } }) })
+      )
+    );
+    zmeny.forEach((z) => {
+      const s = smlouvySeznamAktualni.find((x) => x.ID === z.id);
+      if (s) s.Poradi = String(z.poradi);
+    });
+  } catch (e) {
+    alert('Nepodařilo se uložit nové pořadí smluv (' + e.message + '). Appka teď seznam znovu načte.');
+    await nactiSmlouvy();
+  }
 }
 
 // Sekce příloh v detailu smlouvy (od v3.21) - seznam souborů (smlouva samotná

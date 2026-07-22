@@ -31,7 +31,7 @@
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects, appendRow, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
-const { SMLOUVY_HEADERS } = require('../../lib/smlouvySchema');
+const { SMLOUVY_HEADERS, dalsiPoradiSmlouvy } = require('../../lib/smlouvySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
@@ -108,6 +108,9 @@ exports.handler = async (event) => {
       // viz smlouvy-upload-dokoncit.js.
       const { rows: existujiciSmlouvy } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy');
       const cisloSmlouvy = vygenerujCisloSmlouvy(existujiciSmlouvy, new Date().getFullYear());
+      // Pořadí appka přiděluje stejně, ať appka smlouvu vždy přidá na konec
+      // vlastního pořadí uživatele (v4.14), ne doprostřed.
+      const poradi = dalsiPoradiSmlouvy(existujiciSmlouvy);
 
       const smlouva = {
         ID: crypto.randomUUID(),
@@ -126,6 +129,7 @@ exports.handler = async (event) => {
         Zdrojovy_soubor_ID: String(telo.Zdrojovy_soubor_ID || '').trim(),
         Poznamka: String(telo.Poznamka || '').trim(),
         Aktivni: String(telo.Aktivni || 'ANO').trim() || 'ANO',
+        Poradi: String(poradi),
       };
       await appendRow(sheets, spreadsheetId, 'Smlouvy', SMLOUVY_HEADERS, smlouva);
 

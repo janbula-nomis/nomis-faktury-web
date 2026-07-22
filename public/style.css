@@ -109,6 +109,16 @@ nav.zalozky button[data-zalozka="nahrat"] { background: var(--barva-chyba); colo
 nav.zalozky button[data-zalozka="nahrat"]:hover,
 nav.zalozky button[data-zalozka="nahrat"].aktivni { background: #b32a23; border-color: #b32a23; }
 
+/* Jan (2026-07-21): "Nahrát doklady" 2x větší než ostatní tlačítka a
+   appka mu dala celý řádek samostatně (přes VŠECHNY sloupce gridu) -
+   zbytek navigace appka nechala v původní velikosti a appka ho zalomí
+   na řádky pod ním. */
+nav.zalozky button[data-zalozka="nahrat"] {
+  grid-column: 1 / -1;
+  font-size: 25px;
+  padding: 14px 24px;
+}
+
 .hlavicka-app { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .hlavicka-app .uzivatel { font-size: 12px; color: var(--barva-text-tlumena); text-align: right; }
 
@@ -211,7 +221,10 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
    ze stejného důvodu jako v4.3 - ať sloupce zůstanou zarovnané pod sebou. */
 .smlouva-radek-hlava, .smlouva-radek-hlavicka {
   display: grid;
-  grid-template-columns: 16px 100px minmax(140px, 1.3fr) minmax(160px, 1.3fr) 90px 175px;
+  /* (v4.14) První sloupec appka rozšířila ze 16px na 34px - drží teď VEDLE
+     sebe jak tahadlo pro přesun pořadí (.smlouva-tahadlo), tak dosavadní
+     rozbalovací šipku (.smlouva-sipka), viz .smlouva-poradi-sipka níže. */
+  grid-template-columns: 34px 100px minmax(140px, 1.3fr) minmax(160px, 1.3fr) 90px 175px;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -231,6 +244,23 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .smlouva-radek-detail .radek-akci { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
 .smlouva-radek.radek-stav-zpracovava { background: #f0f3ff; border-left: 3px solid var(--barva-primarni); }
 .smlouva-radek.radek-stav-neaktivni { background: #f4f5f7; border-left: 3px solid var(--barva-text-tlumena); }
+
+/* (v4.14) Přetažení pořadí smluv myší - tahadlo appka zobrazuje VEDLE
+   dosavadní rozbalovací šipky ve stejné (první) buňce gridu, ať appka
+   nemusí přidávat nový sloupec a měnit `nth-child` pravidla na mobilu níž. */
+.smlouva-poradi-sipka { display: flex; align-items: center; gap: 2px; }
+.smlouva-tahadlo {
+  cursor: grab;
+  color: var(--barva-text-tlumena);
+  font-size: 15px;
+  line-height: 1;
+  user-select: none;
+  padding: 2px;
+}
+.smlouva-tahadlo:active { cursor: grabbing; }
+/* Appka řádek zrovna taženy vizuálně ztlumí, ať je jasné, který řádek se
+   přesouvá (stejný princip jako appka jinde značí "aktivní"/"vybraný" stav). */
+.smlouva-radek.tazeny { opacity: 0.4; }
 .priloha-smlouvy-seznam { list-style: none; padding: 0; margin: 6px 0; font-size: 12.5px; }
 .priloha-smlouvy-seznam li { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--barva-hranice); }
 .priloha-smlouvy-seznam li:last-child { border-bottom: none; }
@@ -380,7 +410,7 @@ input[type="file"] { margin-top: 8px; }
      obrazovku ani se nezmenšují na nečitelnou šířku. Zbytek appka pořád
      najdete po rozkliknutí řádku (detail appka nijak nemění). */
   .smlouva-radek-hlava, .smlouva-radek-hlavicka {
-    grid-template-columns: 14px 74px minmax(90px, 1fr) minmax(90px, 1fr) 70px;
+    grid-template-columns: 30px 74px minmax(90px, 1fr) minmax(90px, 1fr) 70px;
   }
   .smlouva-radek-hlava > span:nth-child(6), .smlouva-radek-hlavicka > span:nth-child(6) { display: none; }
 
@@ -409,7 +439,7 @@ input[type="file"] { margin-top: 8px; }
   /* Na opravdu úzkém mobilu appka schová i předposlední sloupec skládaných
      řádků (Částka/Ujeté km), ať zbydou jen 4 nejdůležitější pole vedle
      sebe - zbytek je vždy dostupný po rozkliknutí. */
-  .smlouva-radek-hlava, .smlouva-radek-hlavicka { grid-template-columns: 14px 70px minmax(80px, 1fr) minmax(80px, 1fr); }
+  .smlouva-radek-hlava, .smlouva-radek-hlavicka { grid-template-columns: 28px 70px minmax(80px, 1fr) minmax(80px, 1fr); }
   .smlouva-radek-hlava > span:nth-child(5), .smlouva-radek-hlavicka > span:nth-child(5) { display: none; }
 
   .vf-radek-hlava, .vf-radek-hlavicka { grid-template-columns: 14px 60px minmax(80px, 1fr) 70px; }

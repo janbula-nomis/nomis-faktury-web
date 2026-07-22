@@ -29,7 +29,7 @@ const crypto = require('crypto');
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { readSheetObjects, appendRow } = require('../../lib/sheetsHelpers');
-const { SMLOUVY_HEADERS } = require('../../lib/smlouvySchema');
+const { SMLOUVY_HEADERS, dalsiPoradiSmlouvy } = require('../../lib/smlouvySchema');
 const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
 const { json } = require('../../lib/http');
 
@@ -106,7 +106,13 @@ exports.handler = async (event) => {
 
     // Případ 1: nová smlouva - placeholder řádek se stavem "Zpracovává se",
     // stejný vzor jako u Dokladů (viz upload.js) - fáze 2 (AI vytěžení)
-    // frontend zavolá hned poté (smlouvy-upload-dokoncit.js).
+    // frontend zavolá hned poté (smlouvy-upload-dokoncit.js). Pořadí appka
+    // přiděluje hned tady (v4.14) - appka ho appka i placeholderu přidá na
+    // konec vlastního pořadí uživatele, ať appka novou smlouvu neukáže
+    // uprostřed seznamu ještě před dokončením AI zpracování.
+    const { rows: existujiciSmlouvyPoPoradi } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Smlouvy').catch(
+      () => ({ rows: [] })
+    );
     const smlouva = {
       ID: crypto.randomUUID(),
       Firma: '',
@@ -123,6 +129,7 @@ exports.handler = async (event) => {
       Aktivni: 'ANO',
       Stav: 'Zpracovává se',
       Nahral_uzivatel: uzivatel.jmeno || '',
+      Poradi: String(dalsiPoradiSmlouvy(existujiciSmlouvyPoPoradi)),
     };
     await appendRow(sheets, process.env.SPREADSHEET_ID, 'Smlouvy', SMLOUVY_HEADERS, smlouva);
 
