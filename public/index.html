@@ -582,6 +582,18 @@
 
   <footer class="patka-verze">Verze appky: <span id="verze-cislo"></span></footer>
 
+  <!-- (v4.17) Automatické odhlášení po 5 min neaktivity - appka appce
+       hned zobrazí varování s odpočtem 10 s před samotným odhlášením,
+       ať uživatel o rozdělanou práci nepřijde bez varování. Mimo
+       #view-app appku JS nikdy nezobrazí (viz spustIdleSledovani() v
+       public/app.js). -->
+  <div id="varovani-odhlaseni" class="varovani-odhlaseni-overlay skryto">
+    <div class="varovani-odhlaseni-box">
+      <p>Kvůli neaktivitě budete automaticky odhlášeni za <strong id="varovani-odhlaseni-cas">10</strong> s.</p>
+      <button id="tlacitko-zustat-prihlasen" type="button">Zůstat přihlášen</button>
+    </div>
+  </div>
+
 </div>
 <script src="app.js"></script>
 </body>

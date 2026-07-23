@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.16 – 2026-07-23';
+const APP_VERZE = 'v4.18 – 2026-07-23';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -185,6 +185,7 @@ async function prihlasit() {
 }
 
 function odhlasit() {
+  zastavIdleSledovani();
   ulozStav(null);
   vynulujCacheAppky();
   zobrazLogin();
@@ -284,6 +285,74 @@ function zobrazApp() {
   if (!jeUcetniNeboAdmin) dokladySekce = 'keSchvaleni';
 
   prepniZalozku('nahrat');
+  spustIdleSledovani();
+}
+
+// ---------- AUTOMATICKÉ ODHLÁŠENÍ PO NEAKTIVITĚ (v4.17) ----------
+// Jan: "budeš umět udělat automatické odhlášení uživatele po 5 min?" -
+// appka odhlašuje podle NEAKTIVITY (ne pevný časovač od přihlášení),
+// 10 s před samotným odhlášením appka zobrazí varování s odpočtem a
+// tlačítkem "Zůstat přihlášen" - týká se všech rolí stejně.
+const IDLE_LIMIT_MS = 5 * 60 * 1000; // 5 minut
+const IDLE_VAROVANI_MS = 10 * 1000; // varování 10 s před odhlášením
+const IDLE_UDALOSTI = ['click', 'keydown', 'scroll', 'touchstart'];
+
+let idleSledovaniAktivni = false;
+let idleTimerVarovani = null;
+let idleTimerOdpocet = null;
+let idleZbyvaSekund = 0;
+
+function spustIdleSledovani() {
+  if (idleSledovaniAktivni) return; // appka posluchače přidává jen jednou
+  idleSledovaniAktivni = true;
+  IDLE_UDALOSTI.forEach((udalost) => {
+    document.addEventListener(udalost, idleResetovatPriAktivite, { passive: true });
+  });
+  idleResetovatCasovac();
+}
+
+function zastavIdleSledovani() {
+  idleSledovaniAktivni = false;
+  IDLE_UDALOSTI.forEach((udalost) => {
+    document.removeEventListener(udalost, idleResetovatPriAktivite);
+  });
+  clearTimeout(idleTimerVarovani);
+  clearInterval(idleTimerOdpocet);
+  skrytVarovaniOdhlaseni();
+}
+
+function idleResetovatPriAktivite() {
+  if (!idleSledovaniAktivni) return;
+  idleResetovatCasovac();
+}
+
+function idleResetovatCasovac() {
+  clearTimeout(idleTimerVarovani);
+  clearInterval(idleTimerOdpocet);
+  skrytVarovaniOdhlaseni();
+  idleTimerVarovani = setTimeout(zobrazVarovaniOdhlaseni, IDLE_LIMIT_MS - IDLE_VAROVANI_MS);
+}
+
+function zobrazVarovaniOdhlaseni() {
+  const overlay = document.getElementById('varovani-odhlaseni');
+  if (!overlay) return;
+  overlay.classList.remove('skryto');
+  idleZbyvaSekund = Math.round(IDLE_VAROVANI_MS / 1000);
+  document.getElementById('varovani-odhlaseni-cas').textContent = idleZbyvaSekund;
+  idleTimerOdpocet = setInterval(() => {
+    idleZbyvaSekund -= 1;
+    if (idleZbyvaSekund <= 0) {
+      clearInterval(idleTimerOdpocet);
+      odhlasit();
+      return;
+    }
+    document.getElementById('varovani-odhlaseni-cas').textContent = idleZbyvaSekund;
+  }, 1000);
+}
+
+function skrytVarovaniOdhlaseni() {
+  const overlay = document.getElementById('varovani-odhlaseni');
+  if (overlay) overlay.classList.add('skryto');
 }
 
 function prepniZalozku(nazev) {
@@ -2211,7 +2280,7 @@ function vytvorRadekBanka(p) {
     '<span>' + escapeHtml(p.Datum || '') + '</span>' +
     '<span>' + escapeHtml(p.Protistrana || p.Typ_pohybu || '') + '</span>' +
     bankaStavBadge(p.Stav_parovani) +
-    '<span class="castka ' + castkaTrida + '">' + formatCastka(p.Castka) + '</span>';
+    '<span class="castka ' + castkaTrida + '">' + formatCastkaSMenou(p.Castka, p.Mena) + '</span>';
 
   const detail = document.createElement('div');
   detail.className = 'banka-radek-detail';
@@ -4511,6 +4580,7 @@ document.getElementById('pole-pin').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') prihlasit();
 });
 document.getElementById('tlacitko-odhlasit').addEventListener('click', odhlasit);
+document.getElementById('tlacitko-zustat-prihlasen').addEventListener('click', idleResetovatCasovac);
 document.getElementById('tlacitko-vyfotit').addEventListener('click', () => document.getElementById('pole-foto').click());
 document.getElementById('tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('pole-soubor').click());
 document.getElementById('pole-foto').addEventListener('change', (e) => zpracujVybranySoubor(e.target.files[0]));

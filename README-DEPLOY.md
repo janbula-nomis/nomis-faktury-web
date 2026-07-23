@@ -2392,6 +2392,92 @@ než začne implementovat cokoli dalšího.
 `/api/setup`. Plná regrese 48 backendových testů proto appka pustila
 jen pro jistotu, beze změny výsledků.
 
+## 57. Automatické odhlášení po 5 minutách neaktivity (v4.17)
+
+Jan: „budeš umět udělat automatické odhlášení uživatele po 5 min?“ -
+appka si přes AskUserQuestion nechala potvrdit tři otevřené otázky, než
+začala implementovat: (a) spouštěč - appka odhlašuje podle NEAKTIVITY
+(5 minut bez jakékoli akce), ne pevný časovač od přihlášení bez ohledu
+na aktivitu, (b) appka uživatele PŘED odhlášením upozorní (varování s
+odpočtem a možností zůstat přihlášený), nezobrazí ho potichu, (c) týká
+se všech rolí stejně (admin, účetní, běžný uživatel), bez výjimky.
+
+- **Appka sleduje aktivitu** přes globální posluchače na `click`,
+  `keydown`, `scroll` a `touchstart` (`public/app.js`, `IDLE_UDALOSTI`) -
+  appka je zapíná AŽ po úspěšném přihlášení (`spustIdleSledovani()`
+  volaná ze `zobrazApp()`) a zase vypíná při odhlášení
+  (`zastavIdleSledovani()` volaná z `odhlasit()`), ať appka na
+  přihlašovací obrazovce žádné sledování nedělá.
+- **5 minut appka počítá od POSLEDNÍ aktivity** (`IDLE_LIMIT_MS`), ne od
+  přihlášení - jakákoli aktivita appka celý časovač restartuje.
+  **10 sekund appka zobrazí varování** (`IDLE_VAROVANI_MS`) s odpočtem
+  přímo v hlavičce upozornění a tlačítkem „Zůstat přihlášen“ - appka ho
+  vykresluje jako overlay přes celou appku (`#varovani-odhlaseni`,
+  nový blok v `public/index.html`/`public/style.css`), ne jako běžný
+  `confirm()` dialog (ten by blokoval appku a odpočet by appka nemohla
+  průběžně aktualizovat).
+- Jakákoli aktivita BĚHEM zobrazeného varování (klik kamkoli, ne jen na
+  tlačítko „Zůstat přihlášen“) appka bere stejně jako potvrzení - varování
+  schová a celý časovač restartuje od nuly.
+- Po doběhnutí odpočtu appka zavolá stejnou funkci `odhlasit()` jako
+  tlačítko „Odhlásit“ - appka uživatele vrátí na přihlašovací obrazovku,
+  žádné zvláštní chování navíc.
+- Appka se týká všech rolí stejně (appka to záměrně nerozlišuje podle
+  `stav.role`) - přesně podle Janovy odpovědi.
+- Čistě frontendová změna (`public/index.html`, `public/style.css`,
+  `public/app.js`) - žádný nový sloupec v Sheets, žádná změna backendu,
+  není potřeba `/api/setup`.
+- Ověřeno Playwright skriptem s appčinými ovladatelnými hodinami
+  (`page.clock`, `runFor` - appka zjistila, že `fastForward` timery
+  jako `setInterval` nefiruje opakovaně, jen jednorázově, takže appka
+  pro simulaci plynutí času použila `runFor`): varování se neobjeví
+  před uplynutím 4 min 50 s neaktivity, objeví se po 4 min 51 s se
+  správným odpočtem, tlačítko „Zůstat přihlášen“ varování schová a
+  appka zůstane přihlášená, opakovaná neaktivita appku znovu upozorní a
+  po doběhnutí odpočtu appku skutečně odhlásí (návrat na přihlašovací
+  obrazovku), aktivita (klik na jinou záložku) těsně před limitem appka
+  časovač restartuje a appka na loginu žádné sledování/chybu nezpůsobí.
+
+## 58. Oprava: appka nerozeznávala EUR a Kč v bankovních výpisech (v4.18)
+
+Jan: „a ještě app nerozeznává EUR a Kč ve bankovních výpisech“ - appka
+našla a opravila dvě samostatné chyby, obě v cestě přes bankovní účty
+vedené v cizí měně (appka umí cizoměnové účty od v3.6, viz
+`lib/uctySchema.js`):
+
+- **Zobrazení částky u bankovního pohybu** (`vytvorRadekBanka` v
+  `public/app.js`) appka vždycky vypisovala přes `formatCastka()`, která
+  natvrdo připojuje „ Kč“ bez ohledu na skutečnou měnu pohybu - platba z
+  EUR účtu se tak v seznamu chybně zobrazovala jako „9,43 Kč“ místo
+  „9,43 EUR“. Appka teď používá `formatCastkaSMenou(p.Castka, p.Mena)`
+  - stejnou funkci, kterou appka od v3.20 už používá u Dokladů/Vydaných
+    faktur/Smluv přesně pro tenhle případ.
+- **Párování pohybu s dokladem/vydanou fakturou** (`navrhniShodu` a
+  `navrhniShoduPrijem` v `lib/bankHelpers.js`) appka dřív porovnávala
+  měnu KANDIDÁTA (dokladu/faktury) natvrdo jen proti „CZK“ - u firmy
+  s EUR bankovním účtem appka mylně vyhodnotila EUR doklad proti EUR
+  pohybu jako „cizí měnu“ a vyžadovala kurzový poměr 5-60 (appka ho
+  používá, když bankovní pohyb je opravdu v jiné měně než doklad/faktura,
+  typicky Kč pohyb proti EUR účtence) - u stejné měny na obou stranách
+  ale tenhle poměr logicky vychází cca 1, takže shoda nikdy neprošla a
+  doklad/faktura zůstaly navždy „Nespárováno s bankou“, i když šlo o
+  přesnou shodu. Appka teď porovnává měnu POHYBU (měna účtu) proti měně
+  kandidáta - jsou-li stejné (ať už obě Kč, nebo třeba obě EUR), appka
+  použije přímé porovnání částky (tolerance 1 na zaokrouhlení); liší-li
+  se, použije appka beze změny dosavadní kurzovou heuristiku (a u
+  příjmové strany, kde appka dřív žádnou měnovou logiku neměla vůbec,
+  ji nově doplnila stejným způsobem jako na výdajové straně).
+  U cizoměnové ČÁSTEČNÉ úhrady (zákazník zaplatil jen část v jiné měně,
+  než má vydaná faktura) appka návrh raději nenabízí vůbec - kurzový
+  rozdíl appka nedokáže spolehlivě odlišit od skutečně nižší platby.
+- Čistě frontendová/backendová logická oprava - žádný nový sloupec v
+  Sheets (`Mena` appka měla u bankovních pohybů, dokladů i vydaných
+  faktur už dřív), žádná změna schématu, není potřeba `/api/setup`.
+- Ověřeno novými testy (`test_navrhniShodu_stejna_cizi_mena.js`) i
+  existujícím testem `test_navrhniShodu_cizi_mena.js` (regrese - appka
+  se u Kč dokladů/faktur a u opravdu cizoměnových dokladů proti Kč
+  pohybu chová beze změny) - všech 49 backendových testů appky prošlo.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
