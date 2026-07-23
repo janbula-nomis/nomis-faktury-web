@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.15 – 2026-07-22';
+const APP_VERZE = 'v4.16 – 2026-07-23';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -75,19 +75,29 @@ aplikujMotiv(nactiMotiv());
 
 // ---------- SKINY (volitelné vzhledy appky) ----------
 // (v4.15) Jan chtěl "moderní, černá, zlatá a navy" redesign appky -
-// appka navrhla tři koncepty jako náhledy a Jan chtěl všechny tři
-// natrvalo, s možností přepínání, ne jen jednu pevnou volbu. Appka to
-// řeší úplně stejným vzorem jako existující světlý/tmavý motiv výše
-// (`data-motiv`) - `data-skin` atribut na <html>, hodnota se pamatuje
-// v localStorage, appka ho hned aplikuje při načtení skriptu.
+// appka nejdřív nabídla tři koncepty najednou s možností přepínání.
+// (v4.16) Jan zúžil na přesně DVA skiny a určil "Gold" (dřív "Černá a
+// zlatá") jako VÝCHOZÍ pro všechny uživatele, druhý je "Navy" (dřív
+// "Navy hlavička") - appka třetí koncept ("Celá navy") i klasickou
+// nebarevnou volbu úplně odstranila. Appka to řeší úplně stejným
+// vzorem jako existující světlý/tmavý motiv výše (`data-motiv`) -
+// `data-skin` atribut na <html>, hodnota se pamatuje v localStorage,
+// appka ho hned aplikuje při načtení skriptu. Oba skiny appka nechává
+// plně kombinovatelné s přepínačem den/noc (žádné omezení/schovávání).
 
 const SKIN_KLIC = 'nomisFakturySkin';
+const SKIN_VYCHOZI = 'gold';
 
 function nactiSkin() {
   try {
-    return localStorage.getItem(SKIN_KLIC) || '';
+    const ulozeny = localStorage.getItem(SKIN_KLIC);
+    // Appka rozpozná jen "navy" jako výslovnou volbu - cokoli jiného
+    // (žádná hodnota, dřívější "cerna-zlata"/""/"plna-navy" z v4.15,
+    // před zúžením na dva skiny v4.16) appka bere jako Gold, ať appka
+    // nikoho nenechá omylem na skinu, který už appka nenabízí.
+    return ulozeny === 'navy' ? 'navy' : SKIN_VYCHOZI;
   } catch (e) {
-    return '';
+    return SKIN_VYCHOZI;
   }
 }
 
@@ -95,15 +105,6 @@ function aplikujSkin(skin) {
   document.documentElement.setAttribute('data-skin', skin);
   const vyber = document.getElementById('vyber-skinu');
   if (vyber) vyber.value = skin;
-  // Skin "plna-navy" mění appku na jeden pevný (tmavý) vzhled sám o
-  // sobě (viz public/style.css) - přepínač den/noc by u něj nic
-  // neměnil, appka ho proto radši rovnou schová, ať nenabízí ovladač
-  // bez efektu.
-  const tlacitkoMotiv = document.getElementById('tlacitko-motiv');
-  if (tlacitkoMotiv) {
-    tlacitkoMotiv.disabled = skin === 'plna-navy';
-    tlacitkoMotiv.classList.toggle('skryto', skin === 'plna-navy');
-  }
 }
 
 function zmenSkin(novy) {
@@ -286,7 +287,7 @@ function zobrazApp() {
 }
 
 function prepniZalozku(nazev) {
-  ['nahrat', 'dashboard', 'doklady', 'vydane-faktury', 'prehled', 'kniha-jizd', 'banka', 'smlouvy', 'export', 'nastaveni'].forEach((n) => {
+  ['nahrat', 'dashboard', 'doklady', 'vydane-faktury', 'prehled', 'kniha-jizd', 'nemovitosti', 'banka', 'smlouvy', 'export', 'nastaveni'].forEach((n) => {
     document.getElementById('zalozka-' + n).classList.toggle('skryto', n !== nazev);
   });
   // v4.15 - appka tlačítko "Nahrát doklady" přesunula MIMO nav.zalozky

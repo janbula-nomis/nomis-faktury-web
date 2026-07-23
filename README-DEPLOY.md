@@ -2329,6 +2329,69 @@ frontendová změna (`public/index.html`, `public/style.css`,
 regrese 48 backendových testů proto appka pustila jen pro jistotu,
 beze změny výsledků.
 
+## 56. Skin appky zúžen na Gold (výchozí) + Navy, nová záložka Nemovitosti (v4.16)
+
+Dvě samostatné Janovy žádosti ze stejné konverzace, appka je nasazuje
+společně jako jednu verzi.
+
+### a) Skin appky - jen Gold a Navy, Gold výchozí pro všechny
+
+Krátce po v4.15 (tři přepínatelné skiny - Klasická/Navy hlavička/Černá
+a zlatá/Celá navy) Jan zadal zúžení: „uděláme dvě změny, černá zlatá
+bude výchozí pro všechny a bude se jmenovat Gold, druhá bude Navy
+hlavička, ale bude se jmenovat Navy, jiné skiny nebudou, oba lze
+přepnout do nočního modu.“ Appka:
+
+- Přejmenovala interní hodnotu skinu `cerna-zlata` na `gold` (popisek v
+  `<select>` teď „Gold“ místo „Černá a zlatá“) a `navy` zůstalo beze
+  změny hodnoty, jen zkrátila popisek na „Navy“ (dřív „Navy hlavička“).
+- **Úplně odstranila** skiny „Klasická“ (prázdná hodnota, appka bez
+  barevné hlavičky) i „Celá navy“ (`plna-navy`, appka přebarvovala celou
+  appku) - appka teď nabízí v `#vyber-skinu`
+  (`public/index.html`) jen tyhle dva `<option>`.
+- **Gold je nově výchozí pro úplně každého uživatele** - appka v
+  `nactiSkin()` (`public/app.js`) vrací `'gold'` pro cokoli, co není
+  výslovně uložené `'navy'` v `localStorage` - appka tak zároveň bezpečně
+  migruje i starší uložené hodnoty z v4.15 (`cerna-zlata`, `plna-navy`,
+  nebo žádná hodnota/klasická) na Gold, ať appka nikoho nenechá omylem
+  na skinu, který appka už vůbec nenabízí.
+- Appka odstranila i speciální logiku, která u dřívějšího skinu
+  „Celá navy“ schovávala/vypínala přepínač den/noc (appka ho tehdy
+  potřebovala, protože ten skin byl pevně tmavý bez ohledu na motiv) -
+  oba zbylé skiny appka od začátku nechávala plně kombinovatelné s
+  denním/nočním režimem, takže appka žádnou takovou výjimku už
+  nepotřebuje - přepínač je teď u obou skinů vždy viditelný a funkční.
+- `public/style.css`: přejmenovala selektory `:root[data-skin="cerna-
+  zlata"]` na `:root[data-skin="gold"]` a smazala celý blok
+  `:root[data-skin="plna-navy"]` (vč. varianty pro `data-motiv="tmavy"`
+  a schovávání `.prepinac-ikona[disabled]`, appka je už nepotřebuje).
+- Ověřeno Playwright skriptem: appka bez uloženého nastavení (nový
+  uživatel) dostane rovnou Gold, `<select>` nabízí přesně dvě možnosti
+  (Gold/Navy), starší uložené hodnoty `cerna-zlata`/`plna-navy` appka
+  správně migruje na Gold, uložené `navy` zůstává `navy`, přepínač
+  den/noc appka ukazuje jako viditelný a funkční u OBOU skinů (kliknutí
+  skutečně přepne motiv) + vizuální kontrola obou skinů ve světlém i
+  tmavém režimu.
+
+### b) Nová záložka „Nemovitosti“ (zatím bez obsahu)
+
+Jan: „nově udělej záložku Nemovitosti, zadání pro obsah ti dám později,
+teď nebude aktivní.“ Appka přidala novou položku do hlavní navigace
+(`public/index.html`, `data-zalozka="nemovitosti"`, hned za „Kniha
+jízd“), viditelnou všem přihlášeným stejně jako Dashboard/Kniha jízd
+(appka na ni zatím nenavázala žádné role/oprávnění, protože žádná
+data appka zatím nezobrazuje). Po kliknutí appka ukáže jen informační
+poznámku („Tahle záložka se připravuje...“) - stejná konvence, jakou
+appka od v3.8/v4.6 používá u ještě nedodělaných částí (např. Export →
+chybějící formát pro Money S3). Appka čeká na Janovo zadání, co přesně
+má záložka obsahovat (evidence nemovitostí skupiny, náklady, nájmy…),
+než začne implementovat cokoli dalšího.
+
+Čistě frontendová změna (`public/index.html`, `public/style.css`,
+`public/app.js`) - žádný nový sloupec v Sheets, není potřeba
+`/api/setup`. Plná regrese 48 backendových testů proto appka pustila
+jen pro jistotu, beze změny výsledků.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

@@ -36,10 +36,8 @@
       </div>
       <div class="uzivatel">
         <select id="vyber-skinu" title="Vzhled appky">
-          <option value="">Klasická</option>
-          <option value="navy">Navy hlavička</option>
-          <option value="cerna-zlata">Černá a zlatá</option>
-          <option value="plna-navy">Celá navy</option>
+          <option value="gold">Gold</option>
+          <option value="navy">Navy</option>
         </select>
         <button class="prepinac-ikona" id="tlacitko-motiv" type="button" title="Přepnout světlý/tmavý režim" aria-pressed="false">🌙</button>
         <div id="jmeno-uzivatele"></div>
@@ -62,6 +60,7 @@
       <button data-zalozka="vydane-faktury">Vydané faktury</button>
       <button data-zalozka="prehled" id="nav-prehled">Daňový přehled</button>
       <button data-zalozka="kniha-jizd" id="nav-kniha-jizd">Kniha jízd</button>
+      <button data-zalozka="nemovitosti" id="nav-nemovitosti">Nemovitosti</button>
       <button data-zalozka="banka" id="nav-banka" class="skryto">Bankovní výpisy</button>
       <button data-zalozka="smlouvy" id="nav-smlouvy" class="skryto">Registr smluv</button>
       <button data-zalozka="export" id="nav-export" class="skryto">Export</button>
@@ -221,6 +220,16 @@
           </table>
         </div>
       </div>
+    </div>
+
+    <!-- NEMOVITOSTI -->
+    <!-- (v4.16) Jan zadal jen novou záložku samotnou, obsah appka
+         dostane zadaný později - appka proto zatím vykresluje jen
+         informační poznámku, stejná konvence jako appka od v3.8/v4.6
+         používá u ještě nedodělaných částí (např. Export → Money S3). -->
+    <div id="zalozka-nemovitosti" class="karta skryto">
+      <h2>Nemovitosti</h2>
+      <p class="popis">Tahle záložka se připravuje - obsah appka doplní, až Jan zadá přesné požadavky.</p>
     </div>
 
     <!-- VYDANÉ FAKTURY -->

@@ -588,31 +588,27 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .prepinac-sekce-tlacitko.aktivni { color: #14161c; }
 :root[data-motiv="tmavy"] input[type="date"] { color-scheme: dark; }
 
-/* ========== SKINY (volitelné vzhledy appky, v4.15) ==========
+/* ========== SKINY (volitelné vzhledy appky, v4.15/v4.16) ==========
    Jan chtěl "moderní, černá, zlatá a navy" redesign appky - appka
-   navrhla tři koncepty jako náhledy (Playwright screenshoty) a Jan
-   chtěl VŠECHNY TŘI natrvalo, s možností přepínání ("skin"), ne jednu
-   pevnou volbu - appka je zavedla jako `data-skin` atribut na <html>,
-   stejný princip jako existující `data-motiv` (světlý/tmavý), volba se
-   pamatuje v localStorage (viz `SKIN_KLIC` v public/app.js) a appku
-   se dá přepnout výběrem v `#vyber-skinu` v hlavičce appky. Barvy appka
+   nejdřív (v4.15) nabídla tři koncepty najednou s možností přepínání.
+   Po vyzkoušení Jan zúžil na přesně DVA skiny (v4.16): "Gold" (dřív
+   "Černá a zlatá", teď VÝCHOZÍ pro všechny uživatele) a "Navy" (dřív
+   "Navy hlavička") - appka třetí koncept ("Celá navy") i klasickou
+   nebarevnou volbu úplně ODSTRANILA, žádný jiný skin appka nenabízí.
+
+   Appka to řeší stejným principem jako existující `data-motiv`
+   (světlý/tmavý) - `data-skin` atribut na <html>, hodnota se pamatuje
+   v localStorage (viz `SKIN_KLIC` v public/app.js) a appku se dá
+   přepnout výběrem v `#vyber-skinu` v hlavičce appky. Barvy appka
    odvodila z appčina loga (navy čtverec, zlatý monogram).
 
-   Skin "" (klasická, výchozí) appka nechává BEZE ZMĚNY - žádná pravidla
-   tady se ho netýkají.
+   Oba skiny mění jen "rám" appky (hlavička, navigace, primární barva/
+   CTA tlačítko) - obsahové karty appka nechává podle existujícího
+   světlého/tmavého motivu (`data-motiv`), oba skiny tak fungují
+   SOUČASNĚ s přepínačem den/noc (appka u nich žádné omezení
+   nezavádí). */
 
-   Skiny "navy" a "cerna-zlata" mění jen "rám" appky (hlavička, navigace,
-   primární barva/CTA tlačítko) - obsahové karty appka nechává podle
-   existujícího světlého/tmavého motivu (`data-motiv`), oba skiny tak
-   fungují SOUČASNĚ s přepínačem den/noc.
-
-   Skin "plna-navy" mění appku CELOU (pozadí/karty/text) - appka ho
-   záměrně definuje STEJNĚ pro obě hodnoty `data-motiv` (viz selektor
-   níže), protože jde o jeden pevný (tmavý) vzhled sám o sobě - přepínač
-   den/noc appka pro tenhle skin schovává (viz `aplikujSkin()` v
-   public/app.js), aby appka nenabízela ovladač, který by nic neměnil. */
-
-/* --- Skin: Navy hlavička (koncept 1) --- */
+/* --- Skin: Navy --- */
 :root[data-skin="navy"] { --barva-primarni: #16294f; --barva-primarni-tmava: #0f1f3d; }
 :root[data-skin="navy"] .hlavicka-app { background: #0f1f3d; padding: 14px 18px; border-radius: var(--radius); margin-bottom: 16px; }
 :root[data-skin="navy"] .hlavicka-app h1 { color: #fff; }
@@ -625,39 +621,20 @@ input[type="file"] { margin-top: 8px; }
 :root[data-skin="navy"] .tlacitko-nahrat-cta.aktivni { background: #b58f1f; border-color: #b58f1f; }
 :root[data-skin="navy"] nav.zalozky button.aktivni { background: #16294f; border-color: #16294f; }
 
-/* --- Skin: Černá a zlatá (koncept 2) --- */
-:root[data-skin="cerna-zlata"] { --barva-primarni: #16294f; --barva-primarni-tmava: #0f1f3d; }
-:root[data-skin="cerna-zlata"] .hlavicka-app { background: #14161a; padding: 14px 18px; border-radius: var(--radius); margin-bottom: 16px; }
-:root[data-skin="cerna-zlata"] .hlavicka-app h1 { color: #f2d477; }
-:root[data-skin="cerna-zlata"] .hlavicka-app .uzivatel { color: #cbd0d8; }
-:root[data-skin="cerna-zlata"] .hlavicka-app .sekundarni { border-color: #565a63; color: #e5e7eb; }
-:root[data-skin="cerna-zlata"] .hlavicka-app .sekundarni:hover { background: rgba(255,255,255,0.08); }
-:root[data-skin="cerna-zlata"] .hlavicka-app #vyber-skinu { background: rgba(255,255,255,0.08); color: #fff; border-color: #565a63; }
-:root[data-skin="cerna-zlata"] nav.zalozky { background: #14161a; padding: 8px; border-radius: var(--radius); }
-:root[data-skin="cerna-zlata"] nav.zalozky button { background: #1e2027; color: #e5e7eb; border-color: #2c2f38; }
-:root[data-skin="cerna-zlata"] nav.zalozky button.aktivni { background: #c9a227; color: #14161a; border-color: #c9a227; }
-:root[data-skin="cerna-zlata"] .tlacitko-nahrat-cta { background: #c9a227; border-color: #c9a227; color: #14161a; }
-:root[data-skin="cerna-zlata"] .tlacitko-nahrat-cta:hover,
-:root[data-skin="cerna-zlata"] .tlacitko-nahrat-cta.aktivni { background: #e0bf4f; border-color: #e0bf4f; }
-
-/* --- Skin: Celá navy (koncept 3) --- */
-:root[data-skin="plna-navy"],
-:root[data-skin="plna-navy"][data-motiv="tmavy"] {
-  --barva-pozadi: #0b1830;
-  --barva-karta: #122341;
-  --barva-text: #eef2f7;
-  --barva-text-tlumena: #9fb0c9;
-  --barva-hranice: #22355c;
-  --barva-primarni: #c9a227;
-  --barva-primarni-tmava: #b58f1f;
-}
-:root[data-skin="plna-navy"] h1,
-:root[data-skin="plna-navy"] h2 { color: #f5d67a; }
-:root[data-skin="plna-navy"] nav.zalozky button.aktivni { color: #14161a; }
-:root[data-skin="plna-navy"] .tlacitko-nahrat-cta { background: #c9a227; border-color: #c9a227; color: #14161a; }
-:root[data-skin="plna-navy"] .tlacitko-nahrat-cta:hover,
-:root[data-skin="plna-navy"] .tlacitko-nahrat-cta.aktivni { background: #e0bf4f; border-color: #e0bf4f; }
-:root[data-skin="plna-navy"] .prepinac-ikona[disabled] { opacity: 0.35; cursor: not-allowed; }
+/* --- Skin: Gold (výchozí) --- */
+:root[data-skin="gold"] { --barva-primarni: #16294f; --barva-primarni-tmava: #0f1f3d; }
+:root[data-skin="gold"] .hlavicka-app { background: #14161a; padding: 14px 18px; border-radius: var(--radius); margin-bottom: 16px; }
+:root[data-skin="gold"] .hlavicka-app h1 { color: #f2d477; }
+:root[data-skin="gold"] .hlavicka-app .uzivatel { color: #cbd0d8; }
+:root[data-skin="gold"] .hlavicka-app .sekundarni { border-color: #565a63; color: #e5e7eb; }
+:root[data-skin="gold"] .hlavicka-app .sekundarni:hover { background: rgba(255,255,255,0.08); }
+:root[data-skin="gold"] .hlavicka-app #vyber-skinu { background: rgba(255,255,255,0.08); color: #fff; border-color: #565a63; }
+:root[data-skin="gold"] nav.zalozky { background: #14161a; padding: 8px; border-radius: var(--radius); }
+:root[data-skin="gold"] nav.zalozky button { background: #1e2027; color: #e5e7eb; border-color: #2c2f38; }
+:root[data-skin="gold"] nav.zalozky button.aktivni { background: #c9a227; color: #14161a; border-color: #c9a227; }
+:root[data-skin="gold"] .tlacitko-nahrat-cta { background: #c9a227; border-color: #c9a227; color: #14161a; }
+:root[data-skin="gold"] .tlacitko-nahrat-cta:hover,
+:root[data-skin="gold"] .tlacitko-nahrat-cta.aktivni { background: #e0bf4f; border-color: #e0bf4f; }
 
 #vyber-skinu {
   font-size: 11.5px;
