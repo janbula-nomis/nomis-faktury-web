@@ -2478,6 +2478,165 @@ vedené v cizí měně (appka umí cizoměnové účty od v3.6, viz
   se u Kč dokladů/faktur a u opravdu cizoměnových dokladů proti Kč
   pohybu chová beze změny) - všech 49 backendových testů appky prošlo.
 
+## 59. Nemovitosti - evidence + automatické párování nájemního příjmu s bankou (v4.19)
+
+Jan: „potřebuji také příjmy z nájmu přiřadit k bankovním vypisům, zdrojem
+jsou nájemní smlouvy, které načtu do registru smluv“ - appka si přes
+AskUserQuestion nechala potvrdit tři otevřené otázky: (a) appka zavádí
+NOVOU entitu Nemovitosti a propojuje ji s dřív prázdnou záložkou Nemovitosti
+(placeholder od v4.16), (b) párování příchozích plateb appka dělá ROVNOU
+automaticky (jméno nájemce + očekávaná částka ze Smlouvy), BEZ nutnosti
+nejdřív ručně přiřadit první platbu (na rozdíl od staršího „trvalého
+příkazu“), (c) appka navíc zobrazí souhrnný přehled příjmů z nájmu.
+
+- **Nová entita Nemovitosti** (list `Nemovitosti` v Sheets, `lib/
+  nemovitostiSchema.js`, CRUD `netlify/functions/nemovitosti.js`) - appka
+  eviduje Firmu/Název/Adresu/Poznámku/Aktivní, přístup jen pro admina a
+  účetní (stejně jako Smlouvy/Bankovní výpisy - záložka Nemovitosti od
+  téhle verze obsahuje citlivá data o příjmu, appka ji proto běžnému
+  uživateli schovává, na rozdíl od dřívějšího prázdného placeholderu,
+  který viděly všechny role).
+- **Registr smluv** (`lib/smlouvySchema.js`) dostal nové pole
+  `Nemovitost_ID` - appka ho nabízí u KAŽDÉ smlouvy (formulář i detail),
+  reálně dává smysl jen u Typu „Nájem“.
+- **Automatické párování bez nutnosti ručního „prvního kroku“**
+  (`lib/bankHelpers.js`, `navrhniShoduNajem`, zapojeno v `netlify/
+  functions/banka.js` do importu i akce „Přepočítat shody“) - appka u
+  příchozí platby, která neodpovídá žádné Vydané faktuře, zkusí ještě
+  aktivní Smlouvu typu Nájem podle jména nájemce (`Druha_strana`, shoda
+  jména appka vyžaduje VŽDY) + očekávané částky (`Ocekavana_castka`,
+  tolerance 100 v měně smlouvy nebo 10 %, podle toho, co je větší - appka
+  je tu shovívavější než u dokladů/faktur, nájemce často posílá spolu s
+  nájmem i drobný doplatek za energie). Appka měnu porovnává stejně jako
+  u opravy v4.18 - sedí-li měna pohybu a smlouvy, počítá přímo (i u jiné
+  měny než Kč); liší-li se, použije kurzovou heuristiku (5-60 Kč/jednotka).
+  Appka navrhne `Stav_parovani = "Navrženo - nájemní smlouva"` (po ručním
+  potvrzení účetní `"Spárováno - nájemní smlouva"`) - appka (na rozdíl od
+  Vydaných faktur) po shodě NEODEBÍRÁ smlouvu ze seznamu kandidátů, stejná
+  nájemní smlouva se má dál nabízet i u dalších měsíčních plateb.
+- **Bankovní výpisy** (`vytvorDetailBanka`) dostaly nové stavy s
+  potvrzením/zamítnutím (stejný vzor jako u Vydaných faktur) a appka navíc
+  nabízí i RUČNÍ přiřazení k libovolné nájemní smlouvě (tlačítko „Přiřadit
+  k nájmu“) pro případ, že appka sama vhodnou smlouvu nenajde (např. jiné
+  psaní jména nájemce).
+- **Souhrnný přehled příjmů z nájmu** (`netlify/functions/
+  nemovitosti-prehled.js`, nová záložka Nemovitosti) - appka pro každou
+  nemovitost ukáže napojené nájemní Smlouvy a u každé poslední přijatou
+  platbu + jestli appka za AKTUÁLNÍ kalendářní měsíc zaznamenala platbu
+  aspoň v očekávané výši (badge „Zaplaceno tento měsíc“/„Zatím
+  nezaplaceno“) - appka počítá s platbami napojenými přes `Smlouva_ID`
+  bez ohledu na to, jestli je účetní stihla ručně potvrdit (i pouhý návrh
+  znamená, že platba nejspíš dorazila).
+- Appka do rozsahu téhle změny NEZAHRNULA starší, ručně udržovaný číselník
+  konkrétních jednotek (`public/app.js`, `MOZNOSTI_STREDISKA`/
+  `MOZNOSTI_JEDNOTKA`, používaný u Dokladů/Vydaných faktur pro rozpad
+  nákladů/příjmů podle jednotky) - nová entita Nemovitosti je samostatná,
+  užší věc (cíl pro propojení Smlouvy + řádky v záložce Nemovitosti), širší
+  sjednocení obou konceptů by šlo řešit později, pokud o něj Jan požádá.
+- Appka rozšířila i /api/setup (nový list `Nemovitosti` appka založí
+  automaticky) - není potřeba žádná ruční migrace dat, `Nemovitost_ID` u
+  Smluv appka doplní jako prázdný sloupec u existujících smluv.
+- Ověřeno novými testy (`test_navrhniShoduNajem.js`,
+  `test_nemovitosti.js`, `test_banka_najemni_smlouva.js`,
+  `test_nemovitosti_prehled.js`) i Playwright kontrolou nové záložky
+  Nemovitosti a nových stavů v Bankovních výpisech (bez chyb v konzoli) -
+  všech 53 backendových testů appky prošlo.
+
+## 60. Oprava: import bankovního výpisu (CSV/XLS) bez sloupce s měnou/popisem u KAŽDÉHO řádku (v4.20)
+
+Jan poslal reálný příklad - screenshot z appky ("tady je příjem z nájmu, v
+EUR dle smlouvy z registru, celý výpis má být v EUR a není") a následně i
+samotný soubor (export Banc Sabadell, účet ES22 0081 7463 1900 0198 1405).
+Appka na něm rozpoznala DVĚ chyby v `lib/bankImportTabular.js` (CSV/XLS
+import - George JSON import se týkalo v4.18):
+
+- Appka u CSV/XLS měnu hledala VÝHRADNĚ jako sloupec u KAŽDÉHO pohybu
+  (mena/currency/mena účtu) - Banc Sabadell (a obecně řada zahraničních
+  bank, které mívají vždy jen jeden účet v jedné měně) místo toho měnu
+  appce řekne JEDNOU, v metadatech NAD tabulkou pohybů (`Currency: EUR`) -
+  appka tak potichu defaultovala na CZK pro celý soubor. Appka teď
+  metadatové řádky (ty PŘED řádkem s hlavičkou tabulky, appka je stejně už
+  prohledávala kvůli detekci hlavičky od v3.11) prohledá i na dvojici
+  "popisek | hodnota", kde popisek odpovídá měnovému aliasu - nalezenou
+  hodnotu appka použije jako VÝCHOZÍ měnu všech řádků, které vlastní
+  sloupec s měnou nemají (`zjistiVychoziMenuVMetadatech`).
+- Sloupec "Item" (u Banc Sabadell obsahuje celý text pohybu, např.
+  "TRANSFER TO CONTRAPLAGAS AMBIENTAL S.L.") appka vůbec nemapovala na nic
+  - protistrana zůstala prázdná (appka tak neměla podle čeho párovat
+    jméno dodavatele/zákazníka/nájemce) a NAVÍC appka omylem namapovala
+    "Reference 1" (čistě číselný referenční kód) jako popis kvůli
+  přílišné shodě aliasu "reference". Appka teď "Item" přidala do aliasů
+  sloupce protistrana.
+- **Důležité pro už naimportovaná data**: appka tuhle opravu NEAPLIKUJE
+  zpětně na pohyby, které appka z tohohle výpisu už dřív naimportovala se
+  špatnou měnou/prázdnou protistranou - prostý nový import stejného
+  souboru by appka navíc vzala jako DUPLICITY jen částečně (appka duplicity
+  pozná podle otisku, který zahrnuje i měnu/protistranu, takže po opravě
+  vznikne JINÝ otisk než u už uložených špatných řádků) a vytvořila by
+  DALŠÍ, tentokrát správné řádky vedle těch špatných - ne opravila
+  původní. Appka (na rozdíl od Dokladů/Smluv) zatím nemá tlačítko pro
+  smazání bankovního pohybu z UI (`netlify/functions/banka.js` nemá
+  metodu DELETE) - před opětovným importem tohohle konkrétního výpisu je
+  proto potřeba špatně naimportované řádky smazat RUČNĚ přímo v Google
+  Sheets (list `Bankovni_pohyby`), teprve pak výpis nahrát znovu.
+- Čistě parsovací oprava (`lib/bankImportTabular.js`) - žádná změna
+  schématu, není potřeba `/api/setup`.
+- Ověřeno novým testem (`test_bank_tabular_metadata_mena.js`, rekonstruuje
+  zjednodušenou verzi reálného souboru) i existujícími testy importu
+  (`test_bank_tabular.js`, `test_bank_metadata_hlavicka.js`,
+  `test_banka_formats.js` - regrese, appka se u výpisů se SAMOSTATNÝM
+  sloupcem měny/protistrany chová beze změny) - všech 54 backendových
+  testů appky prošlo.
+
+## 61. Nová možnost: smazání bankovního pohybu z appky (v4.21)
+
+Jan po opravě v4.20 (sekce 60 výš) souhlasil ("ano") s nabídkou přidat
+appce možnost bankovní pohyb smazat přímo z rozhraní, ať se čištění
+špatně naimportovaných výpisů nemusí řešit ručně přes Google Sheets:
+
+- Detail bankovního pohybu (rozkliknutý řádek v záložce Bankovní výpisy)
+  má teď dole tlačítko **„Smazat pohyb“** – appka si vyžádá potvrzení
+  (appka jasně upozorní, že se nedá vrátit zpět) a pak pohyb smaže. Appka
+  smazání nabízí bez ohledu na `Stav_parovani` (rozpárovaný, navržený,
+  potvrzený...) a **NEKASKÁDUJE** žádnou změnu do napojeného Dokladu/
+  Vydané faktury/Smlouvy – jen odstraní řádek pohybu samotný (stejná
+  filozofie jako u „zrušení spárování“, které taky nevrací stav faktury
+  zpátky automaticky).
+- Appka teď navíc u KAŽDÉHO importu výpisu (CSV/XLS/George JSON)
+  vygeneruje jedno sdílené `Import_ID` (nové pole v listu
+  `Bankovni_pohyby`, viz `lib/bankSchema.js`) a přiřadí ho všem řádkům
+  vzniklým v tom konkrétním importu. Detail pohybu, který má tohle pole
+  vyplněné (a appka najde víc pohybů se stejným ID), proto nabídne i
+  druhé tlačítko **„Smazat celý import (X pohybů)“** – appka smaže
+  všechny najednou, ne po jednom. Přesně tenhle případ appce chyběl u
+  špatně naimportovaného výpisu Banc Sabadell z v4.20 – teď by šlo starý
+  import smazat jedním tlačítkem a nahrát opravený soubor znovu.
+- **Důležité omezení**: pohyby naimportované PŘED touhle verzí nemají
+  `Import_ID` vyplněné (appka ho nedokáže dopočítat zpětně, protože
+  neví, které řádky spolu patřily k jednomu importu) – takový starší
+  pohyb appka umí smazat jen jednotlivě přes „Smazat pohyb“, tlačítko
+  „Smazat celý import“ se u něj nezobrazí. Konkrétně těch ~50 už dřív
+  špatně naimportovaných řádků z Banc Sabadell výpisu (sekce 60) tak
+  půjde smazat jen po jednom (nebo pořád ručně přes Sheets, pokud je
+  jich moc) – ne jedním tlačítkem.
+- Backend: nová metoda `DELETE` v `netlify/functions/banka.js` –
+  `DELETE ?id=X` (jeden pohyb) a `DELETE ?importId=X` (dávka, appka maže
+  od nejvyššího čísla řádku po nejnižší, ať mazání jednoho řádku
+  neposune čísla řádků těch, co appka teprve má smazat – stejný vzor
+  jako kaskádní mazání příloh smlouvy v `smlouvy.js`). Vyhrazeno
+  adminovi/účetní, stejně jako import a úprava pohybů (běžný uživatel má
+  jen náhled).
+- Appka po přidání `Import_ID` do schématu vyžaduje spuštění `/api/setup`
+  (krok 6), ať appka doplní nový sloupec do existujícího listu
+  `Bankovni_pohyby` – žádná jiná migrace není potřeba, chybějící sloupec
+  appka doplňuje automaticky, existující data se nemažou ani nepřepisují.
+- Ověřeno novými testy (`test_banka_smazani.js` – jeden/dávkové mazání,
+  kontrola přístupu k firmě, 404 na neexistující ID/importId;
+  `test_banka_import_id.js` – appka přiřadí stejné `Import_ID` všem
+  řádkům jednoho importu a vrátí ho v odpovědi API) a Playwright
+  ověřením obou nových tlačítek v detailu pohybu (žádné chyby v
+  konzoli) – všech 56 backendových testů appky prošlo.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

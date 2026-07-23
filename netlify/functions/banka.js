@@ -36,6 +36,25 @@
  *             označení "Bez dokladu", poznámka, přiřazení ke Smlouvě
  *             (trvalý příkaz), přiřazení Střediska/účtu u příjmů (od
  *             v3.19, viz claude/nomis-faktury-backlog.md)
+ * DELETE ?id=X        -> (od v4.21) smaže JEDEN bankovní pohyb. Vyhrazeno
+ *          adminovi/účetní (stejně jako import a PATCH výš) - kontrola je
+ *          na začátku handleru společná pro celé POST/PATCH/DELETE.
+ * DELETE ?importId=X  -> (od v4.21) smaže VŠECHNY pohyby, které appka
+ *          vytvořila v jednom konkrétním importu (viz Import_ID v
+ *          lib/bankSchema.js) - appka je maže od nejvyššího čísla řádku
+ *          (_row) po nejnižší, ať mazání jednoho řádku neposune čísla
+ *          řádků těch, co appka teprve má smazat (stejný vzor jako kaskádní
+ *          mazání Smlouvy_Prilohy v netlify/functions/smlouvy.js). Pohyby
+ *          appka smí smazat jen v rámci firem, ke kterým má přístup
+ *          přihlášený uživatel (viz maPristupKFirme). Řádky naimportované
+ *          PŘED v4.21 nemají Import_ID vyplněné - appka je proto tímhle
+ *          způsobem smazat neumí, jen jednotlivě přes ?id=X.
+ *          Appka záměrně NEKASKÁDUJE žádnou změnu do navázaného Dokladu/
+ *          Vydané faktury/Smlouvy (na rozdíl od Doklady.js, kde smazání
+ *          dokladu vrací navázaný pohyb do "Nespárováno") - smazání pohybu
+ *          jen odstraní řádek samotný, stejně jako "zrušení spárování"
+ *          appka taky nevrací stav navázaného dokladu/faktury zpátky
+ *          automaticky.
  *
  * Firma může mít víc bankovních účtů (od v3.6, viz list "Ucty" a
  * lib/uctySchema.js) - kontrola shody účtu při importu ("ucet_nesedi")
@@ -63,10 +82,22 @@
  * celou fakturu) nebo "Částečně uhrazeno" (nižší platba) - appka NIKDY
  * nic z tohohle nepotvrzuje sama, jde jen o důsledek RUČNÍHO potvrzení
  * účetní.
+ *
+ * Od v4.19 (párování PŘÍJMŮ přímo s nájemní Smlouvou, Jan: "příjmy z
+ * nájmu přiřadit k bankovním vypisům, zdrojem jsou nájemní smlouvy"):
+ * příchozí platby appka při importu (a při "prepocitatShody"), pokud
+ * appka nenajde shodu s Vydanou fakturou, zkusí navrhnout na aktivní
+ * Smlouvu typu "Nájem" podle jména nájemce (Smlouvy.Druha_strana) +
+ * očekávané částky (lib/bankHelpers.js, navrhniShoduNajem) - Stav_parovani
+ * "Navrženo - nájemní smlouva". Na rozdíl od staršího "trvalého příkazu"
+ * (jePodobnaShodaSmlouvy výš) appka tu NEPOTŘEBUJE žádný dřív ručně
+ * přiřazený "vzorový" pohyb - porovnává rovnou proti údajům samotné
+ * smlouvy, takže appka umí navrhnout spárování hned u první platby od
+ * nájemce.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
-const { readSheetObjects, appendRow, appendRows, updateRow } = require('../../lib/sheetsHelpers');
+const { readSheetObjects, appendRow, appendRows, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { UCTY_HEADERS } = require('../../lib/uctySchema');
@@ -76,6 +107,7 @@ const {
   jeBezDokladu,
   navrhniShodu,
   navrhniShoduPrijem,
+  navrhniShoduNajem,
   jePodobnaShodaSmlouvy,
   parsujCastkuZListu,
 } = require('../../lib/bankHelpers');
@@ -149,6 +181,7 @@ exports.handler = async (event) => {
         for (const pohyb of nesparovane) {
           const pProNavrh = {
             castka: parsujCastkuZListu(pohyb.Castka),
+            mena: pohyb.Mena || '',
             protistrana: pohyb.Protistrana || '',
             popis: pohyb.Popis || '',
             variabilni_symbol: pohyb.Variabilni_symbol || '',
@@ -184,27 +217,51 @@ exports.handler = async (event) => {
           (f) => f.Firma === firma && (f.Stav === 'Neuhrazeno' || f.Stav === 'Částečně uhrazeno')
         );
 
+        // Od v4.19: kandidáti pro spárování PŘÍJMŮ přímo s nájemní Smlouvou
+        // (viz lib/bankHelpers.js, navrhniShoduNajem) - appka zkouší tenhle
+        // zdroj jako DRUHÝ, teprve když příjem neodpovídá žádné Vydané
+        // faktuře (viz níž).
+        const { rows: smlouvyVsechnyFirmy } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy').catch(
+          () => ({ rows: [] })
+        );
+        const kandidatiSmlouvyNajem = smlouvyVsechnyFirmy.filter(
+          (s) => s.Firma === firma && String(s.Typ || '').trim() === 'Nájem'
+        );
+
         const prijmyKPreverovani = pohybyFirmy.filter(
           (p) => parsujCastkuZListu(p.Castka) > 0 && p.Stav_parovani === 'Bez dokladu' && !p.Vydana_faktura_ID
         );
 
         let noveNavrzenoPrijmu = 0;
+        let noveNavrzenoNajmu = 0;
         for (const pohyb of prijmyKPreverovani) {
           const pProNavrh = {
             castka: parsujCastkuZListu(pohyb.Castka),
+            mena: pohyb.Mena || '',
             protistrana: pohyb.Protistrana || pohyb.Popis || '',
             popis: pohyb.Popis || '',
             datum: pohyb.Datum || '',
           };
           const navrh = navrhniShoduPrijem(pProNavrh, kandidatiFaktury);
-          if (!navrh || navrh.skore < 2) continue;
+          if (navrh && navrh.skore >= 2) {
+            await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, {
+              ...pohyb,
+              Vydana_faktura_ID: navrh.fakturaId,
+              Stav_parovani: 'Navrženo - vydaná faktura',
+            });
+            noveNavrzenoPrijmu += 1;
+            continue;
+          }
 
-          await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, {
-            ...pohyb,
-            Vydana_faktura_ID: navrh.fakturaId,
-            Stav_parovani: 'Navrženo - vydaná faktura',
-          });
-          noveNavrzenoPrijmu += 1;
+          const navrhNajem = navrhniShoduNajem(pProNavrh, kandidatiSmlouvyNajem);
+          if (navrhNajem && navrhNajem.skore >= 2) {
+            await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, {
+              ...pohyb,
+              Smlouva_ID: navrhNajem.smlouvaId,
+              Stav_parovani: 'Navrženo - nájemní smlouva',
+            });
+            noveNavrzenoNajmu += 1;
+          }
         }
 
         return json(200, {
@@ -214,6 +271,7 @@ exports.handler = async (event) => {
           zustavaNesparovano: nesparovane.length - noveNavrzeno,
           zkontrolovanoPrijmu: prijmyKPreverovani.length,
           noveNavrzenoPrijmu,
+          noveNavrzenoNajmu,
         });
       }
 
@@ -286,13 +344,31 @@ exports.handler = async (event) => {
         (f) => f.Firma === firma && (f.Stav === 'Neuhrazeno' || f.Stav === 'Částečně uhrazeno')
       );
 
+      // Od v4.19: kandidáti pro spárování PŘÍJMŮ přímo s nájemní Smlouvou
+      // (viz lib/bankHelpers.js, navrhniShoduNajem) - appka tenhle zdroj
+      // zkouší jako DRUHÝ, teprve když příjem neodpovídá žádné Vydané
+      // faktuře (viz níž). Appka NEODEBÍRÁ smlouvu ze seznamu kandidátů po
+      // shodě (na rozdíl od dokladů/faktur) - stejná nájemní smlouva se má
+      // dál nabízet i u dalších měsíčních plateb v tomtéž výpisu.
+      const { rows: smlouvyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy').catch(() => ({
+        rows: [],
+      }));
+      const kandidatiSmlouvyNajem = smlouvyVsechny.filter(
+        (s) => s.Firma === firma && String(s.Typ || '').trim() === 'Nájem'
+      );
+
       const datumImportu = new Date().toISOString().slice(0, 10);
+      // Od v4.21: appka vygeneruje jedno ID na CELÝ tenhle import, ať appka
+      // umí později smazat celý špatně naimportovaný výpis najednou (DELETE
+      // ?importId=X), viz lib/bankSchema.js a DELETE handler níž.
+      const importId = crypto.randomUUID();
       const novePohyby = [];
       let pocetDuplicit = 0;
       let pocetNavrzeno = 0;
       let pocetBezDokladu = 0;
       let pocetNesparovano = 0;
       let pocetNavrzenoPrijmu = 0;
+      let pocetNavrzenoNajmu = 0;
 
       rozpar.polozky.forEach((p) => {
         if (znameHashe.has(p.hash)) {
@@ -303,6 +379,7 @@ exports.handler = async (event) => {
         let stav = 'Nespárováno';
         let dokladId = '';
         let vydanaFakturaId = '';
+        let smlouvaId = '';
 
         if (p.castka > 0) {
           // Od v3.22: dřív appka příchozí platbu rovnou označila "Bez
@@ -323,8 +400,19 @@ exports.handler = async (event) => {
               if (idx >= 0) kandidatiFaktury.splice(idx, 1);
             }
           } else {
-            stav = 'Bez dokladu';
-            pocetBezDokladu += 1;
+            // Od v4.19: žádná vydaná faktura neodpovídá - appka zkusí ještě
+            // aktivní nájemní Smlouvu (jméno nájemce + očekávaná částka,
+            // viz navrhniShoduNajem výš), teprve pak příjem označí "Bez
+            // dokladu".
+            const navrhNajem = navrhniShoduNajem(p, kandidatiSmlouvyNajem);
+            if (navrhNajem && navrhNajem.skore >= 2) {
+              stav = 'Navrženo - nájemní smlouva';
+              smlouvaId = navrhNajem.smlouvaId;
+              pocetNavrzenoNajmu += 1;
+            } else {
+              stav = 'Bez dokladu';
+              pocetBezDokladu += 1;
+            }
           }
         } else if (jeBezDokladu(p.typ_pohybu)) {
           stav = 'Bez dokladu';
@@ -364,6 +452,8 @@ exports.handler = async (event) => {
           Zdroj_hash: p.hash,
           Datum_importu: datumImportu,
           Vydana_faktura_ID: vydanaFakturaId,
+          Smlouva_ID: smlouvaId,
+          Import_ID: importId,
         });
       });
 
@@ -401,8 +491,10 @@ exports.handler = async (event) => {
         bezDokladu: pocetBezDokladu,
         nesparovano: pocetNesparovano,
         navrzenoPrijmu: pocetNavrzenoPrijmu,
+        navrzenoNajmu: pocetNavrzenoNajmu,
         detekovanyUcet: rozpar.ownerAccountNumber,
         ucetUlozenNove,
+        importId: novePohyby.length > 0 ? importId : '',
       });
     }
 
@@ -496,6 +588,42 @@ exports.handler = async (event) => {
       }
 
       return json(200, { ok: true, autoNavrzenoDalsich, fakturaAktualizovana: !!fakturaKAktualizaci });
+    }
+
+    if (event.httpMethod === 'DELETE') {
+      const params = event.queryStringParameters || {};
+      const id = params.id;
+      const importId = params.importId;
+      if (!id && !importId) return json(400, { error: 'Chybí ID pohybu nebo importId.' });
+
+      const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
+
+      if (id) {
+        const pohyb = rows.find((r) => r.ID === id);
+        if (!pohyb) return json(404, { error: 'Pohyb nenalezen.' });
+        if (!maPristupKFirme(uzivatel, pohyb.Firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
+
+        await deleteRow(sheets, spreadsheetId, 'Bankovni_pohyby', pohyb._row);
+        return json(200, { ok: true, smazano: 1 });
+      }
+
+      // Dávkové smazání celého importu (v4.21) - appka smaže jen pohyby z
+      // firem, ke kterým má přihlášený uživatel přístup (u ostatních vrátí
+      // chybu, ať omylem nesmaže cizí data, i kdyby stejné importId - v
+      // praxi nemožné, protože ID je UUID, ale appka to radši ověří).
+      const pohybyImportu = rows.filter((r) => r.Import_ID === importId);
+      if (pohybyImportu.length === 0) return json(404, { error: 'Žádný pohyb s tímhle importId nenalezen.' });
+
+      const nepristupne = pohybyImportu.filter((p) => !maPristupKFirme(uzivatel, p.Firma));
+      if (nepristupne.length > 0) {
+        return json(403, { error: 'Nemáte přístup ke všem pohybům tohoto importu.' });
+      }
+
+      const serazenoSestupne = pohybyImportu.slice().sort((a, b) => b._row - a._row);
+      for (const pohyb of serazenoSestupne) {
+        await deleteRow(sheets, spreadsheetId, 'Bankovni_pohyby', pohyb._row);
+      }
+      return json(200, { ok: true, smazano: serazenoSestupne.length });
     }
 
     return json(405, { error: 'Method not allowed' });

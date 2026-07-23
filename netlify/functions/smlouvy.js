@@ -15,7 +15,8 @@
  *                         používá se v hlavní záložce Smlouvy.
  * POST   { Firma, Nazev, Druha_strana?, Stredisko?, Typ?, Perioda?,
  *          Ocekavana_castka?, Mena?, Platnost_od?, Platnost_do?,
- *          Zdrojovy_soubor_URL?, Poznamka?, Aktivni? } -> založí novou
+ *          Zdrojovy_soubor_URL?, Poznamka?, Aktivni?, Nemovitost_ID? }
+ *          -> založí novou
  *          smlouvu ručně, bez souboru/AI
  *          (Aktivni výchozí "ANO"). Založení PŘES nahraný soubor + AI
  *          vytěžení appka řeší samostatně, viz smlouvy-upload.js a
@@ -130,6 +131,9 @@ exports.handler = async (event) => {
         Poznamka: String(telo.Poznamka || '').trim(),
         Aktivni: String(telo.Aktivni || 'ANO').trim() || 'ANO',
         Poradi: String(poradi),
+        // Od v4.19 - propojení na Nemovitosti (jen relevantní u Typ =
+        // "Nájem", viz lib/nemovitostiSchema.js/lib/smlouvySchema.js).
+        Nemovitost_ID: String(telo.Nemovitost_ID || '').trim(),
       };
       await appendRow(sheets, spreadsheetId, 'Smlouvy', SMLOUVY_HEADERS, smlouva);
 

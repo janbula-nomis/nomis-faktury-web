@@ -32,6 +32,7 @@ const { UCTY_HEADERS } = require('../../lib/uctySchema');
 const { SMLOUVY_HEADERS, dalsiPoradiSmlouvy } = require('../../lib/smlouvySchema');
 const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
 const { KNIHA_JIZD_HEADERS } = require('../../lib/knihaJizdSchema');
+const { NEMOVITOSTI_HEADERS } = require('../../lib/nemovitostiSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
 
@@ -84,6 +85,14 @@ const LISTY = [
     // nebo budoucí import CSV), viz lib/knihaJizdSchema.js.
     nazev: 'Kniha_jizd',
     hlavicky: KNIHA_JIZD_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Nemovitosti (od v4.19) - propojeno se Smlouvami typu "Nájem" přes
+    // Smlouvy.Nemovitost_ID, appka je zobrazuje v záložce Nemovitosti spolu
+    // s přehledem nájemního příjmu - viz lib/nemovitostiSchema.js.
+    nazev: 'Nemovitosti',
+    hlavicky: NEMOVITOSTI_HEADERS,
     ukazka: [],
   },
   { nazev: 'Log', hlavicky: ['Cas', 'Uzivatel', 'Akce', 'Doklad_ID', 'Detail'], ukazka: [] },
