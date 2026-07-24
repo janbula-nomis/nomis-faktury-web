@@ -3107,6 +3107,77 @@ z Jan poslaných reálných XML) + dvěma Playwright ověřeními (sekce Položk
 ve frontendu - zobrazení/přidání/zpětné vytěžení; tlačítko exportu -
 viditelnost podle role + skutečné stažení souboru).
 
+## 69. Nová funkce: export do Excelu (v4.28)
+
+Jan po nasazení Money S3 exportu (v4.27) zadal doplňující požadavek:
+„můžeme přidat ještě export do Excel?“. Appka si přes AskUserQuestion
+nechala potvrdit rozsah (kterých čtyř míst se má export týkat, a kam
+tlačítka umístit) - Jan zvolil všechny čtyři: Přijaté faktury, Vydané
+faktury, Bankovní výpisy, Daňový přehled, s tlačítky přímo vedle
+existujících tlačítek pro Money S3 (kde appka Money S3 export má) resp.
+na obdobné místo (Bankovní výpisy, Daňový přehled).
+
+Na rozdíl od exportu do Money S3 (ten je určený k IMPORTU do konkrétního
+účetního programu, a proto appka dodržuje jeho přesnou XML strukturu),
+export do Excelu je obecný, čitelný podklad přímo pro Jana/účetní -
+appka žádnou konkrétní cílovou strukturu nedodržuje, jen čisté datové
+tabulky (jeden řádek = jeden záznam), číselné sloupce jako skutečná
+čísla (ne text), ať jde v Excelu rovnou sčítat.
+
+- **`lib/excelExport.js`** (nová knihovna) - appka sešity sestavuje
+  knihovnou **"xlsx" (SheetJS)**, kterou appka v projektu už měla jako
+  závislost (`package.json`) a používala ji od v3.6 pro ČTENÍ XLS/XLSX
+  bankovních výpisů (`lib/bankImportTabular.js`) - appka ji teď použila
+  poprvé i pro ZÁPIS. Stejný obranný vzor jako appka má u čtení: appka
+  `require('xlsx')` obalí try/catch a vyhodí srozumitelnou chybu, kdyby
+  knihovna z nějakého důvodu chyběla. Čtyři sestavovací funkce:
+  `vytvorExcelDoklady`/`vytvorExcelVydaneFaktury` (po dvou listech -
+  hlavní data + Položky), `vytvorExcelBanka` (jeden list), a
+  `vytvorExcelDanovyPrehled` (dva listy - DPH bilance + Daňové platby,
+  rozpad podle měsíce).
+- **`lib/http.js`** - nová funkce `xlsx()` vedle existujících `json()`/
+  `xml()` - na rozdíl od `xml()` appka tělo odpovědi posílá jako
+  **base64 s `isBase64Encoded: true`** (XLSX na rozdíl od XML není
+  textový formát, appka ho Netlify Functions musí poslat jako binární
+  obsah).
+- **`netlify/functions/export-excel.js`** (nová funkce) - GET
+  `?typ=doklady|vydane|banka|danovy&firma=X&rok=RRRR&mesic=MM` (`doklady`
+  navíc `&stredisko=X`, `vydane` navíc `&jednotka=X`). Přístup appka
+  omezuje na admina/účetní stejně jako u Money S3 exportu (jde o
+  účetní/kontrolní operaci nad víc záznamy najednou). `typ=doklady`/
+  `vydane` používají STEJNÉ filtry jako Money S3 export (jen schválené
+  doklady / jen zpracované faktury dané firmy a období). `typ=banka`
+  exportuje VŠECHNY pohyby vybrané firmy (appka je tu NEOMEZUJE na
+  konkrétní stav párování - jde o obecnou kopii výpisu, ne o podklad k
+  importu). `typ=danovy` appka počítá stejnou logikou jako
+  `danovy-prehled.js` (viz tam), jen zjednodušeně na měsíční rozpad,
+  s volitelným filtrem firma (výchozí: všechny firmy viditelné
+  přihlášenému)/rok - appka výpočet záměrně nesdílí importem (stejná
+  konvence jako appka má u duplikovaných přístupových helperů jinde v
+  kódu), appka je případně udržuje ručně synchronně s
+  `danovy-prehled.js`.
+- **Frontend (`public/app.js`, `public/index.html`)** - appka přidala
+  čtyři tlačítka „Stáhnout Excel (...)“: v záložce Export vedle tlačítka
+  Money S3 (přijaté faktury), v záložce Vydané faktury vedle tlačítka
+  Money S3 (vydané faktury), novou sekci `#banka-excel-export` v
+  záložce Bankovní výpisy (appka ji schovává běžné roli - jediná ze
+  čtyř záložek s Excel exportem, kterou appka běžné roli jinak ukazuje
+  celou, viz `zobrazApp()`), a sekci `#prehled-excel-export` v záložce
+  Daňový přehled (appka tam žádné zvláštní schování nepotřebuje - celá
+  záložka Daňový přehled je běžné roli schovaná už na úrovni navigace).
+  Všechna čtyři tlačítka používají stejnou `stahniSouborZApi()` funkci
+  jako Money S3 export (appka odpověď stahuje jako Blob, ne přes
+  `zavolejApi()`/`.json()`).
+
+Ověřeno novým `test_export_excel.js` (přístupová práva, filtry, a - POKUD
+je v prostředí, kde appka testy pouští, knihovna "xlsx" k dispozici -
+i skutečný obsah vygenerovaných sešitů) + celou regresní sadou appky
+(65 backendových testů) + Playwright ověřením UI (tlačítka schovaná
+běžné roli ve Vydaných fakturách/Bankovních výpisech, viditelná a funkční
+adminovi na všech čtyřech místech, správný název staženého souboru).
+
+`APP_VERZE` appka zvýšila na `v4.28 – 2026-07-24`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

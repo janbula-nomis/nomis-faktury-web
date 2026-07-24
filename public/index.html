@@ -133,6 +133,12 @@
             <tbody id="prehled-tabulka-telo"></tbody>
           </table>
         </div>
+
+        <div id="prehled-excel-export" style="margin-top:16px">
+          <button type="button" id="tlacitko-export-excel-prehled" class="sekundarni">Stáhnout Excel (daňový přehled)</button>
+          <div class="poznamka-dokladu" style="margin-top:6px">Stáhne rozpad podle měsíce pro zvolený rok výš, za všechny firmy, které vidíte.</div>
+          <div id="prehled-export-excel-zprava" class="zprava skryto" style="margin-top:8px"></div>
+        </div>
       </div>
     </div>
 
@@ -294,10 +300,14 @@
       <button type="button" id="tlacitko-export-money-s3-vf" class="maly sekundarni" style="margin-top:4px">
         Stáhnout XML pro Money S3 (vydané faktury)
       </button>
+      <button type="button" id="tlacitko-export-excel-vf" class="maly sekundarni" style="margin-top:4px">
+        Stáhnout Excel (vydané faktury)
+      </button>
       <div class="poznamka-dokladu" style="margin-top:4px">
         Nejdřív vyberte konkrétní firmu výš (ne „Všechny firmy“) - appka stáhne jen zpracované (ne rozpracované/duplicitní) faktury vybrané firmy.
       </div>
       <div id="vf-export-money-s3-zprava" class="zprava skryto" style="margin-top:8px"></div>
+      <div id="vf-export-excel-zprava" class="zprava skryto" style="margin-top:8px"></div>
 
       <div id="vf-nacitani" class="nacitani" style="margin-top:12px">Načítám…</div>
       <div id="vf-zprava-akce" class="zprava uspech skryto"></div>
@@ -344,6 +354,12 @@
       </div>
       <button id="tlacitko-banka-aktualizovat" type="button" class="sekundarni" style="margin-top:12px" title="Znovu načíst pohyby a doklady ze Sheets (např. po úpravě jinde/na jiném zařízení)">Aktualizovat</button>
       <div id="banka-import-zprava"></div>
+
+      <div id="banka-excel-export" style="margin-top:12px">
+        <button type="button" id="tlacitko-export-excel-banka" class="sekundarni maly">Stáhnout Excel (bankovní výpisy)</button>
+        <div class="poznamka-dokladu" style="margin-top:4px">Stáhne všechny pohyby vybrané firmy výš (bez ohledu na stav párování).</div>
+        <div id="banka-export-excel-zprava" class="zprava skryto" style="margin-top:8px"></div>
+      </div>
 
       <div class="banka-souhrn-radek" style="margin-top:16px">
         <div id="banka-souhrn" class="popis"></div>
@@ -467,10 +483,12 @@
 
       <div id="export-money-s3" style="margin-top:16px">
         <button type="button" id="tlacitko-export-money-s3">Stáhnout XML pro Money S3 (přijaté faktury)</button>
+        <button type="button" id="tlacitko-export-excel" class="sekundarni">Stáhnout Excel (přijaté faktury)</button>
         <div class="poznamka-dokladu" style="margin-top:6px">
           Použije stejný výběr firmy/období/střediska jako přehled výš. Stáhne jen SCHVÁLENÉ doklady vybrané firmy.
         </div>
         <div id="export-money-s3-zprava" class="zprava skryto" style="margin-top:8px"></div>
+        <div id="export-excel-zprava" class="zprava skryto" style="margin-top:8px"></div>
       </div>
     </div>
 

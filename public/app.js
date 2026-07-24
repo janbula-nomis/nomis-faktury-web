@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.27 – 2026-07-24';
+const APP_VERZE = 'v4.28 – 2026-07-24';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -308,6 +308,15 @@ function zobrazApp() {
   // nenabízí ovládací prvky, které by beztak skončily chybou 403.
   const bankaAkceZapis = document.getElementById('banka-akce-zapis');
   if (bankaAkceZapis) bankaAkceZapis.classList.toggle('skryto', !jeUcetniNeboAdmin);
+
+  // Export do Excelu (v4.28) appka omezuje na admina/účetní, stejně jako
+  // export do Money S3 - Bankovní výpisy jsou jediná záložka z těch čtyř
+  // s Excel exportem, kterou appka ukazuje i běžné roli (viz výš), proto
+  // potřebuje vlastní schování tlačítka tady (Export/Vydané faktury mají
+  // svoje schování v inicializujZalozkuExport()/inicializujZalozkuVydane
+  // Faktury() - a Daňový přehled appka běžné roli schová celý, viz výš).
+  const bankaExcelExport = document.getElementById('banka-excel-export');
+  if (bankaExcelExport) bankaExcelExport.classList.toggle('skryto', !jeUcetniNeboAdmin);
 
   // Jan (2026-07-19, v4.11): běžný uživatel vidí u Dokladů jen "Ke schválení"
   // (appka mu schválené doklady stejně vůbec nevrátí z backendu - viz
@@ -1887,6 +1896,7 @@ async function inicializujZalozkuVydaneFaktury() {
   // u tlačítka v záložce Export (viz inicializujZalozkuExport výš).
   const jeUcetniNeboAdminVfExport = stav.role === 'admin' || stav.role === 'ucetni';
   document.getElementById('tlacitko-export-money-s3-vf').classList.toggle('skryto', !jeUcetniNeboAdminVfExport);
+  document.getElementById('tlacitko-export-excel-vf').classList.toggle('skryto', !jeUcetniNeboAdminVfExport);
 
   const seznamJednotek = document.getElementById('seznam-jednotek');
   if (seznamJednotek && seznamJednotek.children.length === 0) {
@@ -5454,6 +5464,109 @@ document.getElementById('tlacitko-export-money-s3-vf').addEventListener('click',
   try {
     const params = new URLSearchParams({ smer: 'vydane', firma });
     await stahniSouborZApi('/export-money-s3?' + params.toString());
+    zprava.textContent = 'Export stažen.';
+    zprava.className = 'zprava uspech';
+  } catch (err) {
+    zprava.textContent = 'Nepodařilo se stáhnout export: ' + err.message;
+    zprava.className = 'zprava chyba';
+  }
+  tlacitko.disabled = false;
+});
+
+// Export do Excelu (od v4.28, Jan: "můžeme přidat ještě export do Excel?")
+// - paralelní, obecnější export vedle Money S3 XML výš - appka ho nabízí
+// na čtyřech místech (Přijaté faktury, Vydané faktury, Bankovní výpisy,
+// Daňový přehled), vždy přes stejný endpoint /export-excel (viz netlify/
+// functions/export-excel.js) a stejný stahniSouborZApi() jako Money S3.
+document.getElementById('tlacitko-export-excel').addEventListener('click', async (e) => {
+  const tlacitko = e.target;
+  const zprava = document.getElementById('export-excel-zprava');
+  const firma = document.getElementById('export-firma').value;
+  if (!firma) {
+    zprava.textContent = 'Nejdřív vyberte konkrétní firmu (ne „Všechny firmy“).';
+    zprava.className = 'zprava chyba';
+    return;
+  }
+  const mesic = document.getElementById('export-mesic').value;
+  const rok = document.getElementById('export-rok').value;
+  const stredisko = document.getElementById('export-stredisko').value;
+
+  tlacitko.disabled = true;
+  zprava.className = 'zprava skryto';
+  try {
+    const params = new URLSearchParams({ typ: 'doklady', firma });
+    if (mesic) params.set('mesic', mesic);
+    if (rok) params.set('rok', rok);
+    if (stredisko) params.set('stredisko', stredisko);
+    await stahniSouborZApi('/export-excel?' + params.toString());
+    zprava.textContent = 'Export stažen.';
+    zprava.className = 'zprava uspech';
+  } catch (err) {
+    zprava.textContent = 'Nepodařilo se stáhnout export: ' + err.message;
+    zprava.className = 'zprava chyba';
+  }
+  tlacitko.disabled = false;
+});
+
+document.getElementById('tlacitko-export-excel-vf').addEventListener('click', async (e) => {
+  const tlacitko = e.target;
+  const zprava = document.getElementById('vf-export-excel-zprava');
+  const firma = document.getElementById('vf-filtr-firma').value;
+  if (!firma) {
+    zprava.textContent = 'Nejdřív vyberte konkrétní firmu výš (ne „Všechny firmy“).';
+    zprava.className = 'zprava chyba';
+    return;
+  }
+
+  tlacitko.disabled = true;
+  zprava.className = 'zprava skryto';
+  try {
+    const params = new URLSearchParams({ typ: 'vydane', firma });
+    await stahniSouborZApi('/export-excel?' + params.toString());
+    zprava.textContent = 'Export stažen.';
+    zprava.className = 'zprava uspech';
+  } catch (err) {
+    zprava.textContent = 'Nepodařilo se stáhnout export: ' + err.message;
+    zprava.className = 'zprava chyba';
+  }
+  tlacitko.disabled = false;
+});
+
+document.getElementById('tlacitko-export-excel-banka').addEventListener('click', async (e) => {
+  const tlacitko = e.target;
+  const zprava = document.getElementById('banka-export-excel-zprava');
+  const firma = document.getElementById('banka-vyber-firmy').value;
+  if (!firma) {
+    zprava.textContent = 'Nejdřív vyberte konkrétní firmu výš.';
+    zprava.className = 'zprava chyba';
+    return;
+  }
+
+  tlacitko.disabled = true;
+  zprava.className = 'zprava skryto';
+  try {
+    const params = new URLSearchParams({ typ: 'banka', firma });
+    await stahniSouborZApi('/export-excel?' + params.toString());
+    zprava.textContent = 'Export stažen.';
+    zprava.className = 'zprava uspech';
+  } catch (err) {
+    zprava.textContent = 'Nepodařilo se stáhnout export: ' + err.message;
+    zprava.className = 'zprava chyba';
+  }
+  tlacitko.disabled = false;
+});
+
+document.getElementById('tlacitko-export-excel-prehled').addEventListener('click', async (e) => {
+  const tlacitko = e.target;
+  const zprava = document.getElementById('prehled-export-excel-zprava');
+  const rok = document.getElementById('prehled-vyber-rok').value;
+
+  tlacitko.disabled = true;
+  zprava.className = 'zprava skryto';
+  try {
+    const params = new URLSearchParams({ typ: 'danovy' });
+    if (rok) params.set('rok', rok);
+    await stahniSouborZApi('/export-excel?' + params.toString());
     zprava.textContent = 'Export stažen.';
     zprava.className = 'zprava uspech';
   } catch (err) {
