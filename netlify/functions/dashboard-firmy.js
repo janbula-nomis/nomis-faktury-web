@@ -22,14 +22,19 @@
  * přiřazené jako trvalý příkaz ke Smlouvě (Stav_parovani == "Trvalý
  * příkaz") - středisko u těch appka bere ze samotné Smlouvy
  * (lib/smlouvySchema.js, pole Stredisko), protože pohyb sám středisko
- * nenese. Příjmy appka počítá ze DVOU zdrojů bankovních pohybů: (a)
+ * nenese. Příjmy appka počítá ze TŘÍ zdrojů bankovních pohybů: (a)
  * Stav_parovani == "Příjem přiřazen" (příchozí platba, které účetní ručně
- * přiřadila středisko), a (b) OD v3.23 i Stav_parovani == "Spárováno -
+ * přiřadila středisko), (b) OD v3.23 i Stav_parovani == "Spárováno -
  * vydaná faktura" (příchozí platba potvrzeně spárovaná s konkrétní
  * Vydanou fakturou, v3.22) - středisko appka u těchhle bere z pole
  * `Jednotka` napárované faktury (lib/vydaneFakturySchema.js). Do v3.23
  * appka tenhle druhý zdroj v Dashboardu OMYLEM vůbec nepočítala - Jan to
  * nahlásil jako "uhrazené (vydané faktury) se nepropisuje do dashboardu".
+ * (c) OD v4.23 i Stav_parovani == "Spárováno - nájemní smlouva" (příchozí
+ * platba potvrzeně spárovaná s nájemní Smlouvou, v4.19) - appka po zrušení
+ * samostatné entity Nemovitosti (Jan: "nemovitost je zase jen středisko")
+ * bere středisko přímo z pohybu, kam ho appka zkopírovala ze Smlouvy při
+ * potvrzení/návrhu (viz netlify/functions/banka.js).
  *
  * Appka navíc vrací globální (ne per-firma) upozornění googleAuthVarovani -
  * pokud selže i jen základní čtení listu Firmy/Doklady (typicky vypršelý/
@@ -168,6 +173,23 @@ exports.handler = async (event) => {
         .forEach((p) => {
           const castka = parsujCastkuZListu(p.Castka);
           const stredisko = jednotkaPodleFaktury[p.Vydana_faktura_ID] || '(bez střediska)';
+          strediskaPrijmy[stredisko] = (strediskaPrijmy[stredisko] || 0) + castka;
+          prijmyCelkem += castka;
+        });
+
+      // (v4.23) Platby potvrzeně spárované s nájemní Smlouvou (appka od
+      // v4.23 zrušila samostatnou entitu Nemovitosti a nájemní příjem
+      // kategorizuje čistě přes Středisko, viz netlify/functions/banka.js) -
+      // appka bere Středisko přímo z pohybu (appka ho tam kopíruje ze
+      // smlouvy při potvrzení/návrhu), se zálohou na aktuální
+      // Smlouva.Stredisko pro starší pohyby, kde by kopírování z nějakého
+      // důvodu selhalo.
+      pohybyTetoFirmy
+        .filter((p) => p.Stav_parovani === 'Spárováno - nájemní smlouva')
+        .filter((p) => String(p.Datum || '') >= zacatekOkna)
+        .forEach((p) => {
+          const castka = parsujCastkuZListu(p.Castka);
+          const stredisko = p.Stredisko || strediskoPodleSmlouvy[p.Smlouva_ID] || '(bez střediska)';
           strediskaPrijmy[stredisko] = (strediskaPrijmy[stredisko] || 0) + castka;
           prijmyCelkem += castka;
         });

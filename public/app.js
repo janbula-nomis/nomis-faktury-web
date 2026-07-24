@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.21 – 2026-07-23';
+const APP_VERZE = 'v4.23 – 2026-07-23';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -260,12 +260,6 @@ function zobrazApp() {
   document.getElementById('nav-dashboard').classList.toggle('skryto', !jeUcetniNeboAdmin);
   document.getElementById('nav-kniha-jizd').classList.toggle('skryto', !jeUcetniNeboAdmin);
 
-  // Od v4.19: záložka Nemovitosti appka od v4.16 zobrazovala VŠEM (byla to
-  // jen prázdná "coming soon" hláška) - teď obsahuje reálná data o
-  // nájemním příjmu (stejně citlivá jako Smlouvy/Bankovní výpisy), appka
-  // ji proto schovává běžnému uživateli stejně jako Registr smluv výš.
-  document.getElementById('nav-nemovitosti').classList.toggle('skryto', !jeUcetniNeboAdmin);
-
   // Jan (2026-07-21, v4.12): oprava v4.10 - Bankovní výpisy appka teď
   // NESCHOVÁVÁ ani běžnému uživateli (dřív byly jen pro admina/účetní) -
   // Jan chce, aby je viděl (jen náhled, jen k firmám, které má přiřazené -
@@ -380,7 +374,6 @@ function prepniZalozku(nazev) {
   if (nazev === 'kniha-jizd') nactiKnihaJizd();
   if (nazev === 'banka') inicializujZalozkuBanka();
   if (nazev === 'smlouvy') nactiSmlouvy();
-  if (nazev === 'nemovitosti') nactiNemovitosti();
   if (nazev === 'export') inicializujZalozkuExport();
   if (nazev === 'nastaveni') {
     nactiUzivatele();
@@ -726,26 +719,6 @@ function moznostiStrediska(vybrane) {
   });
   if (vybrane && !MOZNOSTI_STREDISKA.includes(vybrane)) {
     html += '<option value="' + escapeAttr(vybrane) + '" selected>' + escapeHtml(vybrane) + '</option>';
-  }
-  return html;
-}
-
-// Nemovitosti appka od v4.19 vede jako VLASTNÍ, appkou spravovaný seznam
-// (list "Nemovitosti" v Sheets, viz lib/nemovitostiSchema.js) - na rozdíl
-// od pevného číselníku MOZNOSTI_STREDISKA výš appka tenhle seznam NAČÍTÁ
-// (stejně jako Firmy), protože Jan bude nemovitosti postupně přidávat sám.
-// Appka u volby ukazuje i firmu (nemovitosti appka nefiltruje jen na
-// vybranou firmu smlouvy, ať appka nekomplikuje UI dynamickým přefiltrováním
-// při změně firmy - u pár nemovitostí appky to Jan snadno pozná podle názvu).
-function moznostiNemovitosti(seznamNemovitosti, vybranaId) {
-  let html = '<option value="">— bez nemovitosti —</option>';
-  seznamNemovitosti.forEach((n) => {
-    const oznaceno = n.ID === vybranaId ? ' selected' : '';
-    html += '<option value="' + escapeAttr(n.ID) + '"' + oznaceno + '>' +
-      escapeHtml(n.Nazev || '(bez názvu)') + ' (' + escapeHtml(n.Firma || '') + ')' + '</option>';
-  });
-  if (vybranaId && !seznamNemovitosti.some((n) => n.ID === vybranaId)) {
-    html += '<option value="' + escapeAttr(vybranaId) + '" selected>(nemovitost nenalezena v seznamu)</option>';
   }
   return html;
 }
@@ -2547,14 +2520,34 @@ function vytvorDetailBanka(p) {
         (smlouvaNajemNavrzena.Druha_strana ? ' – nájemce ' + smlouvaNajemNavrzena.Druha_strana : '') + '.'
       : 'Appka navrhuje spárovat s nájemní smlouvou, kterou v seznamu nenašla (možná byla mezitím smazána).';
     akce.appendChild(infoNajemNavrzeno);
+
+    // Od v4.23 (Jan: "nemovitost je zase jen středisko", appka zrušila
+    // samostatnou entitu Nemovitosti) - appka u potvrzení vyžaduje i
+    // Středisko, ať se nájemní příjem stejně jako ostatní příjmy objeví
+    // v Dashboardu podle střediska. Appka select předvyplní tím, co už na
+    // pohybu má (appka ho tam zkopírovala ze smlouvy při návrhu), případně
+    // přímo Střediskem smlouvy, pokud appka Střediska ještě nenastavila.
+    const vyberStrediskoNajemNavrzeno = document.createElement('select');
+    vyberStrediskoNajemNavrzeno.style.fontSize = '13px';
+    vyberStrediskoNajemNavrzeno.innerHTML = moznostiStrediska(
+      p.Stredisko || (smlouvaNajemNavrzena && smlouvaNajemNavrzena.Stredisko) || ''
+    );
+    akce.appendChild(vyberStrediskoNajemNavrzeno);
     akce.appendChild(
-      tlacitkoBanka('Potvrdit spárování', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Spárováno - nájemní smlouva' }, e.target)
-      )
+      tlacitkoBanka('Potvrdit spárování', (e) => {
+        if (!vyberStrediskoNajemNavrzeno.value) {
+          alert('Vyberte středisko.');
+          return;
+        }
+        ulozZmenuBanka(
+          { Stav_parovani: 'Spárováno - nájemní smlouva', Stredisko: vyberStrediskoNajemNavrzeno.value },
+          e.target
+        );
+      })
     );
     akce.appendChild(
       tlacitkoBanka('Zamítnout návrh', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Smlouva_ID: '' }, e.target)
+        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }, e.target)
       )
     );
   } else if (p.Stav_parovani === 'Spárováno - nájemní smlouva') {
@@ -2565,14 +2558,15 @@ function vytvorDetailBanka(p) {
     const infoNajemSparovano = document.createElement('div');
     infoNajemSparovano.className = 'popis';
     infoNajemSparovano.style.marginBottom = '6px';
-    infoNajemSparovano.textContent = smlouvaNajemSparovana
+    infoNajemSparovano.textContent = (smlouvaNajemSparovana
       ? 'Spárováno s nájemní smlouvou „' + smlouvaNajemSparovana.Nazev + '“' +
         (smlouvaNajemSparovana.Druha_strana ? ' – nájemce ' + smlouvaNajemSparovana.Druha_strana : '') + '.'
-      : 'Spárováno s nájemní smlouvou, kterou appka v seznamu nenašla (možná byla mezitím smazána).';
+      : 'Spárováno s nájemní smlouvou, kterou appka v seznamu nenašla (možná byla mezitím smazána).') +
+      (p.Stredisko ? ' Středisko: ' + p.Stredisko + '.' : ' Appka nemá u tohohle pohybu vyplněné středisko.');
     akce.appendChild(infoNajemSparovano);
     akce.appendChild(
       tlacitkoBanka('Zrušit spárování', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Smlouva_ID: '' }, e.target)
+        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }, e.target)
       )
     );
   } else if (p.Stav_parovani === 'Daňová platba') {
@@ -2687,14 +2681,36 @@ function vytvorDetailBanka(p) {
           )
           .join('');
       akce.appendChild(vyberNajemniSmlouvy);
+
+      // Od v4.23 - appka i u ručního přiřazení vyžaduje Středisko (appka po
+      // zrušení samostatné entity Nemovitosti kategorizuje nájemní příjem
+      // čistě přes Středisko) - appka select předvyplní Střediskem vybrané
+      // smlouvy, jakmile účetní smlouvu zvolí.
+      const vyberStrediskoNajemRucne = document.createElement('select');
+      vyberStrediskoNajemRucne.style.fontSize = '13px';
+      vyberStrediskoNajemRucne.innerHTML = moznostiStrediska('');
+      vyberNajemniSmlouvy.addEventListener('change', () => {
+        const vybranaSmlouva = najemniSmlouvy.find((s) => s.ID === vyberNajemniSmlouvy.value);
+        vyberStrediskoNajemRucne.innerHTML = moznostiStrediska((vybranaSmlouva && vybranaSmlouva.Stredisko) || '');
+      });
+      akce.appendChild(vyberStrediskoNajemRucne);
+
       akce.appendChild(
         tlacitkoBanka('Přiřadit k nájmu', (e) => {
           if (!vyberNajemniSmlouvy.value) {
             alert('Nejdřív vyberte nájemní smlouvu.');
             return;
           }
+          if (!vyberStrediskoNajemRucne.value) {
+            alert('Vyberte středisko.');
+            return;
+          }
           ulozZmenuBanka(
-            { Smlouva_ID: vyberNajemniSmlouvy.value, Stav_parovani: 'Spárováno - nájemní smlouva' },
+            {
+              Smlouva_ID: vyberNajemniSmlouvy.value,
+              Stav_parovani: 'Spárováno - nájemní smlouva',
+              Stredisko: vyberStrediskoNajemRucne.value,
+            },
             e.target
           );
         })
@@ -3656,7 +3672,6 @@ let smlouvySeznamAktualni = [];
 let prilohySeznamAktualni = [];
 let smlouvySekce = 'aktivni';
 let firmyProVyberSmlouvy = [];
-let nemovitostiProVyberSmlouvy = []; // od v4.19 - viz moznostiNemovitosti výš
 
 async function nactiSmlouvy() {
   const nacitani = document.getElementById('smlouvy-nacitani');
@@ -3666,20 +3681,12 @@ async function nactiSmlouvy() {
   kontejner.innerHTML = '';
 
   try {
-    const [dataSmlouvy, dataFirmy, dataNemovitosti] = await Promise.all([
+    const [dataSmlouvy, dataFirmy] = await Promise.all([
       zavolejApi('/smlouvy', { method: 'GET' }),
       zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
-      zavolejApi('/nemovitosti', { method: 'GET' }).catch(() => ({ nemovitosti: [] })),
     ]);
     firmyProVyberSmlouvy = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
     vyplnVyberFirem('nova-sm-firma', firmyProVyberSmlouvy);
-    // Od v4.19 - appka nabízí i propojení na Nemovitost (jen relevantní u
-    // Typ "Nájem", viz moznostiNemovitosti výš) - appka seznam znovu
-    // vykresluje při KAŽDÉM načtení (na rozdíl od Střediska/Typu níž), ať
-    // appka rovnou zohlední nově přidané nemovitosti bez nutnosti obnovit
-    // stránku.
-    nemovitostiProVyberSmlouvy = dataNemovitosti.nemovitosti || [];
-    document.getElementById('nova-sm-nemovitost').innerHTML = moznostiNemovitosti(nemovitostiProVyberSmlouvy, '');
     if (!document.getElementById('nova-sm-stredisko').dataset.naplneno) {
       document.getElementById('nova-sm-stredisko').innerHTML = moznostiStrediska('');
       document.getElementById('nova-sm-stredisko').dataset.naplneno = '1';
@@ -4093,15 +4100,6 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
   wrap.appendChild(labelPoznamka);
   wrap.appendChild(vstupPoznamka);
 
-  // Od v4.19 - propojení na Nemovitost (jen relevantní u Typ "Nájem", viz
-  // lib/smlouvySchema.js).
-  const labelNemovitost = document.createElement('label');
-  labelNemovitost.textContent = 'Nemovitost (jen u typu Nájem)';
-  const vstupNemovitost = document.createElement('select');
-  vstupNemovitost.innerHTML = moznostiNemovitosti(nemovitostiProVyberSmlouvy, s.Nemovitost_ID || '');
-  wrap.appendChild(labelNemovitost);
-  wrap.appendChild(vstupNemovitost);
-
   const labelAktivni = document.createElement('label');
   labelAktivni.style.display = 'flex';
   labelAktivni.style.alignItems = 'center';
@@ -4127,7 +4125,6 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
       Platnost_do: vstupDo.value,
       Poznamka: vstupPoznamka.value.trim(),
       Aktivni: vstupAktivni.checked ? 'ANO' : 'NE',
-      Nemovitost_ID: vstupNemovitost.value,
     };
   }
 
@@ -4309,7 +4306,6 @@ async function pridatSmlouvu() {
         Platnost_do: document.getElementById('nova-sm-do').value,
         Zdrojovy_soubor_URL: document.getElementById('nova-sm-url').value.trim(),
         Poznamka: document.getElementById('nova-sm-poznamka').value.trim(),
-        Nemovitost_ID: document.getElementById('nova-sm-nemovitost').value,
       }),
     });
     zprava.innerHTML = '<div class="zprava uspech">Smlouva přidána.</div>';
@@ -4321,7 +4317,6 @@ async function pridatSmlouvu() {
     document.getElementById('nova-sm-do').value = '';
     document.getElementById('nova-sm-url').value = '';
     document.getElementById('nova-sm-poznamka').value = '';
-    document.getElementById('nova-sm-nemovitost').value = '';
     await nactiSmlouvy();
   } catch (e) {
     zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
@@ -4351,270 +4346,20 @@ async function smazSmlouvu(id, nazev, tlacitko) {
   }
 }
 
-// ---------- NEMOVITOSTI (od v4.19, Jan: "příjmy z nájmu přiřadit k
-// bankovním vypisům, zdrojem jsou nájemní smlouvy, které načtu do registru
-// smluv") ----------
-// Appka tuhle záložku (placeholder od v4.16) rozdělila na dvě věci: (1)
-// evidence samotných nemovitostí (list "Nemovitosti", CRUD viz netlify/
-// functions/nemovitosti.js), (2) souhrnný přehled nájemního příjmu podle
-// Smluv propojených na danou nemovitost (netlify/functions/
-// nemovitosti-prehled.js) - appka platby od nájemců páruje AUTOMATICKY
-// (viz vytvorDetailBanka výš, "Navrženo/Spárováno - nájemní smlouva"), tady
-// appka jen ukazuje, jestli za AKTUÁLNÍ měsíc appka u dané smlouvy
-// zaznamenala odpovídající platbu.
-
-let nemovitostiSeznamAktualni = [];
-let firmyProVyberNemovitosti = [];
-
-async function nactiNemovitosti() {
-  const nacitani = document.getElementById('nemovitosti-nacitani');
-  const kontejner = document.getElementById('nemovitosti-seznam');
-  nacitani.classList.remove('skryto');
-  nacitani.textContent = 'Načítám…';
-  kontejner.innerHTML = '';
-
-  try {
-    const [dataNemovitosti, dataFirmy, dataPrehled] = await Promise.all([
-      zavolejApi('/nemovitosti', { method: 'GET' }),
-      zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
-      zavolejApi('/nemovitosti-prehled', { method: 'GET' }).catch(() => ({ nemovitosti: [] })),
-    ]);
-    firmyProVyberNemovitosti = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
-    vyplnVyberFirem('nova-nem-firma', firmyProVyberNemovitosti);
-    nemovitostiSeznamAktualni = dataNemovitosti.nemovitosti || [];
-    nacitani.classList.add('skryto');
-    vykresliNemovitosti(nemovitostiSeznamAktualni, dataPrehled.nemovitosti || []);
-  } catch (e) {
-    nacitani.textContent = 'Nepodařilo se načíst nemovitosti: ' + e.message;
-  }
-}
-
-function vykresliNemovitosti(nemovitosti, prehled) {
-  const kontejner = document.getElementById('nemovitosti-seznam');
-  kontejner.innerHTML = '';
-
-  if (nemovitosti.length === 0) {
-    kontejner.innerHTML = '<div class="nacitani">Zatím žádné nemovitosti - přidejte první výše.</div>';
-    return;
-  }
-
-  const prehledPodleId = {};
-  prehled.forEach((p) => { prehledPodleId[p.nemovitostId] = p; });
-
-  // Řazení appka drží stejné jako appka nemovitosti vrátila (Poradi appka
-  // zatím neumožňuje uživateli měnit tažením, na rozdíl od Smluv - u pár
-  // nemovitostí to zatím není potřeba).
-  nemovitosti
-    .slice()
-    .sort((a, b) => {
-      const pa = Number(a.Poradi);
-      const pb = Number(b.Poradi);
-      const cislaA = Number.isFinite(pa) ? pa : Number.MAX_SAFE_INTEGER;
-      const cislaB = Number.isFinite(pb) ? pb : Number.MAX_SAFE_INTEGER;
-      return cislaA - cislaB;
-    })
-    .forEach((n) => {
-      kontejner.appendChild(vytvorKartuNemovitost(n, prehledPodleId[n.ID]));
-    });
-}
-
-function vytvorKartuNemovitost(n, prehledTeto) {
-  const karta = document.createElement('div');
-  karta.className = 'karta';
-  karta.style.marginTop = '10px';
-  karta.style.padding = '12px';
-
-  const hlava = document.createElement('div');
-  hlava.style.display = 'flex';
-  hlava.style.justifyContent = 'space-between';
-  hlava.style.alignItems = 'flex-start';
-  hlava.style.gap = '10px';
-  hlava.style.flexWrap = 'wrap';
-
-  const info = document.createElement('div');
-  info.innerHTML =
-    '<strong>' + escapeHtml(n.Nazev || '(bez názvu)') + '</strong>' +
-    (String(n.Aktivni || 'ANO').trim() === 'NE' ? ' <span class="popis">(neaktivní)</span>' : '') +
-    '<div class="popis">' + escapeHtml(n.Firma || '') + (n.Adresa ? ' – ' + escapeHtml(n.Adresa) : '') + '</div>' +
-    (n.Poznamka ? '<div class="popis">' + escapeHtml(n.Poznamka) + '</div>' : '');
-  hlava.appendChild(info);
-
-  const akce = document.createElement('div');
-  akce.className = 'radek-akci';
-  const tlacitkoUpravit = document.createElement('button');
-  tlacitkoUpravit.className = 'maly sekundarni';
-  tlacitkoUpravit.textContent = 'Upravit';
-  tlacitkoUpravit.onclick = () => {
-    detail.classList.toggle('skryto');
-  };
-  akce.appendChild(tlacitkoUpravit);
-  const tlacitkoSmazat = document.createElement('button');
-  tlacitkoSmazat.className = 'maly sekundarni';
-  tlacitkoSmazat.textContent = 'Smazat';
-  tlacitkoSmazat.onclick = () => smazNemovitost(n.ID, n.Nazev || '(bez názvu)', tlacitkoSmazat);
-  akce.appendChild(tlacitkoSmazat);
-  hlava.appendChild(akce);
-
-  karta.appendChild(hlava);
-
-  // Detail k úpravě appka schová, dokud uživatel neklikne na "Upravit" -
-  // ať karta v běžném pohledu zůstane úsporná (hlavně u víc nemovitostí).
-  const detail = document.createElement('div');
-  detail.className = 'skryto';
-  detail.style.marginTop = '10px';
-
-  const labelNazev = document.createElement('label');
-  labelNazev.textContent = 'Název';
-  const vstupNazev = document.createElement('input');
-  vstupNazev.type = 'text';
-  vstupNazev.value = n.Nazev || '';
-  detail.appendChild(labelNazev);
-  detail.appendChild(vstupNazev);
-
-  const labelAdresa = document.createElement('label');
-  labelAdresa.textContent = 'Adresa';
-  const vstupAdresa = document.createElement('input');
-  vstupAdresa.type = 'text';
-  vstupAdresa.value = n.Adresa || '';
-  detail.appendChild(labelAdresa);
-  detail.appendChild(vstupAdresa);
-
-  const labelPoznamka = document.createElement('label');
-  labelPoznamka.textContent = 'Poznámka';
-  const vstupPoznamka = document.createElement('input');
-  vstupPoznamka.type = 'text';
-  vstupPoznamka.value = n.Poznamka || '';
-  detail.appendChild(labelPoznamka);
-  detail.appendChild(vstupPoznamka);
-
-  const labelAktivni = document.createElement('label');
-  labelAktivni.style.display = 'flex';
-  labelAktivni.style.alignItems = 'center';
-  labelAktivni.style.gap = '8px';
-  const vstupAktivni = document.createElement('input');
-  vstupAktivni.type = 'checkbox';
-  vstupAktivni.checked = String(n.Aktivni || 'ANO').trim() !== 'NE';
-  labelAktivni.appendChild(vstupAktivni);
-  labelAktivni.appendChild(document.createTextNode('Aktivní'));
-  detail.appendChild(labelAktivni);
-
-  const tlacitkoUlozit = document.createElement('button');
-  tlacitkoUlozit.className = 'maly sekundarni';
-  tlacitkoUlozit.style.marginTop = '8px';
-  tlacitkoUlozit.textContent = 'Uložit';
-  tlacitkoUlozit.onclick = () =>
-    ulozNemovitost(n.ID, {
-      Nazev: vstupNazev.value.trim(),
-      Adresa: vstupAdresa.value.trim(),
-      Poznamka: vstupPoznamka.value.trim(),
-      Aktivni: vstupAktivni.checked ? 'ANO' : 'NE',
-    }, tlacitkoUlozit);
-  detail.appendChild(tlacitkoUlozit);
-
-  karta.appendChild(detail);
-
-  // Přehled napojených nájemních Smluv + jestli appka za tenhle měsíc
-  // zaznamenala odpovídající platbu (viz netlify/functions/
-  // nemovitosti-prehled.js) - appka tuhle sekci ukazuje VŽDY (ne jen po
-  // rozkliknutí "Upravit"), je to hlavní důvod, proč se na záložku vůbec
-  // chodí.
-  const prehledWrap = document.createElement('div');
-  prehledWrap.style.marginTop = '10px';
-  const smlouvy = (prehledTeto && prehledTeto.smlouvy) || [];
-  if (smlouvy.length === 0) {
-    prehledWrap.innerHTML = '<div class="popis">Zatím žádná nájemní smlouva propojená - přidejte/propojte ji v Registru smluv.</div>';
-  } else {
-    smlouvy.forEach((s) => {
-      const radek = document.createElement('div');
-      radek.style.display = 'flex';
-      radek.style.justifyContent = 'space-between';
-      radek.style.alignItems = 'center';
-      radek.style.gap = '8px';
-      radek.style.padding = '6px 0';
-      radek.style.borderTop = '1px solid var(--barva-hranice)';
-
-      const popisSmlouvy = document.createElement('div');
-      popisSmlouvy.innerHTML =
-        '<strong>' + escapeHtml(s.nazev || '(bez názvu)') + '</strong>' +
-        (s.najemce ? ' – ' + escapeHtml(s.najemce) : '') +
-        '<div class="popis">Očekáváno ' + escapeHtml(formatCastkaSMenou(s.ocekavanaCastka, s.mena)) +
-        (s.posledniPlatba
-          ? ', poslední platba ' + escapeHtml(formatCastkaSMenou(s.posledniPlatba.castka, s.mena)) +
-            ' (' + escapeHtml(s.posledniPlatba.datum) + ')'
-          : ', zatím žádná přijatá platba') +
-        '</div>';
-      radek.appendChild(popisSmlouvy);
-
-      const stavBadge = document.createElement('span');
-      stavBadge.className = s.zaplacenoTentoMesic ? 'badge-prijemprirazen' : 'badge-chybi';
-      stavBadge.textContent = s.zaplacenoTentoMesic ? 'Zaplaceno tento měsíc' : 'Zatím nezaplaceno';
-      radek.appendChild(stavBadge);
-
-      prehledWrap.appendChild(radek);
-    });
-  }
-  karta.appendChild(prehledWrap);
-
-  return karta;
-}
-
-async function pridatNemovitost() {
-  const zprava = document.getElementById('nemovitosti-zprava');
-  zprava.innerHTML = '';
-
-  const firma = document.getElementById('nova-nem-firma').value;
-  const nazev = document.getElementById('nova-nem-nazev').value.trim();
-  if (!firma) {
-    zprava.innerHTML = '<div class="zprava chyba">Vyberte firmu.</div>';
-    return;
-  }
-  if (!nazev) {
-    zprava.innerHTML = '<div class="zprava chyba">Název nemovitosti je povinný.</div>';
-    return;
-  }
-
-  try {
-    await zavolejApi('/nemovitosti', {
-      method: 'POST',
-      body: JSON.stringify({
-        Firma: firma,
-        Nazev: nazev,
-        Adresa: document.getElementById('nova-nem-adresa').value.trim(),
-        Poznamka: document.getElementById('nova-nem-poznamka').value.trim(),
-      }),
-    });
-    zprava.innerHTML = '<div class="zprava uspech">Nemovitost přidána.</div>';
-    document.getElementById('nova-nem-nazev').value = '';
-    document.getElementById('nova-nem-adresa').value = '';
-    document.getElementById('nova-nem-poznamka').value = '';
-    await nactiNemovitosti();
-  } catch (e) {
-    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
-  }
-}
-
-async function ulozNemovitost(id, zmeny, tlacitko) {
-  tlacitko.disabled = true;
-  try {
-    await zavolejApi('/nemovitosti', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
-    await nactiNemovitosti();
-  } catch (e) {
-    alert('Nepodařilo se uložit nemovitost: ' + e.message);
-    tlacitko.disabled = false;
-  }
-}
-
-async function smazNemovitost(id, nazev, tlacitko) {
-  if (!confirm('Opravdu smazat nemovitost „' + nazev + '“? Napojené nájemní smlouvy zůstanou zachované, jen se od ní odpojí.')) return;
-  tlacitko.disabled = true;
-  try {
-    await zavolejApi('/nemovitosti?id=' + encodeURIComponent(id), { method: 'DELETE' });
-    await nactiNemovitosti();
-  } catch (e) {
-    alert('Nepodařilo se smazat nemovitost: ' + e.message);
-    tlacitko.disabled = false;
-  }
-}
+// ---------- NEMOVITOSTI ----------
+// Appka měla ve v4.19-v4.22 tady vlastní samostatnou entitu (list
+// "Nemovitosti", CRUD, přehled placeno/nezaplaceno podle napojené nájemní
+// Smlouvy) - Jan (2026-07-23) tenhle přístup zpětně vyhodnotil jako
+// nesystémový ("nemovitost je zase jen středisko") a appka se v4.23 vrátila
+// k jednoduššímu modelu: Středisko zůstává JEDINÝM číselníkem pro
+// kategorizaci (appka ho ostatně už dřív nabízela i jako hodnotu
+// "Nemovitosti", viz MOZNOSTI_STREDISKA výš) a nájemní příjem appka řeší
+// čistě přes spárování s nájemní Smlouvou (viz vytvorDetailBanka výš,
+// "Navrženo/Spárováno - nájemní smlouva") + automatické převzetí
+// Smlouva.Stredisko na bankovní pohyb při potvrzení. Appka tak už NEMÁ
+// vlastní list/CRUD Nemovitostí ani měsíční přehled zaplaceno/nezaplaceno -
+// záložka se vrátila do prázdného placeholderu (stejně jako ve v4.16, viz
+// public/index.html).
 
 // ---------- KNIHA JÍZD (backlog, položka 16) ----------
 
@@ -5067,7 +4812,6 @@ document.getElementById('tlacitko-pridat-firmu').addEventListener('click', prida
 document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridatAuto);
 document.getElementById('tlacitko-pridat-ucet').addEventListener('click', pridatUcet);
 document.getElementById('tlacitko-pridat-smlouvu').addEventListener('click', pridatSmlouvu);
-document.getElementById('tlacitko-pridat-nemovitost').addEventListener('click', pridatNemovitost);
 document.getElementById('sm-tlacitko-vyfotit').addEventListener('click', () => document.getElementById('sm-pole-foto').click());
 document.getElementById('sm-tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('sm-pole-soubor').click());
 document.getElementById('sm-pole-foto').addEventListener('change', (e) => zpracujVybranySouborSmlouva(e.target.files[0]));

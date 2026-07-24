@@ -57,7 +57,9 @@ exports.handler = async (event) => {
 
   try {
     if (event.httpMethod === 'GET') {
-      const firma = (event.queryStringParameters || {}).firma;
+      // Oprava v4.22 - appka firmu z query parametru ořezává stejně jako
+      // při zápisu (POST) - viz plné vysvětlení v banka.js.
+      const firma = String((event.queryStringParameters || {}).firma || '').trim();
       const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Kniha_jizd');
 
       let viditelne;

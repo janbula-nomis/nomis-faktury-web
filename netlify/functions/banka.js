@@ -94,6 +94,21 @@
  * přiřazený "vzorový" pohyb - porovnává rovnou proti údajům samotné
  * smlouvy, takže appka umí navrhnout spárování hned u první platby od
  * nájemce.
+ *
+ * Oprava (v4.22, Jan nahlásil: import ohlásil "Naimportováno 49 nových
+ * pohybů", ale appka i po ručním "Aktualizovat" ukázala "0... celkem 0" -
+ * jako by pohyby zmizely): GET appka firmu z query parametru dřív četla
+ * SUROVĚ, bez ořezání, zatímco POST (import i "prepocitatShody") appka
+ * firmu VŽDY ořízne (`.trim()`) před zápisem/porovnáním. Pokud měl název
+ * firmy v listu Firmy nechtěnou mezeru navíc (typicky u firmy založené/
+ * přejmenované přímo v Google Sheets, appka Nazev firmy přes svoje UI po
+ * založení needituje, viz firmy.js) appka při importu zapsala ČISTÝ název,
+ * ale při čtení filtrovala podle "špinavého" (s mezerou) - nikdy se to
+ * nemohlo shodovat, appka tak tiše ukázala prázdný seznam, i když data v
+ * listu reálně existovala. Appka teď GET firmu ořezává úplně stejně jako
+ * POST - viz i stejná oprava v `smlouvy.js`, `nemovitosti.js`,
+ * `kniha-jizd.js`, `vydaneFaktury.js` (stejný vzor kopírovaný napříč
+ * appkou). Ověřeno novým testem `test_firma_trim_query.js`.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -141,7 +156,7 @@ exports.handler = async (event) => {
 
   try {
     if (event.httpMethod === 'GET') {
-      const firma = (event.queryStringParameters || {}).firma;
+      const firma = String((event.queryStringParameters || {}).firma || '').trim();
       if (!firma) return json(400, { error: 'Chybí parametr firma.' });
       if (!maPristupKFirme(uzivatel, firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
 
@@ -255,10 +270,16 @@ exports.handler = async (event) => {
 
           const navrhNajem = navrhniShoduNajem(pProNavrh, kandidatiSmlouvyNajem);
           if (navrhNajem && navrhNajem.skore >= 2) {
+            // Od v4.23 (Jan: "nemovitost je zase jen středisko") - appka rovnou
+            // převezme Středisko ze smlouvy (appka po zrušení samostatné
+            // entity Nemovitosti řeší kategorizaci nájemního příjmu čistě
+            // přes Středisko, stejně jako u ostatních příjmů/výdajů).
+            const smlouvaNajmu = kandidatiSmlouvyNajem.find((s) => s.ID === navrhNajem.smlouvaId);
             await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, {
               ...pohyb,
               Smlouva_ID: navrhNajem.smlouvaId,
               Stav_parovani: 'Navrženo - nájemní smlouva',
+              Stredisko: (smlouvaNajmu && smlouvaNajmu.Stredisko) || pohyb.Stredisko || '',
             });
             noveNavrzenoNajmu += 1;
           }
@@ -380,6 +401,7 @@ exports.handler = async (event) => {
         let dokladId = '';
         let vydanaFakturaId = '';
         let smlouvaId = '';
+        let stredisko = '';
 
         if (p.castka > 0) {
           // Od v3.22: dřív appka příchozí platbu rovnou označila "Bez
@@ -408,6 +430,12 @@ exports.handler = async (event) => {
             if (navrhNajem && navrhNajem.skore >= 2) {
               stav = 'Navrženo - nájemní smlouva';
               smlouvaId = navrhNajem.smlouvaId;
+              // Od v4.23 - appka rovnou převezme Středisko ze smlouvy (viz
+              // stejná úvaha u "prepocitatShody" výš) - Nemovitosti appka
+              // jako samostatnou entitu zrušila, Středisko je teď jediný
+              // způsob, jak appka nájemní příjem kategorizuje.
+              const smlouvaNajmu = kandidatiSmlouvyNajem.find((s) => s.ID === smlouvaId);
+              stredisko = (smlouvaNajmu && smlouvaNajmu.Stredisko) || '';
               pocetNavrzenoNajmu += 1;
             } else {
               stav = 'Bez dokladu';
@@ -453,6 +481,7 @@ exports.handler = async (event) => {
           Datum_importu: datumImportu,
           Vydana_faktura_ID: vydanaFakturaId,
           Smlouva_ID: smlouvaId,
+          Stredisko: stredisko,
           Import_ID: importId,
         });
       });
@@ -544,6 +573,31 @@ exports.handler = async (event) => {
 
         zmenyBezpecne.Vydana_faktura_ID = vydanaFakturaId;
         fakturaKAktualizaci = faktura;
+      }
+
+      // Od v4.23 (Jan: "nemovitost je zase jen středisko", zrušení
+      // samostatné entity Nemovitosti) - když appka dostane RUČNÍ potvrzení
+      // (nebo rovnou ruční přiřazení) spárování s nájemní Smlouvou, appka -
+      // pokud volající explicitně neposlal vlastní Středisko a pohyb ještě
+      // žádné nemá - převezme Středisko přímo ze smlouvy (Smlouvy.Stredisko,
+      // stejné pole appka používá i u trvalých příkazů) - appka jinak nemá
+      // odkud kategorizaci nájemního příjmu vzít. Appka NEPŘEPISUJE
+      // Středisko, které už na pohybu je (ať appka neruší ruční opravu
+      // účetní, např. při "Potvrdit spárování" u pohybu, kterému appka
+      // Středisko už dřív nastavila při návrhu, viz import/prepocitatShody).
+      if (
+        zmenyBezpecne.Stav_parovani === 'Spárováno - nájemní smlouva' &&
+        !zmenyBezpecne.Stredisko &&
+        !pohyb.Stredisko
+      ) {
+        const smlouvaIdProStredisko = zmenyBezpecne.Smlouva_ID || pohyb.Smlouva_ID;
+        if (smlouvaIdProStredisko) {
+          const { rows: smlouvyProStredisko } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy');
+          const smlouvaNajmu = smlouvyProStredisko.find((s) => s.ID === smlouvaIdProStredisko);
+          if (smlouvaNajmu && smlouvaNajmu.Stredisko) {
+            zmenyBezpecne.Stredisko = smlouvaNajmu.Stredisko;
+          }
+        }
       }
 
       const aktualizovany = Object.assign({}, pohyb, zmenyBezpecne);

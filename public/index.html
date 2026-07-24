@@ -223,38 +223,20 @@
     </div>
 
     <!-- NEMOVITOSTI -->
-    <!-- (v4.16) placeholder, obsah appka dostala zadaný později (v4.19,
-         Jan: "příjmy z nájmu přiřadit k bankovním vypisům, zdrojem jsou
-         nájemní smlouvy, které načtu do registru smluv") - appka tu teď
-         vede seznam nemovitostí a k nim propojené nájemní Smlouvy
-         (Registr smluv, Typ = "Nájem") spolu s přehledem, jestli za
-         AKTUÁLNÍ měsíc appka u dané smlouvy zaznamenala odpovídající
-         platbu (viz netlify/functions/nemovitosti-prehled.js). Appka
-         samotné párování plateb dělá automaticky v záložce Bankovní
-         výpisy (Stav_parovani "Navrženo - nájemní smlouva") - tahle
-         záložka je jen přehled/evidence nemovitostí. -->
+    <!-- Appka tu mezi v4.19 a v4.22 měla vlastní samostatnou entitu
+         (evidence nemovitostí + přehled placeno/nezaplaceno podle napojené
+         nájemní Smlouvy). Jan (2026-07-23) tenhle přístup zpětně vyhodnotil
+         jako nesystémový ("nemovitost je zase jen středisko") - appka se
+         v4.23 vrátila k jednoduššímu modelu: Středisko zůstává JEDINÝM
+         číselníkem pro kategorizaci (appka ho ostatně už dřív nabízela i
+         jako hodnotu "Nemovitosti", viz MOZNOSTI_STREDISKA v public/app.js)
+         a nájemní příjem appka řeší čistě přes spárování s nájemní Smlouvou
+         v záložce Bankovní výpisy + automatické převzetí Smlouva.Stredisko
+         na bankovní pohyb při potvrzení. Záložka se tak vrací do stejného
+         prázdného placeholderu, jako měla ve v4.16. -->
     <div id="zalozka-nemovitosti" class="karta skryto">
       <h2>Nemovitosti</h2>
-      <p class="popis">Evidence nemovitostí/bytů skupiny Nomis Group a přehled nájemního příjmu podle
-        napojených nájemních smluv (Registr smluv). Appka platby od nájemců páruje automaticky v záložce
-        Bankovní výpisy - tady appka jen ukazuje souhrn, jestli za tenhle měsíc dorazila.</p>
-
-      <details class="panel-skladaci">
-        <summary>Přidat nemovitost</summary>
-        <label for="nova-nem-firma">Firma</label>
-        <select id="nova-nem-firma"></select>
-        <label for="nova-nem-nazev">Název</label>
-        <input type="text" id="nova-nem-nazev" placeholder="např. V Parku 695 - byt 45" />
-        <label for="nova-nem-adresa">Adresa (nepovinné)</label>
-        <input type="text" id="nova-nem-adresa" placeholder="např. V Parku 695, Velké Popovice" />
-        <label for="nova-nem-poznamka">Poznámka (nepovinné)</label>
-        <input type="text" id="nova-nem-poznamka" />
-        <button id="tlacitko-pridat-nemovitost">Přidat nemovitost</button>
-        <div id="nemovitosti-zprava"></div>
-      </details>
-
-      <div id="nemovitosti-nacitani" class="nacitani" style="margin-top:12px">Načítám…</div>
-      <div id="nemovitosti-seznam"></div>
+      <p class="popis">Tahle záložka se připravuje...</p>
     </div>
 
     <!-- VYDANÉ FAKTURY -->
@@ -397,8 +379,6 @@
         <select id="nova-sm-stredisko"></select>
         <label for="nova-sm-typ">Typ</label>
         <select id="nova-sm-typ"></select>
-        <label for="nova-sm-nemovitost">Nemovitost (jen u typu Nájem, nepovinné)</label>
-        <select id="nova-sm-nemovitost"></select>
         <label for="nova-sm-perioda">Perioda</label>
         <select id="nova-sm-perioda"></select>
         <label for="nova-sm-castka">Očekávaná částka (nepovinné)</label>

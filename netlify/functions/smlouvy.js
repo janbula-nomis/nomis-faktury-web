@@ -15,7 +15,7 @@
  *                         používá se v hlavní záložce Smlouvy.
  * POST   { Firma, Nazev, Druha_strana?, Stredisko?, Typ?, Perioda?,
  *          Ocekavana_castka?, Mena?, Platnost_od?, Platnost_do?,
- *          Zdrojovy_soubor_URL?, Poznamka?, Aktivni?, Nemovitost_ID? }
+ *          Zdrojovy_soubor_URL?, Poznamka?, Aktivni? }
  *          -> založí novou
  *          smlouvu ručně, bez souboru/AI
  *          (Aktivni výchozí "ANO"). Založení PŘES nahraný soubor + AI
@@ -60,7 +60,11 @@ exports.handler = async (event) => {
 
   try {
     if (event.httpMethod === 'GET') {
-      const firma = (event.queryStringParameters || {}).firma;
+      // Oprava v4.22 - appka firmu z query parametru ořezává stejně jako
+      // při zápisu (POST), jinak by název firmy se stray mezerou navíc
+      // (typicky firma přejmenovaná přímo v Sheets) appce znemožnil najít
+      // vlastní čerstvě zapsaná data - viz plné vysvětlení v banka.js.
+      const firma = String((event.queryStringParameters || {}).firma || '').trim();
       const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy');
 
       // Placeholder smlouva "Zpracovává se" ještě nemá potvrzenou Firmu -
@@ -131,9 +135,6 @@ exports.handler = async (event) => {
         Poznamka: String(telo.Poznamka || '').trim(),
         Aktivni: String(telo.Aktivni || 'ANO').trim() || 'ANO',
         Poradi: String(poradi),
-        // Od v4.19 - propojení na Nemovitosti (jen relevantní u Typ =
-        // "Nájem", viz lib/nemovitostiSchema.js/lib/smlouvySchema.js).
-        Nemovitost_ID: String(telo.Nemovitost_ID || '').trim(),
       };
       await appendRow(sheets, spreadsheetId, 'Smlouvy', SMLOUVY_HEADERS, smlouva);
 

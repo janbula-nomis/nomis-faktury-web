@@ -2637,6 +2637,96 @@ appce možnost bankovní pohyb smazat přímo z rozhraní, ať se čištění
   ověřením obou nových tlačítek v detailu pohybu (žádné chyby v
   konzoli) – všech 56 backendových testů appky prošlo.
 
+## 62. Oprava: bankovní výpisy (i Smlouvy/Nemovitosti/Kniha jízd/Vydané faktury) appce po importu ukázaly prázdný seznam u firmy s mezerou navíc v názvu (v4.22)
+
+Jan nahlásil: import bankovního výpisu pro firmu „Los Monteros apartments“
+appka ohlásila jako úspěšný („Naimportováno 49 nových pohybů…“), ale
+seznam pohybů zůstal prázdný – „0 potvrzeno, 0 navrženo… (celkem 0)“ i po
+ručním „Aktualizovat“ (appka tedy nešlo o krátké zpoždění na straně
+Google Sheets, ale o trvalý problém).
+
+- **Příčina**: appka firmu appka VŽDY ořízne (`.trim()`) před zápisem
+  (import, založení záznamu…), ale z query parametru appka ji dřív četla
+  SUROVĚ, bez ořezání. Pokud měl název firmy v listu Firmy nechtěnou
+  mezeru navíc (typicky u firmy založené/přejmenované přímo v Google
+  Sheets – appka Nazev firmy přes svoje UI po založení needituje, viz
+  `firmy.js`), appka při importu zapsala ČISTÝ název (bez mezery), ale
+  při čtení filtrovala podle „špinavého“ názvu (s mezerou) – nikdy se to
+  nemohlo shodovat, appka tak tiše ukázala prázdný seznam, i když data v
+  listu reálně existovala.
+- Appka teď firmu z query parametru ořezává úplně stejně jako při
+  zápisu – oprava je v **pěti** endpointech, appka totiž stejný vzor
+  (načíst/filtrovat podle firmy) kopírovala napříč appkou:
+  `netlify/functions/banka.js`, `smlouvy.js`, `nemovitosti.js`,
+  `kniha-jizd.js` a `vydaneFaktury.js`.
+- Appka data samotná NEOPRAVUJE zpětně (nebylo ani potřeba – řádky v
+  Sheets appka měla zapsané SPRÁVNĚ, čistě bez mezery navíc; chybovalo
+  jen čtení) – po nasazení téhle verze by se pohyby Jana (a případně i
+  smlouvy/nemovitosti/knihy jízd/vydané faktury stejné firmy) měly bez
+  dalšího zásahu objevit samy.
+- Čistě opravná změna v existujících endpointech – žádný nový sloupec v
+  Sheets, není potřeba `/api/setup`.
+- Ověřeno novým testem (`test_firma_trim_query.js` – appka najde data i
+  když query parametr firma obsahuje mezeru navíc, na dvou zástupcích
+  postiženého vzoru – `banka.js` a `smlouvy.js` – a appka pořád správně
+  odmítne úplně prázdný/jen-mezerový parametr firma jako chybějící) –
+  všech 57 backendových testů appky prošlo.
+
+## 63. Zrušení samostatné entity Nemovitosti - nájemní příjem zase jen přes Středisko (v4.23)
+
+Jan po pár týdnech provozu záložky Nemovitosti (v4.19-v4.22) zpětně
+vyhodnotil tenhle přístup jako nesystémový: *"nemovistost je zase jen
+středisko"*. Appka měla vlastní samostatný list "Nemovitosti" + CRUD +
+propojení `Smlouvy.Nemovitost_ID` + měsíční přehled placeno/nezaplaceno -
+to appka v4.23 celé zrušila a vrátila se k jednoduššímu modelu, který appka
+používá i u ostatních příjmů/výdajů:
+
+- **Záložka Nemovitosti** appce zůstává v navigaci (appka ji NEODEBRALA
+  z menu), ale je zase prázdný placeholder ("Tahle záložka se
+  připravuje…"), stejně jako appka měla ve v4.16 - žádný vlastní list,
+  CRUD ani přehled appka už nemá.
+- **Nájemní příjem appka teď kategorizuje čistě přes Středisko** (stejné
+  pole appka má u Doklad/trvalých příkazů od v3.19) - když appka
+  spáruje bankovní pohyb s nájemní Smlouvou (`Smlouvy`, `Typ = "Nájem"`),
+  automaticky převezme `Smlouvy.Stredisko` na `Bankovni_pohyby.Stredisko`:
+  - při automatickém návrhu (import výpisu i "Spustit kontrolu dokladů") -
+    appka Středisko rovnou předvyplní do návrhu,
+  - při ručním potvrzení návrhu ("Potvrdit spárování") appka NECHÁVÁ účetní
+    Středisko ještě zkontrolovat/změnit (appka select předvyplní, ale
+    vyžaduje explicitní potvrzení - appka bez vybraného Střediska potvrzení
+    odmítne),
+  - při čistě ručním přiřazení pohybu k nájemní smlouvě ("Přiřadit k
+    nájmu", pro případ, že appka žádnou vhodnou smlouvu sama nenašla) appka
+    stejně vyžaduje výběr Střediska (select se předvyplní Střediskem
+    zvolené smlouvy),
+  - appka NIKDY nepřepisuje Středisko, které už na pohybu explicitně je -
+    kopírování ze smlouvy appka bere jen jako výchozí návrh/zálohu.
+- **Dashboard** (`netlify/functions/dashboard-firmy.js`) appka rozšířila o
+  třetí zdroj příjmů - `Stav_parovani == "Spárováno - nájemní smlouva"` -
+  appka doteď (i s automatickým kopírováním Střediska) tenhle zdroj vůbec
+  nesčítala, nájemní příjem by se tak bez týhle úpravy v Dashboardu
+  neobjevil. Appka bere Středisko přímo z pohybu, se zálohou na aktuální
+  `Smlouvy.Stredisko`, kdyby kopírování z nějakého důvodu selhalo.
+- **Jednorázová migrace** (appka ji spustí automaticky při příštím
+  `/api/setup`, viz krok 6 výš): appka vyčistí stará data v listu
+  "Nemovitosti" (list appka NEMAŽE, jen mu appka vyprázdní datové řádky -
+  hlavička zůstává) a vynuluje staré hodnoty `Smlouvy.Nemovitost_ID` u
+  všech smluv, které ho ještě mají vyplněné (appka tohle pole v kódu i v
+  `SMLOUVY_HEADERS` už nepoužívá, ale samotný sloupec v listu appka sama
+  nemaže - bez migrace by stará hodnota jinak zbytečně visela dál).
+- Appka smazala backend soubory `netlify/functions/nemovitosti.js`,
+  `netlify/functions/nemovitosti-prehled.js` a `lib/nemovitostiSchema.js` -
+  appka teď na entitu Nemovitosti nikde v kódu neodkazuje (mimo
+  vysvětlující komentáře k tomuhle zrušení).
+- Ověřeno novým testem `test_banka_stredisko_najem.js` (import i přepočet
+  shod appka rovnou předvyplní Středisko ze smlouvy na nový/aktualizovaný
+  pohyb, potvrzení bez explicitního Střediska appka doplní ze smlouvy jako
+  zálohu, potvrzení/ruční přiřazení S explicitním Střediskem appka
+  nepřepíše, a Dashboard nájemní příjem správně sečte podle Střediska) a
+  Playwright vizuální kontrolou (prázdná záložka Nemovitosti, formulář
+  Smluv bez pole Nemovitost, select Střediska u návrhu/potvrzení nájemního
+  spárování) - všech 56 backendových testů appky prošlo.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

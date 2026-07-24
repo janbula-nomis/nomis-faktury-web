@@ -32,7 +32,6 @@ const { UCTY_HEADERS } = require('../../lib/uctySchema');
 const { SMLOUVY_HEADERS, dalsiPoradiSmlouvy } = require('../../lib/smlouvySchema');
 const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
 const { KNIHA_JIZD_HEADERS } = require('../../lib/knihaJizdSchema');
-const { NEMOVITOSTI_HEADERS } = require('../../lib/nemovitostiSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
 
@@ -85,14 +84,6 @@ const LISTY = [
     // nebo budoucí import CSV), viz lib/knihaJizdSchema.js.
     nazev: 'Kniha_jizd',
     hlavicky: KNIHA_JIZD_HEADERS,
-    ukazka: [],
-  },
-  {
-    // Nemovitosti (od v4.19) - propojeno se Smlouvami typu "Nájem" přes
-    // Smlouvy.Nemovitost_ID, appka je zobrazuje v záložce Nemovitosti spolu
-    // s přehledem nájemního příjmu - viz lib/nemovitostiSchema.js.
-    nazev: 'Nemovitosti',
-    hlavicky: NEMOVITOSTI_HEADERS,
     ukazka: [],
   },
   { nazev: 'Log', hlavicky: ['Cas', 'Uzivatel', 'Akce', 'Doklad_ID', 'Detail'], ukazka: [] },
@@ -237,6 +228,47 @@ exports.handler = async (event) => {
       }
     } catch (e) {
       vysledky.push('Smlouvy: doplnění pořadí se nezdařilo (' + e.message + ') - appka pokračuje dál.');
+    }
+
+    // Jednorázové vyčištění po zrušení samostatné entity Nemovitosti (v4.23,
+    // Jan: "nemovitost je zase jen středisko" - appka nájemní příjem od teď
+    // řeší čistě přes Středisko, viz netlify/functions/banka.js). List
+    // "Nemovitosti" appka NEMAŽE (odstranění celého listu by mohlo rozbít
+    // případné ruční odkazy/filtry přímo v tabulce), jen mu jednorázově
+    // vyčistí datové řádky (hlavička v A1:Z1 zůstává). Appka to zkouší
+    // spustit i na appce, která list Nemovitosti nikdy neměla založený
+    // (starší appka, nebo appka bez spuštěného předchozího /api/setup) -
+    // v tom případě `values.clear` prostě selže na neexistujícím listu a
+    // appka to jen zaloguje do vysledky, nezastaví kvůli tomu zbytek setupu.
+    try {
+      await sheets.spreadsheets.values.clear({ spreadsheetId, range: 'Nemovitosti!A2:Z' });
+      vysledky.push(
+        'Nemovitosti: vyčištěna stará data listu (appka od v4.23 zrušila samostatnou entitu ' +
+        'Nemovitosti, nájemní příjem řeší přes Středisko, viz Smlouvy.Stredisko).'
+      );
+    } catch (e) {
+      vysledky.push('Nemovitosti: vyčištění listu se nezdařilo (' + e.message + ') - appka pokračuje dál.');
+    }
+
+    // Zároveň appka vynuluje staré Smlouvy.Nemovitost_ID (appka ho v4.23
+    // odstranila z SMLOUVY_HEADERS, ale samotný sloupec v listu appka sama
+    // nemaže - readSheetObjects čte podle SKUTEČNÉ hlavičky v listu, takže by
+    // stará hodnota jinak v listu dál viset bez užitku, viz lib/smlouvySchema.js).
+    try {
+      const { rows: smlouvyKVycisteni } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy');
+      const sNemovitostId = smlouvyKVycisteni.filter((s) => String(s.Nemovitost_ID || '').trim() !== '');
+      for (const smlouva of sNemovitostId) {
+        const vycistena = Object.assign({}, smlouva, { Nemovitost_ID: '' });
+        await updateRow(sheets, spreadsheetId, 'Smlouvy', SMLOUVY_HEADERS, smlouva._row, vycistena);
+      }
+      if (sNemovitostId.length > 0) {
+        vysledky.push(
+          'Smlouvy: vynulováno staré propojení Nemovitost_ID u ' + sNemovitostId.length + ' smluv ' +
+          '(appka od v4.23 tohle pole už nepoužívá).'
+        );
+      }
+    } catch (e) {
+      vysledky.push('Smlouvy: vynulování Nemovitost_ID se nezdařilo (' + e.message + ') - appka pokračuje dál.');
     }
 
     const drive = await getDriveClient();

@@ -61,7 +61,9 @@ exports.handler = async (event) => {
 
   try {
     if (event.httpMethod === 'GET') {
-      const firmaFiltr = (event.queryStringParameters || {}).firma;
+      // Oprava v4.22 - appka firmu z query parametru ořezává stejně jako
+      // při zápisu (POST) - viz plné vysvětlení v banka.js.
+      const firmaFiltr = String((event.queryStringParameters || {}).firma || '').trim();
       const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Vydane_faktury');
 
       // Placeholder faktura "Zpracovává se" (od v3.22, AI vytěžení ze
