@@ -2861,6 +2861,104 @@ než ve zbytku navigace.
   záložkami) - ve všech scénářích měla všechna viditelná tlačítka stejnou
   šířku - a vizuální kontrolou screenshotů (mobil i desktop).
 
+## 66. Oprava: Dashboard míchal Kč a EUR dohromady + editovatelné Středisko u potvrzeného příjmu + čísla zarovnaná doprava se 2 desetinnými místy (v4.26)
+
+Tři samostatné Janovy žádosti ze stejné konverzace, appka je nasadila
+společně jako jednu verzi.
+
+**Oprava: bankovní pohyb nenačetl středisko, přestože ho měla smlouva (Jan,
+se screenshotem: "nanačte si správně středisko, přestože je u smlouvě, co
+je za problém?").** Appka Středisko na PŘÍJMOVÝ bankovní pohyb kopírovala
+ze Smlouvy jen JEDNOU, v přesném okamžiku potvrzení "Trvalý příkaz" (viz
+`netlify/functions/banka.js`) - pokud v tu chvíli `Smlouva.Stredisko` ještě
+nebylo vyplněné (nebo appka pohyb potvrdila přes mechanismus "Auto-návrh
+dalších pohybů ke stejné smlouvě", který Středisko vůbec nekopíroval),
+zůstal pohyb natrvalo bez střediska - appka neměla žádnou cestu, jak ho
+dodatečně doplnit/opravit, jinak než celé přiřazení zrušit a založit ho
+znovu ručně. Přesně tohle se stalo dvěma pohybům u stejné smlouvy "Správa
+nemovitosti - Los Monteros" v Janově screenshotu - jeden (pozdější) appka
+potvrdila už s vyplněným Střediskem na smlouvě, druhý (starší) ne.
+
+- `public/app.js` u už potvrzeného příjmového pohybu (`Stav_parovani ===
+  'Trvalý příkaz'`, kladná částka) teď rovnou nabízí editovatelný select se
+  střediskem + tlačítko "Uložit středisko", který na pozadí pošle prostý
+  `PATCH { zmeny: { Stredisko: <hodnota> } }` - appka tenhle typ požadavku
+  uměla už předtím (nijak nemění stav spárování ani přiřazenou smlouvu),
+  jen appka do téhle verze neměla v UI žádné tlačítko, které by ho poslalo.
+- Ověřeno novým `test_banka_stredisko_oprava.js` (holý PATCH se Střediskem
+  na už potvrzeném příjmu se uloží, stav spárování a Smlouva_ID zůstávají
+  beze změny) + Playwright ověřením celého UI toku (rozkliknutí pohybu →
+  výběr střediska ze selectu → kliknutí "Uložit středisko" → appka odešle
+  očekávaný PATCH).
+
+**Oprava: Dashboard sčítal Kč a EUR dohromady (Jan: "v dashboard pracuje v
+Kč ale u některých firem jsou to EUR, musí rozlišit měnu").**
+`netlify/functions/dashboard-firmy.js` do téhle verze sčítal příjmy/výdaje
+ze VŠECH zdrojů (Doklady, Bankovní pohyby) do jednoho čísla na firmu bez
+ohledu na jejich skutečnou měnu (`Mena` u Dokladu i Bankovního pohybu) - u
+firmy, která hospodaří jen v CZK, appka na tom "náhodou" neselhala, ale u
+firmy s EUR nemovitostí (typicky zahraniční, jako Casa Roma v Marbelle)
+appka EUR částky prostě přičetla k CZK součtu, jako by šlo o stejnou měnu -
+frontend navíc výsledek vždycky popsal jako "Kč" (`formatCastkaCele`),
+takže číslo bylo zcela nesmyslné.
+
+- Appka teď každou položku (doklad i bankovní pohyb) přičte do součtu PODLE
+  JEJÍ VLASTNÍ MĚNY (`normalizujMenu`/`pripoctiCelkem`/`pripoctiStredisko` v
+  `dashboard-firmy.js`, prázdná appka bere jako CZK stejně jako zbytek
+  appky) - appka žádnou měnu NEPŘEPOČÍTÁVÁ na jinou (nemá k dispozici
+  kurzovní lístek). Endpoint místo jednoho čísla vrací mapu měna -> částka:
+  `prijmyPodleMeny`/`vydajePodleMeny`/`rozdilPodleMeny`, stejně tak rozpad
+  podle střediska (`strediskaPrijmy`/`strediskaVydaje` teď mají za klíčem
+  střediska další úroveň - měnu).
+- `public/app.js` (`vytvorDashFirmaKarta`/`radkySouhrnPodleMeny`/
+  `vykresliDashSouhrnStredisek`) appka zobrazí samostatný řádek pro každou
+  měnu, se kterou appka u firmy v okně posledních 12 měsíců vůbec něco
+  napočítala (u firem s jen jednou měnou appka popisek měny do závorky
+  nepřidává, ať zbytečně nezahlcuje běžný jednoduchý případ) - u víc měn se
+  středisko zobrazí jako "1 050,50 Kč + 200,00 EUR" vedle sebe, nikdy jako
+  jedno sečtené číslo.
+- Do v4.26 appka měla v Dashboardu samostatné "celokorunové" formátovací
+  funkce (`formatCastkaCele`/`formatCastkaCeleSMenou`, zavedené v4.0 na
+  Janovo přání appku tam zaokrouhlovat na celé koruny) - appka je zrušila,
+  Dashboard teď (viz další bod, "čísla vždy 2 desetinná místa") zobrazuje
+  stejně přesně jako zbytek appky.
+- Ověřeno novým `test_dashboard_mena.js` (CZK a EUR položky stejné firmy/
+  stejného střediska appka NIKDY nesečte dohromady - příjmy, výdaje, rozdíl
+  i rozpad podle střediska appka počítá zvlášť pro každou měnu) + upraveny
+  2 starší testy (`test_dashboard_firmy.js`, `test_banka_stredisko_najem.js`),
+  které ještě čekaly starý tvar odpovědi (`prijmyCelkem`/`vydajeCelkem`)
+  - appka si všimla, že jejich `Math.abs(undefined - X) > 0.001` po
+  přejmenování pole tiše vždycky vycházelo `false` (`NaN` porovnání), tedy
+  ŽE testy neselhaly, ale přestaly by cokoli reálně ověřovat, kdyby appka
+  jejich tvar dat nesladila zpátky s novou odpovědí.
+
+**Čísla zarovnaná doprava, vždy 2 desetinná místa (Jan: "všechny čísla
+zarovnat doprava, vždy 2 desetinná místa" - napříč Dashboardem, Bankovními
+výpisy, Doklady a Exportem/Daňovým přehledem).** Appka do téhle verze u
+celého čísla (např. 1250) žádné desetinné místo neukázala ("1 250 Kč"),
+zatímco haléřová částka měla desetiny dvě ("1 250,5 Kč") - appka teď
+`formatCastka`/`formatCastkaSMenou` vynucuje `minimumFractionDigits: 2`
+vedle stávajícího `maximumFractionDigits: 2`, appka tedy vždy ukáže přesně
+dvě desetinná místa.
+
+- Doklady (`.doklad-radek-hlava .castka`) a Bankovní výpisy
+  (`.banka-radek-hlava .castka`) appka doplnila o `text-align: right`
+  (dřív byly jen odsazené doprava přes `margin-left: auto` ve flex řádku,
+  appka teď zarovnání vynucuje i na samotném textu).
+- Export (`vykresliPrehledExport`) a Daňový přehled (`#prehled-tabulka`,
+  `bunkyRadku`) appka doplnila o novou obecnou CSS třídu `cislo`
+  (`th.cislo, td.cislo { text-align: right; }` v `public/style.css`) na
+  všech sloupcích s částkou/počtem.
+- Na úzkém mobilu appka řádky tabulky skládá do "Popisek: hodnota" na celou
+  šířku (`td::before`, existující vzor pod 480px) - appka tam zarovnání
+  doprava schválně NEaplikuje (`td.cislo { text-align: left }` uvnitř
+  `@media (max-width: 480px)`), ať se celý řádek neodsune k pravému okraji.
+- Ověřeno vizuální kontrolou screenshotů (Dashboard, Bankovní výpisy) +
+  celou regresní sadou appky.
+
+Celá regresní sada appky po týhle verzi: **60 backendových testů appky
+prošlo.**
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

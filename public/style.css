@@ -163,6 +163,13 @@ table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 th, td { text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--barva-hranice); vertical-align: top; }
 th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 
+/* Od v4.26 (Jan: "všechny čísla zarovnat doprava, vždy 2 desetinná místa")
+   - sloupce s částkami/počty appka označuje třídou "cislo" (Export, Daňový
+   přehled - viz vykresliPrehledExport/bunkyRadku v app.js), ať appka čísla
+   zarovná k pravému okraji sloupce místo výchozího zarovnání vlevo (th/td
+   výš). */
+th.cislo, td.cislo { text-align: right; }
+
 /* Daňový přehled (od v4.6.2) - roční řádek firmy je rozklikávací (stejný
    princip šipky/rotace jako .doklad-sipka/.smlouva-sipka výše, appka tu
    ale zůstává u opravdové <table>, ne div-gridu, ať appka splní Janův
@@ -202,7 +209,7 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
 .doklad-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
 .doklad-radek-hlava:hover { filter: brightness(0.97); }
 .doklad-radek-hlava .dodavatel { font-weight: 600; }
-.doklad-radek-hlava .castka { font-weight: 600; margin-left: auto; }
+.doklad-radek-hlava .castka { font-weight: 600; margin-left: auto; text-align: right; }
 .doklad-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
 .doklad-radek.rozbaleno .doklad-radek-detail { display: block; }
 .doklad-radek.rozbaleno .doklad-sipka { transform: rotate(90deg); }
@@ -451,6 +458,11 @@ input[type="file"] { margin-top: 8px; }
   tr { border-bottom: 2px solid var(--barva-hranice); padding: 8px 0; }
   td { border-bottom: none; padding: 4px 0; }
   td::before { content: attr(data-label) ": "; font-weight: 600; color: var(--barva-text-tlumena); }
+  /* Na úzkém mobilu appka řádek skládá do "Popisek: hodnota" na celou šířku
+     (viz td::before výš) - zarovnání doprava (th.cislo/td.cislo) by tam jen
+     odsunulo celý řádek k pravému okraji, appka ho tam proto nechává vlevo
+     jako zbytek stránky. */
+  td.cislo { text-align: left; }
 
   /* Na opravdu úzkém mobilu appka schová i předposlední sloupec skládaných
      řádků (Částka/Ujeté km), ať zbydou jen 4 nejdůležitější pole vedle
@@ -473,7 +485,7 @@ input[type="file"] { margin-top: 8px; }
 .banka-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; overflow: hidden; font-size: 13px; }
 .banka-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
 .banka-radek-hlava:hover { filter: brightness(0.97); }
-.banka-radek-hlava .castka { font-weight: 600; margin-left: auto; }
+.banka-radek-hlava .castka { font-weight: 600; margin-left: auto; text-align: right; }
 .banka-radek-hlava .castka.prijem { color: var(--barva-uspech); }
 .banka-radek-hlava .castka.vydaj { color: var(--barva-text); }
 .banka-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }

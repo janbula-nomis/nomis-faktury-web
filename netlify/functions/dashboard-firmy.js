@@ -78,6 +78,38 @@ function vypoctiZacatekOkna() {
   return rok + '-' + mesic + '-01';
 }
 
+// Od v4.26 (Jan: "v dashboard pracuje v Kč ale u některých firem jsou to
+// EUR, musí rozlišit měnu") - appka do téhle verze sčítala příjmy/výdaje
+// VŠECH zdrojů (Doklady, Bankovní pohyby) do jednoho čísla na firmu bez
+// ohledu na jejich skutečnou měnu (`Mena` u Dokladu i Bankovního pohybu, viz
+// lib/dokladySchema.js a lib/bankSchema.js) - u firmy, která hospodaří jen
+// v CZK, appka na tom "náhodou" neselhala, ale jakmile měla firma i EUR
+// doklady/platby (typicky zahraniční nemovitost/nájemce), appka EUR částky
+// prostě přičetla k CZK součtu, jako by šlo o stejnou měnu, a frontend to
+// navíc vždycky popsal jako "Kč" (viz formatCastkaCele v public/app.js) -
+// číslo tak bylo zcela nesmyslné. Appka teď každou položku přičte do součtu
+// PODLE JEJÍ VLASTNÍ MĚNY (`normalizujMenu` níž, prázdná appka bere jako
+// CZK stejně jako zbytek appky) - výsledek appka vrací jako mapu
+// měna -> částka (`prijmyPodleMeny`/`vydajePodleMeny`/`rozdilPodleMeny`,
+// stejně tak rozpad podle střediska), appka žádnou měnu NEPŘEPOČÍTÁVÁ na
+// jinou (appka nemá k dispozici kurzovní lístek) - frontend zobrazí
+// samostatný řádek za každou měnu, se kterou appka u firmy fakticky nashromáždí
+// alespoň jednu položku v okně posledních 12 měsíců.
+function normalizujMenu(mena) {
+  const m = String(mena || '').trim().toUpperCase();
+  return m || 'CZK';
+}
+
+function pripoctiCelkem(mapaPodleMeny, mena, castka) {
+  const m = normalizujMenu(mena);
+  mapaPodleMeny[m] = (mapaPodleMeny[m] || 0) + castka;
+}
+
+function pripoctiStredisko(mapaStredisek, stredisko, mena, castka) {
+  if (!mapaStredisek[stredisko]) mapaStredisek[stredisko] = {};
+  pripoctiCelkem(mapaStredisek[stredisko], mena, castka);
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return json(200, {});
   if (event.httpMethod !== 'GET') return json(405, { error: 'Method not allowed' });
@@ -140,8 +172,8 @@ exports.handler = async (event) => {
     const vysledky = viditelneFirmy.map((firma) => {
       const strediskaPrijmy = {};
       const strediskaVydaje = {};
-      let prijmyCelkem = 0;
-      let vydajeCelkem = 0;
+      const prijmyPodleMeny = {};
+      const vydajePodleMeny = {};
 
       doklady
         .filter((d) => (d.Firma_potvrzena || d.Firma_AI_odhad) === firma)
@@ -150,8 +182,8 @@ exports.handler = async (event) => {
         .forEach((d) => {
           const stredisko = d.Stredisko || '(bez střediska)';
           const castka = parsujCastkuZListu(d.Castka);
-          strediskaVydaje[stredisko] = (strediskaVydaje[stredisko] || 0) + castka;
-          vydajeCelkem += castka;
+          pripoctiStredisko(strediskaVydaje, stredisko, d.Mena, castka);
+          pripoctiCelkem(vydajePodleMeny, d.Mena, castka);
         });
 
       const pohybyTetoFirmy = pohybyVsechny.filter((p) => p.Firma === firma);
@@ -174,13 +206,13 @@ exports.handler = async (event) => {
           const castka = parsujCastkuZListu(p.Castka);
           if (castka > 0) {
             const stredisko = p.Stredisko || strediskoPodleSmlouvy[p.Smlouva_ID] || '(bez střediska)';
-            strediskaPrijmy[stredisko] = (strediskaPrijmy[stredisko] || 0) + castka;
-            prijmyCelkem += castka;
+            pripoctiStredisko(strediskaPrijmy, stredisko, p.Mena, castka);
+            pripoctiCelkem(prijmyPodleMeny, p.Mena, castka);
           } else {
             const abs = Math.abs(castka);
             const stredisko = strediskoPodleSmlouvy[p.Smlouva_ID] || '(smlouva)';
-            strediskaVydaje[stredisko] = (strediskaVydaje[stredisko] || 0) + abs;
-            vydajeCelkem += abs;
+            pripoctiStredisko(strediskaVydaje, stredisko, p.Mena, abs);
+            pripoctiCelkem(vydajePodleMeny, p.Mena, abs);
           }
         });
 
@@ -190,8 +222,8 @@ exports.handler = async (event) => {
         .forEach((p) => {
           const castka = parsujCastkuZListu(p.Castka);
           const stredisko = p.Stredisko || '(bez střediska)';
-          strediskaPrijmy[stredisko] = (strediskaPrijmy[stredisko] || 0) + castka;
-          prijmyCelkem += castka;
+          pripoctiStredisko(strediskaPrijmy, stredisko, p.Mena, castka);
+          pripoctiCelkem(prijmyPodleMeny, p.Mena, castka);
         });
 
       // (v3.23) Platby potvrzeně spárované s Vydanou fakturou appka do
@@ -203,8 +235,8 @@ exports.handler = async (event) => {
         .forEach((p) => {
           const castka = parsujCastkuZListu(p.Castka);
           const stredisko = jednotkaPodleFaktury[p.Vydana_faktura_ID] || '(bez střediska)';
-          strediskaPrijmy[stredisko] = (strediskaPrijmy[stredisko] || 0) + castka;
-          prijmyCelkem += castka;
+          pripoctiStredisko(strediskaPrijmy, stredisko, p.Mena, castka);
+          pripoctiCelkem(prijmyPodleMeny, p.Mena, castka);
         });
 
       // (v4.23) Platby potvrzeně spárované s nájemní Smlouvou (appka od
@@ -220,8 +252,8 @@ exports.handler = async (event) => {
         .forEach((p) => {
           const castka = parsujCastkuZListu(p.Castka);
           const stredisko = p.Stredisko || strediskoPodleSmlouvy[p.Smlouva_ID] || '(bez střediska)';
-          strediskaPrijmy[stredisko] = (strediskaPrijmy[stredisko] || 0) + castka;
-          prijmyCelkem += castka;
+          pripoctiStredisko(strediskaPrijmy, stredisko, p.Mena, castka);
+          pripoctiCelkem(prijmyPodleMeny, p.Mena, castka);
         });
 
       // Provozní upozornění appka počítá BEZ ohledu na klouzavé okno 12
@@ -232,11 +264,19 @@ exports.handler = async (event) => {
       ).length;
       const pohybyNesparovane = pohybyTetoFirmy.filter((p) => p.Stav_parovani === 'Nespárováno').length;
 
+      // Appka rozdíl (příjmy - výdaje) počítá zvlášť PRO KAŽDOU měnu, se
+      // kterou appka u téhle firmy v okně vůbec něco napočítala (sjednocení
+      // klíčů obou map) - appka nikdy nesčítá napříč měnami dohromady.
+      const rozdilPodleMeny = {};
+      new Set([...Object.keys(prijmyPodleMeny), ...Object.keys(vydajePodleMeny)]).forEach((mena) => {
+        rozdilPodleMeny[mena] = (prijmyPodleMeny[mena] || 0) - (vydajePodleMeny[mena] || 0);
+      });
+
       return {
         firma,
-        prijmyCelkem,
-        vydajeCelkem,
-        rozdil: prijmyCelkem - vydajeCelkem,
+        prijmyPodleMeny,
+        vydajePodleMeny,
+        rozdilPodleMeny,
         strediskaPrijmy,
         strediskaVydaje,
         dokladyKeSchvaleni,

@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.25 – 2026-07-24';
+const APP_VERZE = 'v4.26 – 2026-07-24';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1154,14 +1154,58 @@ async function smazDoklad(id, dodavatel, tlacitko) {
 // viz nactiPrehled níž) appka tady ukazuje VŠECHNY viditelné firmy VEDLE
 // SEBE, každou jako samostatnou kartu - viz netlify/functions/dashboard-firmy.js.
 
+// Od v4.26 (Jan: "v dashboard pracuje v Kč ale u některých firem jsou to
+// EUR, musí rozlišit měnu") - backend (netlify/functions/dashboard-firmy.js)
+// appce teď vrací příjmy/výdaje/rozdíl i rozpad podle střediska jako mapu
+// MĚNA -> ČÁSTKA místo jednoho čísla - appka měny NIKDY nesčítá dohromady
+// (nemá k dispozici kurzovní lístek), jen je zobrazí VEDLE SEBE. `soucetMen`
+// níž appka používá VÝHRADNĚ pro seřazení položek podle řádové velikosti
+// (typicky středisko/firma reálně používá jen jednu měnu) - jde čistě o
+// pořadí zobrazení, ne o částku, kterou by appka někde ukázala.
+function soucetMen(podleMeny) {
+  return Object.values(podleMeny || {}).reduce((soucet, hodnota) => soucet + Math.abs(hodnota || 0), 0);
+}
+
+// Appka řadí měny uvnitř jedné položky CZK první, ostatní abecedně - ať
+// appka nezobrazuje pořadí měn nahodile podle toho, v jakém pořadí appka
+// položky v Sheets/JS objektu potkala.
+function serazeneMeny(podleMeny) {
+  return Object.keys(podleMeny || {}).sort((a, b) => {
+    if (a === 'CZK') return -1;
+    if (b === 'CZK') return 1;
+    return a.localeCompare(b);
+  });
+}
+
 function vykresliDashSouhrnStredisek(souhrn) {
-  const zaznamy = Object.entries(souhrn || {}).sort((a, b) => b[1] - a[1]);
+  const zaznamy = Object.entries(souhrn || {}).sort((a, b) => soucetMen(b[1]) - soucetMen(a[1]));
   if (zaznamy.length === 0) return '<div class="popis" style="margin:0">Žádná data.</div>';
   return zaznamy
-    .map(
-      ([klic, hodnota]) =>
-        '<div class="polozka-souhrn"><span>' + escapeHtml(klic) + '</span><strong>' + formatCastkaCele(hodnota) + '</strong></div>'
-    )
+    .map(([klic, podleMeny]) => {
+      const castkyText = serazeneMeny(podleMeny)
+        .map((mena) => formatCastkaSMenou(podleMeny[mena], mena))
+        .join(' + ');
+      return '<div class="polozka-souhrn"><span>' + escapeHtml(klic) + '</span><strong>' + castkyText + '</strong></div>';
+    })
+    .join('');
+}
+
+// Appka vykreslí jeden řádek na měnu (u naprosté většiny firem jen jednu -
+// CZK - appka řádek s měnou v závorce přidává jen když firma má víc než
+// jednu měnu, ať appka běžný jednoduchý případ zbytečně nezahlcuje popiskem
+// "(CZK)"). `tridaFn` appka používá jen u řádku Rozdíl (barevné rozlišení
+// kladný/záporný), jinak appka žádnou třídu nepřidává.
+function radkySouhrnPodleMeny(popis, podleMeny, tridaFn) {
+  const meny = serazeneMeny(podleMeny).length > 0 ? serazeneMeny(podleMeny) : ['CZK'];
+  return meny
+    .map((mena) => {
+      const hodnota = (podleMeny || {})[mena] || 0;
+      const trida = tridaFn ? tridaFn(hodnota) : '';
+      return (
+        '<div class="polozka-souhrn"><span>' + escapeHtml(popis) + (meny.length > 1 ? ' (' + mena + ')' : '') + '</span>' +
+        '<strong' + (trida ? ' class="' + trida + '"' : '') + '>' + formatCastkaSMenou(hodnota, mena) + '</strong></div>'
+      );
+    })
     .join('');
 }
 
@@ -1169,13 +1213,11 @@ function vytvorDashFirmaKarta(f) {
   const karta = document.createElement('div');
   karta.className = 'dash-firma-karta';
 
-  const rozdilTrida = f.rozdil >= 0 ? 'rozdil-kladny' : 'rozdil-zaporny';
-
   let html =
     '<h3>' + escapeHtml(f.firma) + '</h3>' +
-    '<div class="polozka-souhrn"><span>Příjmy (12 měsíců)</span><strong>' + formatCastkaCele(f.prijmyCelkem) + '</strong></div>' +
-    '<div class="polozka-souhrn"><span>Výdaje (12 měsíců)</span><strong>' + formatCastkaCele(f.vydajeCelkem) + '</strong></div>' +
-    '<div class="polozka-souhrn"><span>Rozdíl</span><strong class="' + rozdilTrida + '">' + formatCastkaCele(f.rozdil) + '</strong></div>' +
+    radkySouhrnPodleMeny('Příjmy (12 měsíců)', f.prijmyPodleMeny) +
+    radkySouhrnPodleMeny('Výdaje (12 měsíců)', f.vydajePodleMeny) +
+    radkySouhrnPodleMeny('Rozdíl', f.rozdilPodleMeny, (hodnota) => (hodnota >= 0 ? 'rozdil-kladny' : 'rozdil-zaporny')) +
     '<div class="dash-stredisko-nadpis">Výdaje podle střediska</div>' +
     vykresliDashSouhrnStredisek(f.strediskaVydaje) +
     '<div class="dash-stredisko-nadpis">Příjmy podle střediska</div>' +
@@ -1338,10 +1380,10 @@ function vykresliDanovyPrehled() {
     }
     return (
       '<td>' + prvniSloupecHtml + '</td>' +
-      '<td>' + bilanceHtml + '</td>' +
-      '<td>' + bunkaDane('DPH') + '</td>' +
-      '<td>' + bunkaDane('Dan_z_prijmu') + '</td>' +
-      '<td>' + bunkaDane('Dan_z_nemovitosti') + '</td>'
+      '<td class="cislo">' + bilanceHtml + '</td>' +
+      '<td class="cislo">' + bunkaDane('DPH') + '</td>' +
+      '<td class="cislo">' + bunkaDane('Dan_z_prijmu') + '</td>' +
+      '<td class="cislo">' + bunkaDane('Dan_z_nemovitosti') + '</td>'
     );
   }
 
@@ -1391,17 +1433,23 @@ function parsujCastkuZListu(hodnota) {
   return Number.isFinite(cislo) ? cislo : 0;
 }
 
+// Od v4.26 (Jan: "všechny čísla zarovnat doprava, vždy 2 desetinná místa")
+// appka vynucuje `minimumFractionDigits: 2` vedle stávajícího
+// `maximumFractionDigits: 2` - dřív appka u celého čísla (např. 1250) žádné
+// desetinné místo neukázala ("1 250 Kč"), zatímco haléřová částka měla
+// desetin dvě ("1 250,5 Kč") - appka teď VŽDY ukáže přesně dvě ("1 250,00
+// Kč" / "1 250,50 Kč"), ať sloupce s částkami appky (Doklady, Bankovní
+// výpisy, Export, Daňový přehled, Dashboard) mají jednotný, čitelně
+// zarovnatelný tvar. Do v4.26 appka navíc měla v Dashboardu samostatné
+// "celokorunové" varianty (formatCastkaCele/formatCastkaCeleSMenou, zavedené
+// v4.0 na Janovo přání appku tam zaokrouhlovat) - appka je od v4.26 zrušila,
+// Dashboard teď používá stejné funkce jako zbytek appky.
 function formatCastka(hodnota) {
-  return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 2 }).format(parsujCastkuZListu(hodnota)) + ' Kč';
-}
-
-// (v4.0) Jan chtěl v záložce Dashboard zaokrouhlovat na celé koruny (jde jen
-// o rychlý přehledový souhrn, ne o přesné párování jako u Dokladů/Bankovních
-// výpisů, kde appka haléře záměrně ukazuje - viz formatCastka výš/v3.4-v3.5).
-// Použito JEN v Dashboardu (vykresliDashSouhrnStredisek/vytvorDashFirmaKarta)
-// - Přehled plateb (vykresliSouhrn) dál používá formatCastka beze změny.
-function formatCastkaCele(hodnota) {
-  return new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 0 }).format(Math.round(parsujCastkuZListu(hodnota))) + ' Kč';
+  return (
+    new Intl.NumberFormat('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+      parsujCastkuZListu(hodnota)
+    ) + ' Kč'
+  );
 }
 
 // Doklady i Vydané faktury mají vlastní pole Mena (appka u dokladu umí
@@ -1411,7 +1459,9 @@ function formatCastkaCele(hodnota) {
 // v seznamu chybně zobrazovala jako "9,43 Kč". Tahle funkce použije
 // skutečnou měnu dokladu, a jen když je prázdná/CZK, chová se jako dřív.
 function formatCastkaSMenou(hodnota, mena) {
-  const cislo = new Intl.NumberFormat('cs-CZ', { maximumFractionDigits: 2 }).format(parsujCastkuZListu(hodnota));
+  const cislo = new Intl.NumberFormat('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+    parsujCastkuZListu(hodnota)
+  );
   const menaText = String(mena || '').trim();
   if (!menaText || menaText.toUpperCase() === 'CZK') return cislo + ' Kč';
   return cislo + ' ' + menaText;
@@ -1529,18 +1579,18 @@ function vykresliPrehledExport() {
   let celkemPocet = 0;
   let celkemCastka = 0;
 
-  let html = '<table><thead><tr><th>Firma</th><th>Počet dokladů</th><th>Celkem</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Firma</th><th class="cislo">Počet dokladů</th><th class="cislo">Celkem</th></tr></thead><tbody>';
   nazvyFirem.forEach((nazev) => {
     const r = podleFirmy[nazev];
     celkemPocet += r.pocet;
     celkemCastka += r.castka;
     html += '<tr>' +
       '<td data-label="Firma">' + escapeHtml(nazev) + '</td>' +
-      '<td data-label="Počet dokladů">' + r.pocet + '</td>' +
-      '<td data-label="Celkem">' + formatCastka(r.castka) + '</td>' +
+      '<td class="cislo" data-label="Počet dokladů">' + r.pocet + '</td>' +
+      '<td class="cislo" data-label="Celkem">' + formatCastka(r.castka) + '</td>' +
       '</tr>';
   });
-  html += '<tr><td><strong>Celkem</strong></td><td><strong>' + celkemPocet + '</strong></td><td><strong>' + formatCastka(celkemCastka) + '</strong></td></tr>';
+  html += '<tr><td><strong>Celkem</strong></td><td class="cislo"><strong>' + celkemPocet + '</strong></td><td class="cislo"><strong>' + formatCastka(celkemCastka) + '</strong></td></tr>';
   html += '</tbody></table>';
   vysledek.innerHTML = html;
 }
@@ -2465,6 +2515,27 @@ function vytvorDetailBanka(p) {
           : ' Appka nemá u tohohle pohybu vyplněné středisko.'
         : '');
     akce.appendChild(infoSmlouvaPotvrzena);
+    // Od v4.26 (Jan: "nenačte si správně středisko, přestože je u
+    // smlouvě, co je za problém?") - appka Středisko na PŘÍJMOVÝ pohyb
+    // dřív kopírovala jen JEDNOU, v okamžiku potvrzení trvalého příkazu
+    // (viz netlify/functions/banka.js) - pokud v tu chvíli Smlouva.Stredisko
+    // ještě nebylo vyplněné (nebo appka pohyb potvrdila auto-návrhem, viz
+    // "Auto-návrh dalších pohybů" v banka.js, který Středisko vůbec
+    // nekopíroval), zůstal pohyb natrvalo bez střediska - appka neměla
+    // žádný způsob, jak ho dodatečně doplnit/opravit jinak než celé
+    // přiřazení zrušit a ručně ho založit znovu. Appka teď nabízí rovnou
+    // editovatelný výběr střediska i u už potvrzeného příjmu.
+    if (jePrijemPotvrzeno) {
+      const vyberStrediskoOprava = document.createElement('select');
+      vyberStrediskoOprava.style.fontSize = '13px';
+      vyberStrediskoOprava.innerHTML = moznostiStrediska(p.Stredisko);
+      akce.appendChild(vyberStrediskoOprava);
+      akce.appendChild(
+        tlacitkoBanka('Uložit středisko', (e) => {
+          ulozZmenuBanka({ Stredisko: vyberStrediskoOprava.value }, e.target);
+        })
+      );
+    }
     akce.appendChild(
       tlacitkoBanka('Zrušit přiřazení ke smlouvě', (e) =>
         ulozZmenuBanka(
