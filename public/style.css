@@ -73,16 +73,23 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
    dlouhými popisky ("Dashboard" vs. "Bankovní výpisy") se řádky lomily
    nepravidelně a poslední řádek často vypadal "osiřele" (jen 1-2 užší
    tlačítka jinam zarovnaná než zbytek). Appka přešla na CSS grid s
-   `auto-fit`/`minmax` - všechna tlačítka mají STEJNOU šířku (podle
-   nejširšího sloupce, který se do řádku vejde) a řádky se lomí vždy
-   pravidelně. Appka NEPOUŽÍVA pevný počet sloupců (`repeat(N, ...)`),
-   protože appka podle role skrývá část tlačítek (`.skryto`,
-   `display:none`) - `auto-fit` počet sloupců sám dopočítá jen z
-   viditelných tlačítek, takže zarovnání zůstane pravidelné i uživateli
-   bez admin/účetní role (méně viditelných tlačítek). */
+   `auto-fit`/`minmax(...,1fr)` - všechna tlačítka měla STEJNOU šířku
+   (podle nejširšího sloupce, který se do řádku vejde) a řádky se lomily
+   vždy pravidelně.
+   Jan (2026-07-24): "velikost záložek se nesmí zvětšovat, dělá se to
+   hlavně na mobilní verzi" - `1fr` totiž nechal sloupce ROZTÁHNOUT přes
+   zbylou šířku řádku, takže tlačítka v neúplně zaplněném posledním řádku
+   (typicky na mobilu, kam appka vejde jen 2-3 tlačítka vedle sebe, nebo
+   u uživatele s méně viditelnými tlačítky podle role) appka zvětšila
+   místo toho, aby zůstala stejně velká jako v plně zaplněných řádcích.
+   Appka `1fr` nahradila PEVNOU šířkou sloupce (appka zůstává u
+   `auto-fill`, ne `auto-fit` - potřebuje počet sloupců dopočítat podle
+   šířky kontejneru, ne podle počtu tlačítek) - tlačítka mají teď vždy
+   stejnou pevnou šířku bez ohledu na to, kolik jich je v posledním
+   řádku, přebytečné místo v řádku appka nechá prázdné. */
 nav.zalozky {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, 140px);
   gap: 6px;
   margin-bottom: 14px;
 }
@@ -389,10 +396,12 @@ input[type="file"] { margin-top: 8px; }
   .hlavicka-app .uzivatel { text-align: left; }
 
   /* Tlačítka hlavní navigace appka zvětší na výšku (snazší dotykový cíl)
-     a zúží minimální šířku sloupce gridu (od v4.9 grid místo flexu, viz
-     výše), ať se na užší obrazovce vejde víc tlačítek vedle sebe místo
-     jednoho přes celou šířku. */
-  nav.zalozky { gap: 6px 8px; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); }
+     a zúží PEVNOU šířku sloupce gridu (od v4.9 grid místo flexu, od
+     2026-07-24 pevná šířka místo `1fr`, viz komentář výš u `nav.zalozky`),
+     ať se na užší obrazovce vejde víc tlačítek vedle sebe místo jednoho
+     přes celou šířku - a ať tlačítka v neúplně zaplněném řádku (běžné na
+     mobilu) zůstanou stejně velká jako všude jinde, ne roztažená. */
+  nav.zalozky { gap: 6px 8px; grid-template-columns: repeat(auto-fill, 105px); }
   nav.zalozky button { padding: 9px 10px; font-size: 12.5px; min-height: 38px; }
 
   /* Karty s auto-fit mřížkou (Export filtry, Dashboard firmy, souhrn

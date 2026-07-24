@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.24 – 2026-07-24';
+const APP_VERZE = 'v4.25 – 2026-07-24';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -206,6 +206,7 @@ function odhlasit() {
 // vynuluje, ať se druhému uživateli vždy načtou čerstvá data scoped na
 // JEHO účet, ne zbytky po předchozím.
 function vynulujCacheAppky() {
+  strediskaSeznam = [];
   firmyProVyberDokladu = [];
   dokladySeznamAktualni = [];
   dokladySekce = 'keSchvaleni';
@@ -380,6 +381,7 @@ function prepniZalozku(nazev) {
     nactiFirmy();
     nactiAuta();
     nactiUcty();
+    nactiStrediska();
   }
 }
 
@@ -607,11 +609,13 @@ async function nactiDoklady() {
   kontejner.innerHTML = '';
 
   try {
-    const [dataDoklady, dataFirmy] = await Promise.all([
+    const [dataDoklady, dataFirmy, dataStrediska] = await Promise.all([
       zavolejApi('/doklady', { method: 'GET' }),
       zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+      zavolejApi('/strediska', { method: 'GET' }).catch(() => ({ strediska: [] })),
     ]);
     firmyProVyberDokladu = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
+    strediskaSeznam = dataStrediska.strediska || [];
     nacitani.classList.add('skryto');
     vykresliDoklady(dataDoklady.doklady || []);
   } catch (e) {
@@ -662,33 +666,17 @@ function moznostiFirmy(vybranaFirma) {
 // jednotku (Holečkova se rozděluje na nájemníky, ale náklady na byt/garáž
 // jako celek nikoli), uvedené v HRUBŠÍM členění než MOZNOSTI_JEDNOTKA níž
 // (ta se používá u Vydaných faktur/nájmů, kde se platí zvlášť za 1a/1b apod.).
-// Kdyby bylo v budoucnu potřeba, aby si číselník spravoval admin sám, stačí
-// tenhle seznam nahradit načtením z Sheets (stejně jako Firmy/Auta).
-const MOZNOSTI_STREDISKA = [
-  // Auta
-  'Auto - Defender',
-  'Auto - Porsche 911',
-  'Auto - Tesla',
-  'Auto - VW Passat',
-  'Auto - Audi A5',
-  'Auto - Hyundai Kona',
-  // Nemovitosti - NOMIS Homes, V Parku 695, Velké Popovice
-  'V Parku 695 - byt 45',
-  'V Parku 695 - byt 47',
-  'V Parku 695 - byt 49',
-  'V Parku 695 - byt 51',
-  'V Parku 695 - byt 52',
-  'V Parku 695 - byt 53',
-  'V Parku 695 - byt 54',
-  // Nemovitosti - NOMIS CZ, Hagibor
-  'Ramonova 3466/4 (Hagibor)',
-  // Nemovitosti - FO, Holečkova (náklady appka eviduje na celou jednotku,
-  // ne rozdělené na 1a/1b/7a/7b - viz komentář výš)
-  'Holečkova 1',
-  'Holečkova 7',
-  'Holečkova 9',
-  'Holečkova - garáž',
-];
+//
+// Od v4.25 (Jan: "jak mám přidat nové středisko?" → "verze 2") appka Středisko
+// nedrží natvrdo v kódu, ale jako spravovatelný list "Strediska" v Sheets
+// (viz lib/strediskaSchema.js, netlify/functions/strediska.js) - admin ho
+// spravuje přímo v appce (záložka Nastavení), stejně jako Firmy/Auta/Účty.
+// `strediskaSeznam` drží poslední načtená data (pole objektů {Nazev, Typ,
+// Aktivni, _row}) - jednotlivé záložky (Doklady/Export/Banka/Smlouvy/Kniha
+// jízd) si ho načítají čerstvé při každém otevření (stejný vzor jako appka
+// dělá u firem - viz firmyProVyberDokladu apod.), moznostiStrediska()/
+// moznostiAuta() z něj pak sestaví <option>y.
+let strediskaSeznam = [];
 
 // Číselník Jednotka (od v3.6) - u Vydaných faktur/nájmů, kde se u Holečkova
 // platí zvlášť za 1a/1b/7a/7b (na rozdíl od Středisko výš, kde jsou náklady
@@ -711,26 +699,30 @@ const MOZNOSTI_JEDNOTKA = [
   'Holečkova - garáž',
 ];
 
+// Appka do nabídky zařadí jen aktivní střediska (Aktivni !== 'NE') - už
+// vybraná/uložená hodnota (i deaktivovaná, i úplně smazaná) se ale díky
+// fallbacku níž pořád zobrazí, ať appka nikdy "nezakryje" existující údaj.
 function moznostiStrediska(vybrane) {
+  const nazvy = strediskaSeznam.filter((s) => s.Aktivni !== 'NE').map((s) => s.Nazev);
   let html = '<option value="">— bez střediska —</option>';
-  MOZNOSTI_STREDISKA.forEach((s) => {
+  nazvy.forEach((s) => {
     const oznaceno = s === vybrane ? ' selected' : '';
     html += '<option value="' + escapeAttr(s) + '"' + oznaceno + '>' + escapeHtml(s) + '</option>';
   });
-  if (vybrane && !MOZNOSTI_STREDISKA.includes(vybrane)) {
+  if (vybrane && !nazvy.includes(vybrane)) {
     html += '<option value="' + escapeAttr(vybrane) + '" selected>' + escapeHtml(vybrane) + '</option>';
   }
   return html;
 }
 
 // Kniha jízd (backlog, položka 16) - "Auto" appka schválně nabízí ze
-// STEJNÉHO číselníku jako Středisko (jen položky "Auto - X"), ne ze
+// STEJNÉHO číselníku jako Středisko (položky s Typ === 'Auto'), ne ze
 // samostatné entity Auta (SPZ/Model/Firma/Ridic, viz netlify/functions/
 // auta.js) - appka totiž u Dokladů/tankování pozná auto přes Středisko
 // (od v3.8 nemá vlastní SPZ pole), takže spárování jízd s tankováním jde
 // nejjednodušeji přes stejný řetězec, bez překladu mezi dvěma číselníky.
 function moznostiAuta(vybrane) {
-  const auta = MOZNOSTI_STREDISKA.filter((s) => s.startsWith('Auto - '));
+  const auta = strediskaSeznam.filter((s) => s.Typ === 'Auto' && s.Aktivni !== 'NE').map((s) => s.Nazev);
   let html = '<option value="">— vyberte auto —</option>';
   auta.forEach((a) => {
     const oznaceno = a === vybrane ? ' selected' : '';
@@ -1441,11 +1433,13 @@ async function inicializujZalozkuExport() {
   vysledek.innerHTML = '';
 
   try {
-    const [dataDoklady, dataFirmy] = await Promise.all([
+    const [dataDoklady, dataFirmy, dataStrediska] = await Promise.all([
       zavolejApi('/doklady', { method: 'GET' }),
       zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+      zavolejApi('/strediska', { method: 'GET' }).catch(() => ({ strediska: [] })),
     ]);
     exportDataDoklady = dataDoklady.doklady || [];
+    strediskaSeznam = dataStrediska.strediska || [];
     naplnFiltryExport((dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean));
     nacitani.classList.add('skryto');
     vykresliPrehledExport();
@@ -1468,8 +1462,12 @@ function naplnFiltryExport(firmy) {
     selFirma.dataset.naplneno = '1';
   }
   if (!selStredisko.dataset.naplneno) {
+    // Export je filtr nad UŽ existujícími doklady, proto appka nabízí i
+    // deaktivovaná střediska (Aktivni = 'NE') - jinak by po deaktivaci
+    // střediska zmizela možnost dohledat/vyexportovat starší doklady, které
+    // na něj pořád odkazují.
     let html = '<option value="">Všechna střediska</option>';
-    MOZNOSTI_STREDISKA.forEach((s) => { html += '<option value="' + escapeAttr(s) + '">' + escapeHtml(s) + '</option>'; });
+    strediskaSeznam.forEach((s) => { html += '<option value="' + escapeAttr(s.Nazev) + '">' + escapeHtml(s.Nazev) + '</option>'; });
     selStredisko.innerHTML = html;
     selStredisko.dataset.naplneno = '1';
   }
@@ -2129,13 +2127,15 @@ async function nactiBankovniPohyby() {
   }
 
   try {
-    const [dataPohyby, dataDoklady, dataSmlouvy, dataUcty, dataFaktury] = await Promise.all([
+    const [dataPohyby, dataDoklady, dataSmlouvy, dataUcty, dataFaktury, dataStrediska] = await Promise.all([
       zavolejApi('/banka?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }),
       zavolejApi('/doklady', { method: 'GET' }),
       zavolejApi('/smlouvy?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }).catch(() => ({ smlouvy: [] })),
       zavolejApi('/ucty', { method: 'GET' }).catch(() => ({ ucty: [] })),
       zavolejApi('/vydaneFaktury?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }).catch(() => ({ faktury: [] })),
+      zavolejApi('/strediska', { method: 'GET' }).catch(() => ({ strediska: [] })),
     ]);
+    strediskaSeznam = dataStrediska.strediska || [];
     bankaPohybySeznam = dataPohyby.pohyby || [];
     bankaDokladySeznam = (dataDoklady.doklady || []).filter(
       (d) => (d.Firma_potvrzena || d.Firma_AI_odhad) === bankaAktivniFirma
@@ -3696,6 +3696,122 @@ async function smazUcet(row, cisloUctu, tlacitko) {
   }
 }
 
+// ---------- ADMIN: STŘEDISKA (od v4.25 - viz lib/strediskaSchema.js a
+// netlify/functions/strediska.js, dřív natvrdo zadané pole MOZNOSTI_STREDISKA
+// v kódu appky) ----------
+
+async function nactiStrediska() {
+  const nacitani = document.getElementById('strediska-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  try {
+    const data = await zavolejApi('/strediska', { method: 'GET' });
+    strediskaSeznam = data.strediska || [];
+    nacitani.classList.add('skryto');
+    vykresliStrediska(strediskaSeznam);
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst střediska: ' + e.message;
+  }
+}
+
+function vykresliStrediska(strediska) {
+  const telo = document.getElementById('tabulka-strediska-telo');
+  telo.innerHTML = '';
+
+  strediska.forEach((s) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td data-label="Název"></td>' +
+      '<td data-label="Typ"></td>' +
+      '<td data-label="Aktivní"></td>' +
+      '<td data-label="Akce"></td>';
+
+    tr.children[0].textContent = s.Nazev || '';
+
+    const vyberTyp = document.createElement('select');
+    vyberTyp.innerHTML = '<option value="Nemovitost">Nemovitost</option><option value="Auto">Auto</option>';
+    vyberTyp.value = s.Typ === 'Auto' ? 'Auto' : 'Nemovitost';
+    tr.children[1].appendChild(vyberTyp);
+
+    const vyberAktivni = document.createElement('select');
+    vyberAktivni.innerHTML = '<option value="ANO">Ano</option><option value="NE">Ne</option>';
+    vyberAktivni.value = s.Aktivni === 'NE' ? 'NE' : 'ANO';
+    tr.children[2].appendChild(vyberAktivni);
+
+    const tlacitkoUlozit = document.createElement('button');
+    tlacitkoUlozit.className = 'maly sekundarni';
+    tlacitkoUlozit.textContent = 'Uložit';
+    tlacitkoUlozit.onclick = () => ulozStredisko(s._row, {
+      Typ: vyberTyp.value,
+      Aktivni: vyberAktivni.value,
+    }, tlacitkoUlozit);
+    tr.children[3].appendChild(tlacitkoUlozit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.style.marginLeft = '6px';
+    tlacitkoSmazat.onclick = () => smazStredisko(s._row, s.Nazev, tlacitkoSmazat);
+    tr.children[3].appendChild(tlacitkoSmazat);
+
+    telo.appendChild(tr);
+  });
+
+  if (strediska.length === 0) {
+    telo.innerHTML = '<tr><td colspan="4" class="nacitani">Zatím žádná střediska.</td></tr>';
+  }
+}
+
+async function pridatStredisko() {
+  const zprava = document.getElementById('strediska-zprava');
+  zprava.innerHTML = '';
+
+  const nazev = document.getElementById('nove-st-nazev').value.trim();
+  if (!nazev) {
+    zprava.innerHTML = '<div class="zprava chyba">Název střediska je povinný.</div>';
+    return;
+  }
+
+  try {
+    await zavolejApi('/strediska', {
+      method: 'POST',
+      body: JSON.stringify({
+        Nazev: nazev,
+        Typ: document.getElementById('nove-st-typ').value,
+      }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Středisko přidáno.</div>';
+    document.getElementById('nove-st-nazev').value = '';
+    await nactiStrediska();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function ulozStredisko(row, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/strediska', { method: 'PATCH', body: JSON.stringify({ row, zmeny }) });
+    await nactiStrediska();
+  } catch (e) {
+    alert('Nepodařilo se uložit středisko: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazStredisko(row, nazev, tlacitko) {
+  if (!confirm('Opravdu smazat středisko „' + nazev + '“? Pokud už ho appka používá u dokladů/smluv/bankovních pohybů, doporučujeme ho radši jen deaktivovat (Aktivní = Ne) - existující záznamy zůstanou beze změny, jen zmizí z nabídky pro nové.')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/strediska?row=' + row, { method: 'DELETE' });
+    await nactiStrediska();
+  } catch (e) {
+    alert('Nepodařilo se smazat středisko: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
 // ---------- SMLOUVY (trvalé příkazy, od v3.19) ----------
 // Od v3.21 (Janovo zadání "není vidět všechny údaje ze smlouvy... doplnit
 // vytěžení smlouvy AI + zavést registr smluv, tedy i s přílohou") appka
@@ -3723,11 +3839,13 @@ async function nactiSmlouvy() {
   kontejner.innerHTML = '';
 
   try {
-    const [dataSmlouvy, dataFirmy] = await Promise.all([
+    const [dataSmlouvy, dataFirmy, dataStrediska] = await Promise.all([
       zavolejApi('/smlouvy', { method: 'GET' }),
       zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+      zavolejApi('/strediska', { method: 'GET' }).catch(() => ({ strediska: [] })),
     ]);
     firmyProVyberSmlouvy = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
+    strediskaSeznam = dataStrediska.strediska || [];
     vyplnVyberFirem('nova-sm-firma', firmyProVyberSmlouvy);
     if (!document.getElementById('nova-sm-stredisko').dataset.naplneno) {
       document.getElementById('nova-sm-stredisko').innerHTML = moznostiStrediska('');
@@ -4417,11 +4535,13 @@ async function nactiKnihaJizd() {
   kontejner.innerHTML = '';
 
   try {
-    const [dataJizdy, dataFirmy] = await Promise.all([
+    const [dataJizdy, dataFirmy, dataStrediska] = await Promise.all([
       zavolejApi('/kniha-jizd', { method: 'GET' }),
       zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+      zavolejApi('/strediska', { method: 'GET' }).catch(() => ({ strediska: [] })),
     ]);
     firmyProVyberKnihaJizd = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
+    strediskaSeznam = dataStrediska.strediska || [];
     vyplnVyberFirem('nova-kj-firma', firmyProVyberKnihaJizd);
     vyplnVyberFirem('kj-import-firma', firmyProVyberKnihaJizd);
     if (!document.getElementById('nova-kj-auto').dataset.naplneno) {
@@ -4853,6 +4973,7 @@ document.getElementById('tlacitko-pridat-uzivatele').addEventListener('click', p
 document.getElementById('tlacitko-pridat-firmu').addEventListener('click', pridatFirmu);
 document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridatAuto);
 document.getElementById('tlacitko-pridat-ucet').addEventListener('click', pridatUcet);
+document.getElementById('tlacitko-pridat-stredisko').addEventListener('click', pridatStredisko);
 document.getElementById('tlacitko-pridat-smlouvu').addEventListener('click', pridatSmlouvu);
 document.getElementById('sm-tlacitko-vyfotit').addEventListener('click', () => document.getElementById('sm-pole-foto').click());
 document.getElementById('sm-tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('sm-pole-soubor').click());

@@ -2793,6 +2793,74 @@ jako appka dělá u odchozích - Jan zvolil obě doporučené možnosti.
   Středisko se předvyplní podle vybrané smlouvy, appka odešle PATCH se
   správnými hodnotami) - všech 57 backendových testů appky prošlo.
 
+## 65. Středisko jako spravovatelný číselník + oprava velikosti záložek na mobilu (v4.25)
+
+Dvě samostatné Janovy žádosti ze stejné konverzace, appka je nasadila
+společně jako jednu verzi.
+
+**Středisko - samoobslužná správa (Jan: "jak mám přidat nové středisko?" →
+"verze 2").** Středisko bylo do téhle verze natvrdo zadané pole
+`MOZNOSTI_STREDISKA` přímo v kódu appky (`public/app.js`) - přidání nové
+nemovitosti nebo auta vyžadovalo zásah do kódu a nové nasazení appky. Appka
+nabídla Janovi dvě možnosti (jen přidat konkrétní název do kódu, nebo
+vybudovat plnou samoobslužnou správu jako u Firem/Aut/Účtů) - Jan zvolil
+druhou, důkladnější variantu.
+
+- Nový list **Strediska** v Sheets (`lib/strediskaSchema.js`, sloupce
+  `Nazev`/`Typ`/`Aktivni`), zakládá se automaticky přes `/api/setup` a
+  hned se seeduje všemi 18 dosavadními hodnotami z dřívějšího
+  `MOZNOSTI_STREDISKA` (6× `Typ = "Auto"`, 12× `Typ = "Nemovitost"`,
+  `Aktivni = "ANO"`) - appka po přechodu nabízí přesně stejná střediska
+  jako předtím, nic se neztratí.
+- Nová funkce `netlify/functions/strediska.js` (GET pro kohokoli
+  přihlášeného, POST/PATCH/DELETE jen pro roli `admin`) - stejný vzor jako
+  `firmy.js`: **Název střediska se po vytvoření přes appku needituje**
+  (používá se jako "klíč" v `Doklady.Stredisko`/`Smlouvy.Stredisko`/
+  `Bankovni_pohyby.Stredisko`), needitovatelnost appka vynucuje na
+  backendu (PATCH tiše ignoruje pokus o změnu `Nazev`).
+- Appka do záložky **Nastavení** přidala nový skládací panel "Střediska"
+  (přidání nového střediska + název/typ/aktivní u existujících +
+  smazání) - mirror existujících panelů Firmy/Auta/Účty.
+- **Aktivní/Neaktivní** (`Aktivni = "ANO"/"NE"`, stejný princip jako u
+  Smluv) - appka doporučuje nepotřebné středisko radši deaktivovat než
+  smazat: deaktivované středisko zmizí z nabídky pro NOVÉ doklady/smlouvy/
+  bankovní pohyby/jízdy, ale historické záznamy s ním appka dál normálně
+  zobrazuje beze změny. Filtr střediska v záložce Export naopak schválně
+  nabízí VŠECHNA střediska (i deaktivovaná), ať jde starší doklady podle
+  nich pořád dohledat/vyexportovat.
+- `public/app.js` teď Středisko/Auto číselník načítá dynamicky
+  (`strediskaSeznam`, načítá se čerstvě při otevření záložek Doklady/
+  Export/Bankovní výpisy/Registr smluv/Kniha jízd, stejný vzor jako appka
+  už dělá u firem) - `moznostiStrediska()`/`moznostiAuta()` z něj sestaví
+  nabídku (`moznostiAuta()` teď filtruje podle `Typ === "Auto"` místo
+  dřívějšího porovnávání textu `s.startsWith('Auto - ')`).
+- Ověřeno novým `test_strediska.js` (přidání, duplicitní název odmítnut,
+  needitovatelnost názvu přes PATCH, deaktivace/aktivace, smazání) + celá
+  regresní sada appky (58 backendových testů) + Playwright ověřením
+  nového panelu v Nastavení (přidání, odmítnutá duplicita, deaktivované
+  středisko zmizí z `moznostiStrediska()`/`moznostiAuta()`, nově přidané
+  se objeví okamžitě bez nutnosti znovu se přihlásit).
+
+**Oprava: velikost záložek na mobilu (Jan: "velikost záložek se nesmí
+zvetšovat, dělá se to hlavně na mobilní verzi - udělej to pevnou
+velikostí").** Hlavní navigace (`nav.zalozky`) používala CSS grid
+`repeat(auto-fit, minmax(140px, 1fr))` (na mobilu `minmax(105px, 1fr)`) -
+`1fr` nechávalo sloupce ROZTÁHNOUT přes zbylou šířku řádku, pokud řádek
+nebyl plně obsazený (typicky poslední, neúplně zaplněný řádek na mobilu,
+nebo u role s méně viditelnými záložkami) - tlačítka pak vypadala větší
+než ve zbytku navigace.
+
+- Appka změnila `grid-template-columns` na `repeat(auto-fill, 140px)`
+  (mobil: `105px`) na obou místech v `public/style.css` (základní pravidlo
+  + `@media (max-width: 640px)`) - `auto-fill` dál dopočítá počet sloupců
+  podle šířky kontejneru, ale každý sloupec má PEVNOU šířku bez ohledu na
+  to, kolik tlačítek řádek zaplňuje - nevyužitý prostor v neúplném řádku
+  zůstává prázdný místo roztažení tlačítek.
+- Ověřeno Playwright měřením skutečné vykreslené šířky tlačítek (mobil
+  390px i desktop 1280px, jako admin i jako role s jen 4 viditelnými
+  záložkami) - ve všech scénářích měla všechna viditelná tlačítka stejnou
+  šířku - a vizuální kontrolou screenshotů (mobil i desktop).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

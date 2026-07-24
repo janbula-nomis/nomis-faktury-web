@@ -1,8 +1,8 @@
 /**
  * netlify/functions/setup.js
  * Administrátorská funkce: vytvoří (pokud chybí) listy Firmy, Auta, Ucty,
- * Doklady, Bankovni_pohyby, Vydane_faktury, Log a Uzivatele s hlavičkami
- * a ukázkovými daty.
+ * Strediska, Doklady, Bankovni_pohyby, Vydane_faktury, Log a Uzivatele
+ * s hlavičkami a ukázkovými daty.
  * Bezpečně chráněná SETUP_SECRET, aby ji nemohl spustit kdokoliv, kdo
  * uhodne URL. Je bezpečné funkci spustit opakovaně i po aktualizaci appky -
  * u listů, které už existují a mají data, jen doplní případné chybějící
@@ -32,6 +32,7 @@ const { UCTY_HEADERS } = require('../../lib/uctySchema');
 const { SMLOUVY_HEADERS, dalsiPoradiSmlouvy } = require('../../lib/smlouvySchema');
 const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
 const { KNIHA_JIZD_HEADERS } = require('../../lib/knihaJizdSchema');
+const { STREDISKA_HEADERS } = require('../../lib/strediskaSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
 
@@ -52,6 +53,35 @@ const LISTY = [
     nazev: 'Ucty',
     hlavicky: UCTY_HEADERS,
     ukazka: [],
+  },
+  {
+    // Střediska (od v4.25) - dřív natvrdo zadané pole MOZNOSTI_STREDISKA
+    // v public/app.js, teď samostatný spravovatelný číselník, viz
+    // lib/strediskaSchema.js a netlify/functions/strediska.js. Ukázková
+    // data = přesný přepis dřívějšího natvrdo zadaného pole, aby appka po
+    // přechodu nabízela úplně stejná střediska jako předtím.
+    nazev: 'Strediska',
+    hlavicky: STREDISKA_HEADERS,
+    ukazka: [
+      ['Auto - Defender', 'Auto', 'ANO'],
+      ['Auto - Porsche 911', 'Auto', 'ANO'],
+      ['Auto - Tesla', 'Auto', 'ANO'],
+      ['Auto - VW Passat', 'Auto', 'ANO'],
+      ['Auto - Audi A5', 'Auto', 'ANO'],
+      ['Auto - Hyundai Kona', 'Auto', 'ANO'],
+      ['V Parku 695 - byt 45', 'Nemovitost', 'ANO'],
+      ['V Parku 695 - byt 47', 'Nemovitost', 'ANO'],
+      ['V Parku 695 - byt 49', 'Nemovitost', 'ANO'],
+      ['V Parku 695 - byt 51', 'Nemovitost', 'ANO'],
+      ['V Parku 695 - byt 52', 'Nemovitost', 'ANO'],
+      ['V Parku 695 - byt 53', 'Nemovitost', 'ANO'],
+      ['V Parku 695 - byt 54', 'Nemovitost', 'ANO'],
+      ['Ramonova 3466/4 (Hagibor)', 'Nemovitost', 'ANO'],
+      ['Holečkova 1', 'Nemovitost', 'ANO'],
+      ['Holečkova 7', 'Nemovitost', 'ANO'],
+      ['Holečkova 9', 'Nemovitost', 'ANO'],
+      ['Holečkova - garáž', 'Nemovitost', 'ANO'],
+    ],
   },
   {
     nazev: 'Doklady',

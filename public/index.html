@@ -584,6 +584,32 @@
         </table>
         </div>
       </details>
+
+      <details class="panel-skladaci">
+        <summary>Střediska</summary>
+        <p class="popis">Střediska (konkrétní auta a nemovitosti) appka nabízí u Dokladů, Smluv, Bankovních výpisů
+          a Knihy jízd. Název střediska se z appky nedá měnit (používá se jinde jako identifikátor) – u
+          nepotřebného střediska doporučujeme radši nastavit Aktivní = Ne, než ho mazat.</p>
+        <h3>Přidat středisko</h3>
+        <label for="nove-st-nazev">Název</label>
+        <input type="text" id="nove-st-nazev" placeholder="např. Auto - Škoda Octavia nebo V Parku 695 - byt 60" />
+        <label for="nove-st-typ">Typ</label>
+        <select id="nove-st-typ">
+          <option value="Nemovitost">Nemovitost</option>
+          <option value="Auto">Auto</option>
+        </select>
+        <button id="tlacitko-pridat-stredisko">Přidat středisko</button>
+        <div id="strediska-zprava"></div>
+
+        <h3 style="margin-top:24px">Existující střediska</h3>
+        <div id="strediska-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-strediska">
+          <thead><tr><th>Název</th><th>Typ</th><th>Aktivní</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-strediska-telo"></tbody>
+        </table>
+        </div>
+      </details>
     </div>
   </section>
 
