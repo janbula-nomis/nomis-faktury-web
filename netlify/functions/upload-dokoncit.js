@@ -39,6 +39,8 @@ const { isMoznaDuplicita } = require('../../lib/duplicity');
 const { najdiHistorickouShodu } = require('../../lib/dokladyHistorie');
 const { navrhniShodu, parsujCastkuZListu } = require('../../lib/bankHelpers');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
+const { DOKLADY_POLOZKY_HEADERS } = require('../../lib/dokladyPolozkySchema');
+const { nahradPolozky } = require('../../lib/polozkyHelpers');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
@@ -180,6 +182,17 @@ exports.handler = async (event) => {
 
     await updateRow(sheets, process.env.SPREADSHEET_ID, 'Doklady', DOKLADY_HEADERS, doklad._row, aktualizovany);
 
+    // Od v4.27 (export do Money S3, viz netlify/functions/export-money-
+    // s3.js) appka rovnou uloží i položky, které Gemini vytěžila (viz
+    // lib/gemini.js, klíč "polozky") - `nahradPolozky` nejdřív smaže
+    // případné starší položky téhož dokladu (při čerstvém zpracování
+    // placeholderu žádné být nemohou, ale funkce je stejná jako u
+    // ZPĚTNÉHO vytěžení, viz doklady-vytezit-polozky.js), pak zapíše nové.
+    await nahradPolozky(
+      sheets, process.env.SPREADSHEET_ID, 'Doklady_Polozky', DOKLADY_POLOZKY_HEADERS,
+      'Doklad_ID', aktualizovany.ID, extrakce.polozky
+    );
+
     // Oprava/novinka v3.14: appka umí poznat, když je na jedné fotce/scanu
     // víc SAMOSTATNÝCH dokladů vedle sebe (běžné, když se vyfotí/naskenuje
     // víc účtenek najednou na jeden list - viz lib/gemini.js, klíč
@@ -193,6 +206,7 @@ exports.handler = async (event) => {
     // obě dvě vypadat jako "nové".
     const dalsiDokladyRaw = Array.isArray(extrakce.dalsi_doklady) ? extrakce.dalsi_doklady : [];
     const noveDoklady = [];
+    const polozkyDalsichDokladu = []; // { dokladId, polozky } - viz smyčka po appendRows níže
     let znameDoklady = existujiciDoklady.filter((r) => r.ID !== id).concat([aktualizovany]);
 
     dalsiDokladyRaw.forEach((dalsi) => {
@@ -240,11 +254,21 @@ exports.handler = async (event) => {
       };
 
       noveDoklady.push(novyDoklad);
+      polozkyDalsichDokladu.push({ dokladId: novyDoklad.ID, polozky: dalsi.polozky });
       znameDoklady = znameDoklady.concat([novyDoklad]);
     });
 
     if (noveDoklady.length > 0) {
       await appendRows(sheets, process.env.SPREADSHEET_ID, 'Doklady', DOKLADY_HEADERS, noveDoklady);
+    }
+
+    // Položky KAŽDÉHO dalšího dokladu z multi-scanu appka uloží stejně jako
+    // u hlavního dokladu výš (viz komentář tam) - postupně, ne najednou.
+    for (const polozka of polozkyDalsichDokladu) {
+      await nahradPolozky(
+        sheets, process.env.SPREADSHEET_ID, 'Doklady_Polozky', DOKLADY_POLOZKY_HEADERS,
+        'Doklad_ID', polozka.dokladId, polozka.polozky
+      );
     }
 
     // v3.19: appka zkusí rovnou navrhnout spárování s bankou pro hlavní

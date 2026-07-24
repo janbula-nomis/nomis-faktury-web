@@ -3004,6 +3004,109 @@ dva řádky.
 Ověřeno celou regresní sadou appky (61 backendových testů) + Playwright
 ověřením (`white-space: nowrap` skutečně vykreslené na `.castka`).
 
+## 68. Nová funkce: export do Money S3 (XML DE) + položky faktury + zpětné vytěžení (v4.27)
+
+Dlouho očekávaná funkce, flagovaná jako mezera v appce už od v3.8 (appka do
+teď v Exportu měla jen hlášku "appka doplní, jakmile dostane od Jana přesný
+formát/ukázkový export"). Jan poslal svůj požadavek postupně: nejdřív
+částečnou XML strukturu, pak přes AskUserQuestion appka zjišťovala rozsah
+(přijaté i vydané? položky, nebo jen souhrn? zpětné vytěžení existujících
+dokladů?), a nakonec Jan poslal DVA REÁLNÉ vzorové exporty přímo z Money S3
+(demo firma "SPORT a.s."): `PF_skladova.xml` (přijatá faktura, skladová
+varianta) a `VF_neskladova.xml` (vydaná faktura, neskladová varianta).
+Appka strukturu/pojmenování elementů odvodila přesně z těchhle dvou
+souborů - žádnou oficiální dokumentaci k dispozici neměla.
+
+**Položky faktury (nový datový model).** Appka do teď u Dokladů i Vydaných
+faktur evidovala jen SOUHRNNÉ částky (Castka/DPH/Sazba_DPH) - Money S3 XML
+ale u každé faktury čeká `SeznamPolozek` s jednotlivými řádky. Appka proto
+přidala dva nové listy v Sheets, `Doklady_Polozky` a
+`Vydane_Faktury_Polozky` (sloupce `ID, <parent>_ID, Nazev, Mnozstvi, Cena,
+SazbaDPH, Poradi`, viz `lib/dokladyPolozkySchema.js` a
+`lib/vydaneFakturyPolozkySchema.js`), a sdílenou funkci `nahradPolozky`
+(`lib/polozkyHelpers.js`) - smaže staré položky dokladu/faktury a zapíše
+nové, používá se jak při PRVNÍM zpracování, tak při ZPĚTNÉM vytěžení (viz
+níž), appka díky tomu nikdy nezdvojí položky ani při opakovaném spuštění.
+
+**AI vytěžení položek.** `lib/gemini.js` (`extrahujDataZDokladu` i
+`extrahujDataZVydaneFaktury`) appka rozšířila o klíč `"polozky"` - pole
+`{nazev, mnozstvi, cena, sazba_dph}`, kde `cena` je JEDNOTKOVÁ cena BEZ DPH
+(stejná konvence jako Money S3 `Cena`). Appka Gemini instruuje, ať vrátí
+ASPOŇ JEDEN souhrnný řádek i tam, kde doklad žádné itemizované položky
+nemá ("Nikdy nevracej prázdné pole, pokud existuje aspoň nějaký popis, čeho
+se doklad týká.") - appka díky tomu nikdy neexportuje fakturu bez
+`SeznamPolozek`. Zapsání appka zapojila přímo do `upload-dokoncit.js` a
+`vydane-faktury-upload-dokoncit.js` (i do větve `dalsi_doklady` u
+multi-scanu) - položky appka uloží automaticky hned při dokončení
+zpracování, žádná ruční akce navíc není potřeba.
+
+**Zpětné vytěžení u už existujících dokladů/faktur (Jan: "můžeme zpětně
+vytěžit doklady?").** Appka umí doplnit položky i u dokladu/faktury
+zpracovaných PŘED v4.27 (žádné položky v Sheets) - `netlify/functions/
+doklady-vytezit-polozky.js` a `vydane-faktury-vytezit-polozky.js` znovu
+stáhnou zdrojový soubor z Drive (appka ho tam nikdy nemaže - stejný princip
+jako běžné "Dokončit zpracování") a znovu zavolají AI extrakci JEN kvůli
+položkám. Zásadní rozdíl oproti prvnímu zpracování: appka TÍMHLE NIKDY
+nezmění žádné hlavičkové pole dokladu/faktury (Dodavatel/Castka/Kategorie/
+Firma_potvrzena/Stav/...) - jde čistě o doplnění/aktualizaci položek u
+záznamu, jehož ostatní údaje uživatel/účetní už zkontroloval/schválil.
+Appka zpětné vytěžení běžnému uživateli zakazuje u už SCHVÁLENÉHO dokladu
+(resp. UHRAZENÉ faktury) - admin/účetní mohou kdykoli.
+
+**Ruční správa položek.** Appka nabízí i CRUD nezávislý na AI -
+`netlify/functions/doklady-polozky.js` a `vydane-faktury-polozky.js`
+(GET/POST/PATCH/DELETE), přístup appka odvozuje od RODIČOVSKÉHO dokladu/
+faktury (stejná logika jako u samotného dokladu/faktury - appka žádnou
+samostatnou "firmu" u položky neeviduje). Ve frontendu appka po rozbalení
+dokladu/faktury zobrazí sekci "Položky" (`vytvorSekciPolozek` v
+`public/app.js`, sdílená appkou pro Doklady i Vydané faktury) - tabulka
+existujících položek s inline úpravou/mazáním, mini-formulář na přidání
+nové položky, a (má-li doklad/faktura zdrojový soubor) tlačítko "Vytěžit
+položky ze souboru".
+
+**Samotný export (`netlify/functions/export-money-s3.js` +
+`lib/moneyS3Export.js`).** GET `?smer=prijate|vydane&firma=X&rok=RRRR&
+mesic=MM` (přijaté navíc `&stredisko=X`) vrátí stažitelný XML soubor -
+appka do něj zahrne jen SCHVÁLENÉ doklady (resp. zpracované, ne
+"Zpracovává se"/"Možná duplicita" faktury) vybrané firmy. Appka položky
+modeluje podle NESKLADOVÉHO vzoru Money S3 (`NesklPolozka`, z
+`VF_neskladova.xml`) - appka žádnou skladovou evidenci nemá, skladová
+pole (`SklPolozka`, `UcetMD`/`UcetD`/`KmKarta`) by appka musela vymýšlet.
+Přístup appka omezuje na admina/účetní - export je účetní operace (podklad
+pro import do Money S3), stejné omezení appka aplikuje i na tlačítko ve
+frontendu (schová se běžnému uživateli). Appka odpověď posílá jako
+`Content-Type: application/xml` + `Content-Disposition: attachment` (nová
+funkce `xml()` v `lib/http.js`, vedle stávající `json()`) - frontend proto
+místo běžného `zavolejApi()` (ten vždy čeká JSON) používá nové
+`stahniSouborZApi()` (stáhne odpověď jako Blob, nabídne ke stažení přes
+dočasný `<a download>`). Tlačítko "Stáhnout XML pro Money S3" appka
+umístila do záložky Export (přijaté, používá stejné filtry firma/měsíc/
+rok/středisko jako přehled na obrazovce) a do záložky Vydané faktury
+(vydané, podle vybrané firmy ve filtru).
+
+**Známé mezery v mapování - Jan/účetní by je měl(a) projít PŘI PRVNÍM
+SKUTEČNÉM IMPORTU do Money S3** (appka nemá žádný jiný způsob, jak ověřit
+správnost, dokud to Jan sám nezkusí - plný seznam i důvody viz docblock v
+`lib/moneyS3Export.js`):
+- `Firmy` nemá adresu ani název banky (jen `Bankovni_ucet` jako text) -
+  `<MojeFirma><Adresa>`/`<Banka>` appka exportuje prázdné.
+- `Doklady`/`Vydane_faktury` nemají DIČ ani adresu dodavatele/zákazníka -
+  `<DodOdb>`/`<KonecPrij>` appka omezuje na Nazev/ICO.
+- `KodDPH` (řádek přiznání DPH) appka natvrdo nastavuje na "19Ř40,41"
+  (přijaté) / "19Ř01,02" (vydané) podle Jan poslaných vzorů - appka
+  nerozlišuje speciální případy (reverse charge, osvobozená plnění).
+- Ryze Money S3 interní číslování (`Rada`/`CisRada`/`PredKontac`/
+  `KonstSym`) appka nemá čím naplnit - nastavuje jednoduché výchozí
+  hodnoty, Money S3 při importu pravděpodobně přečísluje/doplní podle
+  vlastního nastavení firmy.
+
+Ověřeno 64 backendovými testy (`test_polozky_faktury.js`,
+`test_polozky_crud.js`, `test_export_money_s3.js` - včetně kontroly, že
+appka vypočítané `SouhrnDPH` u vzorových částek odpovídá PŘESNĚ číslům
+z Jan poslaných reálných XML) + dvěma Playwright ověřeními (sekce Položky
+ve frontendu - zobrazení/přidání/zpětné vytěžení; tlačítko exportu -
+viditelnost podle role + skutečné stažení souboru).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
@@ -3013,9 +3116,9 @@ ověřením (`white-space: nowrap` skutečně vykreslené na `.castka`).
   Netlify Functions na velikost požadavku) – fotky se automaticky zmenšují
   na klientovi, PDF komprimovaná nejsou (pokud budete mít problém s velkým
   PDF, zmenšete ho před nahráním).
-- Mimo rozsah této appky zatím: automatický příjem z Gmailu, import a
-  párování bankovních výpisů, export do Money S3 – viz
-  `nomis-faktury-architektura.md` v projektu pro další fáze.
+- Mimo rozsah této appky zatím: automatický příjem z Gmailu – viz
+  `nomis-faktury-architektura.md` v projektu pro další fáze. (Export do
+  Money S3 appka doplnila v4.27, viz sekce 68 níž.)
 
 ## Řešení problémů
 

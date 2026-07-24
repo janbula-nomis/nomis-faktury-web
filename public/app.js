@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.26.1 – 2026-07-24';
+const APP_VERZE = 'v4.27 – 2026-07-24';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -118,6 +118,39 @@ function zmenSkin(novy) {
 }
 
 aplikujSkin(nactiSkin());
+
+// Stažení souboru z API (od v4.27, export do Money S3) - na rozdíl od
+// zavolejApi() výš appka odpověď NEČTE jako JSON (backend vrací XML/binární
+// obsah s Content-Disposition: attachment, viz lib/http.js, funkce `xml`),
+// appka proto místo fetch+.json() stáhne odpověď jako Blob a nabídne ji
+// prohlížeči ke stažení přes dočasný <a download> element (URL.createObjectURL).
+// Chybovou odpověď backend pořád vrací jako JSON (viz json() v lib/http.js),
+// appka ji proto při !ok zkusí přečíst jako JSON kvůli srozumitelné hlášce.
+async function stahniSouborZApi(cesta) {
+  const hlavicky = {};
+  if (stav && stav.token) hlavicky['Authorization'] = 'Bearer ' + stav.token;
+
+  const odpoved = await fetch('/api' + cesta, { cache: 'no-store', headers: hlavicky });
+  if (!odpoved.ok) {
+    const data = await odpoved.json().catch(() => ({}));
+    throw new Error(data.error || 'Chyba serveru (' + odpoved.status + ')');
+  }
+
+  const blob = await odpoved.blob();
+  let nazevSouboru = 'export.xml';
+  const contentDisposition = odpoved.headers.get('Content-Disposition') || '';
+  const shoda = contentDisposition.match(/filename="?([^"]+)"?/);
+  if (shoda) nazevSouboru = shoda[1];
+
+  const url = URL.createObjectURL(blob);
+  const odkaz = document.createElement('a');
+  odkaz.href = url;
+  odkaz.download = nazevSouboru;
+  document.body.appendChild(odkaz);
+  odkaz.click();
+  odkaz.remove();
+  URL.revokeObjectURL(url);
+}
 
 async function zavolejApi(cesta, moznosti) {
   const opts = moznosti || {};
@@ -835,6 +868,229 @@ function vykresliDoklady(doklady) {
 // Skládací řádek Dokladu (od v3.7, stejný vzor jako vytvorRadekBanka níž) -
 // sbaleně jen základní info, rozkliknutím se otevřou editovatelná pole
 // (viz vytvorDetailDoklad).
+// Sdílená sekce "Položky" (od v4.27, export do Money S3, viz lib/
+// dokladyPolozkySchema.js) - appka ji vkládá do detailu Dokladu i Vydané
+// faktury (jen jiné API cesty/parametry, viz volání níž). Tabulka
+// zobrazuje/edituje jednotlivé řádky (Nazev/Mnozstvi/Cena/SazbaDPH), pod ní
+// mini-formulář na přidání nové položky a (má-li doklad/faktura zdrojový
+// soubor) tlačítko "Vytěžit položky ze souboru" - to znovu pošle uložený
+// soubor přes AI JEN kvůli položkám, beze změny ostatních (už zkontrolovaných/
+// schválených) polí dokladu/faktury (viz netlify/functions/doklady-vytezit-
+// polozky.js).
+//
+// `opts.zamceno` (true u dokladu/faktury, které už appka nedovolí běžnému
+// uživateli editovat - Schváleno/Uhrazeno) appka schová formulář na přidání
+// i tlačítko vytěžení a zablokuje vstupy v tabulce - stejné omezení jako u
+// hlavičkových polí (backend by stejně vrátil 403, tohle je jen rovnou
+// srozumitelnější UI).
+function vytvorSekciPolozek(opts) {
+  const sekce = document.createElement('div');
+  sekce.className = 'polozky-sekce';
+
+  const nadpis = document.createElement('h4');
+  nadpis.textContent = 'Položky (pro export do Money S3)';
+  sekce.appendChild(nadpis);
+
+  const tabulkaWrap = document.createElement('div');
+  tabulkaWrap.innerHTML = '<div class="nacitani">Načítám položky…</div>';
+  sekce.appendChild(tabulkaWrap);
+
+  let aktualniPolozky = [];
+
+  async function nacti() {
+    try {
+      aktualniPolozky = await opts.ziskejPolozky();
+      prekresliTabulku();
+    } catch (e) {
+      tabulkaWrap.innerHTML = '<div class="zprava chyba">Nepodařilo se načíst položky: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  function prekresliTabulku() {
+    if (aktualniPolozky.length === 0) {
+      tabulkaWrap.innerHTML = '<div class="nacitani">Zatím žádné položky.</div>';
+      return;
+    }
+    const tabulka = document.createElement('table');
+    tabulka.className = 'polozky-tabulka';
+    tabulka.innerHTML =
+      '<thead><tr><th>Název</th><th>Množství</th><th>Cena/ks bez DPH</th><th>DPH %</th><th></th></tr></thead>';
+    const tbody = document.createElement('tbody');
+
+    aktualniPolozky.forEach((p) => {
+      const tr = document.createElement('tr');
+
+      const vstupNazev = document.createElement('input');
+      vstupNazev.type = 'text';
+      vstupNazev.value = p.Nazev || '';
+      vstupNazev.disabled = !!opts.zamceno;
+
+      const vstupMnozstvi = document.createElement('input');
+      vstupMnozstvi.type = 'number';
+      vstupMnozstvi.step = '0.01';
+      vstupMnozstvi.value = p.Mnozstvi !== undefined && p.Mnozstvi !== '' ? p.Mnozstvi : 1;
+      vstupMnozstvi.style.width = '70px';
+      vstupMnozstvi.disabled = !!opts.zamceno;
+
+      const vstupCena = document.createElement('input');
+      vstupCena.type = 'number';
+      vstupCena.step = '0.01';
+      vstupCena.value = p.Cena !== undefined && p.Cena !== '' ? p.Cena : 0;
+      vstupCena.style.width = '90px';
+      vstupCena.disabled = !!opts.zamceno;
+
+      const vstupSazba = document.createElement('input');
+      vstupSazba.type = 'text';
+      vstupSazba.value = p.SazbaDPH || '';
+      vstupSazba.style.width = '50px';
+      vstupSazba.disabled = !!opts.zamceno;
+
+      [vstupNazev, vstupMnozstvi, vstupCena, vstupSazba].forEach((vstup) => {
+        const td = document.createElement('td');
+        td.appendChild(vstup);
+        tr.appendChild(td);
+      });
+
+      const tdAkce = document.createElement('td');
+      if (!opts.zamceno) {
+        const tlacitkoUlozit = document.createElement('button');
+        tlacitkoUlozit.className = 'maly sekundarni';
+        tlacitkoUlozit.textContent = 'Uložit';
+        tlacitkoUlozit.onclick = async () => {
+          tlacitkoUlozit.disabled = true;
+          try {
+            await opts.upravitPolozku(p.ID, {
+              Nazev: vstupNazev.value.trim(),
+              Mnozstvi: vstupMnozstvi.value,
+              Cena: vstupCena.value,
+              SazbaDPH: vstupSazba.value.trim(),
+            });
+          } catch (e) {
+            alert('Nepodařilo se uložit položku: ' + e.message);
+          }
+          tlacitkoUlozit.disabled = false;
+        };
+        tdAkce.appendChild(tlacitkoUlozit);
+
+        const tlacitkoSmazat = document.createElement('button');
+        tlacitkoSmazat.className = 'maly sekundarni';
+        tlacitkoSmazat.textContent = 'Smazat';
+        tlacitkoSmazat.onclick = async () => {
+          if (!confirm('Smazat položku „' + (p.Nazev || '(bez názvu)') + '“?')) return;
+          tlacitkoSmazat.disabled = true;
+          try {
+            await opts.smazatPolozku(p.ID);
+            await nacti();
+          } catch (e) {
+            alert('Nepodařilo se smazat položku: ' + e.message);
+            tlacitkoSmazat.disabled = false;
+          }
+        };
+        tdAkce.appendChild(tlacitkoSmazat);
+      }
+      tr.appendChild(tdAkce);
+
+      tbody.appendChild(tr);
+    });
+
+    tabulka.appendChild(tbody);
+    tabulkaWrap.innerHTML = '';
+    tabulkaWrap.appendChild(tabulka);
+  }
+
+  if (!opts.zamceno) {
+    const pridatForm = document.createElement('div');
+    pridatForm.className = 'polozky-pridat';
+
+    const vstupNazev = document.createElement('input');
+    vstupNazev.type = 'text';
+    vstupNazev.placeholder = 'Název položky';
+
+    const vstupMnozstvi = document.createElement('input');
+    vstupMnozstvi.type = 'number';
+    vstupMnozstvi.step = '0.01';
+    vstupMnozstvi.placeholder = 'Množství';
+    vstupMnozstvi.value = '1';
+    vstupMnozstvi.style.maxWidth = '90px';
+
+    const vstupCena = document.createElement('input');
+    vstupCena.type = 'number';
+    vstupCena.step = '0.01';
+    vstupCena.placeholder = 'Cena/ks bez DPH';
+    vstupCena.style.maxWidth = '130px';
+
+    const vstupSazba = document.createElement('input');
+    vstupSazba.type = 'text';
+    vstupSazba.placeholder = 'DPH %';
+    vstupSazba.style.maxWidth = '70px';
+
+    const tlacitkoPridat = document.createElement('button');
+    tlacitkoPridat.className = 'maly';
+    tlacitkoPridat.textContent = 'Přidat položku';
+    tlacitkoPridat.onclick = async () => {
+      if (!vstupNazev.value.trim()) {
+        alert('Vyplňte název položky.');
+        return;
+      }
+      tlacitkoPridat.disabled = true;
+      try {
+        await opts.pridatPolozku({
+          nazev: vstupNazev.value.trim(),
+          mnozstvi: vstupMnozstvi.value,
+          cena: vstupCena.value,
+          sazba_dph: vstupSazba.value.trim(),
+        });
+        vstupNazev.value = '';
+        vstupMnozstvi.value = '1';
+        vstupCena.value = '';
+        vstupSazba.value = '';
+        await nacti();
+      } catch (e) {
+        alert('Nepodařilo se přidat položku: ' + e.message);
+      }
+      tlacitkoPridat.disabled = false;
+    };
+
+    pridatForm.appendChild(vstupNazev);
+    pridatForm.appendChild(vstupMnozstvi);
+    pridatForm.appendChild(vstupCena);
+    pridatForm.appendChild(vstupSazba);
+    pridatForm.appendChild(tlacitkoPridat);
+    sekce.appendChild(pridatForm);
+  }
+
+  if (opts.maZdrojovySoubor && opts.vytezitZeSouboru && !opts.zamceno) {
+    const akceVytezeni = document.createElement('div');
+    akceVytezeni.className = 'radek-akci';
+    const tlacitkoVytezit = document.createElement('button');
+    tlacitkoVytezit.className = 'maly sekundarni';
+    tlacitkoVytezit.textContent = 'Vytěžit položky ze souboru';
+    tlacitkoVytezit.title =
+      'Znovu pošle uložený zdrojový soubor přes AI jen kvůli doplnění/aktualizaci položek - ostatní ' +
+      'údaje dokladu/faktury se NEZMĚNÍ.';
+    tlacitkoVytezit.onclick = async () => {
+      if (!confirm('Zpětně vytěžit položky ze zdrojového souboru? Stávající položky budou nahrazeny nově vytěženými.')) return;
+      tlacitkoVytezit.disabled = true;
+      const puvodniText = tlacitkoVytezit.textContent;
+      tlacitkoVytezit.textContent = 'Vytěžuji…';
+      try {
+        await opts.vytezitZeSouboru();
+        await nacti();
+      } catch (e) {
+        alert('Nepodařilo se vytěžit položky: ' + e.message);
+      }
+      tlacitkoVytezit.textContent = puvodniText;
+      tlacitkoVytezit.disabled = false;
+    };
+    akceVytezeni.appendChild(tlacitkoVytezit);
+    sekce.appendChild(akceVytezeni);
+  }
+
+  nacti();
+
+  return sekce;
+}
+
 function vytvorRadekDoklad(d) {
   const radek = document.createElement('div');
   radek.className = 'doklad-radek radek-' + stavTrida(d.Stav);
@@ -1035,6 +1291,23 @@ function vytvorDetailDoklad(d) {
     souborDiv.innerHTML = 'Soubor: <a href="' + escapeAttr(d.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>';
     wrap.appendChild(souborDiv);
   }
+
+  // Položky (od v4.27, export do Money S3) - viz vytvorSekciPolozek výš.
+  // Zamčeno (jen zobrazení, bez editace/přidání/vytěžení) běžnému uživateli
+  // u už SCHVÁLENÉHO dokladu - stejné omezení jako u hlavičkových polí
+  // (netlify/functions/doklady-polozky.js/doklady-vytezit-polozky.js by
+  // stejně vrátily 403, tohle je jen rovnou srozumitelnější UI).
+  const zamcenoPolozkyDokladu = !(stav.role === 'admin' || stav.role === 'ucetni') && d.Stav === 'Schváleno';
+  wrap.appendChild(vytvorSekciPolozek({
+    zamceno: zamcenoPolozkyDokladu,
+    maZdrojovySoubor: !!d.Zdrojovy_soubor_ID,
+    ziskejPolozky: async () => (await zavolejApi('/doklady-polozky?doklad_id=' + encodeURIComponent(d.ID))).polozky,
+    pridatPolozku: async (data) =>
+      zavolejApi('/doklady-polozky', { method: 'POST', body: JSON.stringify(Object.assign({ doklad_id: d.ID }, data)) }),
+    upravitPolozku: async (id, zmeny) => zavolejApi('/doklady-polozky', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) }),
+    smazatPolozku: async (id) => zavolejApi('/doklady-polozky?id=' + encodeURIComponent(id), { method: 'DELETE' }),
+    vytezitZeSouboru: async () => zavolejApi('/doklady-vytezit-polozky', { method: 'POST', body: JSON.stringify({ id: d.ID }) }),
+  }));
 
   function ziskejZmeny() {
     return {
@@ -1482,6 +1755,13 @@ async function inicializujZalozkuExport() {
   nacitani.textContent = 'Načítám…';
   vysledek.innerHTML = '';
 
+  // Export do Money S3 appka (stejně jako backend, netlify/functions/
+  // export-money-s3.js) omezuje na admina/účetní - jde o účetní operaci,
+  // běžnému uživateli appka tlačítko rovnou schová (backend by stejně
+  // vrátil 403, tohle je jen srozumitelnější UI).
+  const jeUcetniNeboAdminExport = stav.role === 'admin' || stav.role === 'ucetni';
+  document.getElementById('export-money-s3').classList.toggle('skryto', !jeUcetniNeboAdminExport);
+
   try {
     const [dataDoklady, dataFirmy, dataStrediska] = await Promise.all([
       zavolejApi('/doklady', { method: 'GET' }),
@@ -1603,6 +1883,11 @@ let vfFirmySeznam = [];
 let vfFakturySeznam = [];
 
 async function inicializujZalozkuVydaneFaktury() {
+  // Export do Money S3 appka omezuje na admina/účetní - stejný důvod jako
+  // u tlačítka v záložce Export (viz inicializujZalozkuExport výš).
+  const jeUcetniNeboAdminVfExport = stav.role === 'admin' || stav.role === 'ucetni';
+  document.getElementById('tlacitko-export-money-s3-vf').classList.toggle('skryto', !jeUcetniNeboAdminVfExport);
+
   const seznamJednotek = document.getElementById('seznam-jednotek');
   if (seznamJednotek && seznamJednotek.children.length === 0) {
     seznamJednotek.innerHTML = MOZNOSTI_JEDNOTKA
@@ -1895,6 +2180,23 @@ function vytvorDetailVydanaFaktura(f) {
     souborDiv.innerHTML = 'Soubor: <a href="' + escapeAttr(f.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>';
     wrap.appendChild(souborDiv);
   }
+
+  // Položky (od v4.27, export do Money S3) - viz vytvorSekciPolozek výš a
+  // stejné zapojení u Dokladů (vytvorDetailDoklad). Zamčeno běžnému
+  // uživateli u už UHRAZENÉ faktury.
+  const zamcenoPolozkyFaktury = !(stav.role === 'admin' || stav.role === 'ucetni') && f.Stav === 'Uhrazeno';
+  wrap.appendChild(vytvorSekciPolozek({
+    zamceno: zamcenoPolozkyFaktury,
+    maZdrojovySoubor: !!f.Zdrojovy_soubor_ID,
+    ziskejPolozky: async () => (await zavolejApi('/vydane-faktury-polozky?faktura_id=' + encodeURIComponent(f.ID))).polozky,
+    pridatPolozku: async (data) =>
+      zavolejApi('/vydane-faktury-polozky', { method: 'POST', body: JSON.stringify(Object.assign({ faktura_id: f.ID }, data)) }),
+    upravitPolozku: async (id, zmeny) =>
+      zavolejApi('/vydane-faktury-polozky', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) }),
+    smazatPolozku: async (id) => zavolejApi('/vydane-faktury-polozky?id=' + encodeURIComponent(id), { method: 'DELETE' }),
+    vytezitZeSouboru: async () =>
+      zavolejApi('/vydane-faktury-vytezit-polozky', { method: 'POST', body: JSON.stringify({ id: f.ID }) }),
+  }));
 
   function ziskejZmeny() {
     return {
@@ -5098,6 +5400,67 @@ document.getElementById('vyber-skinu').addEventListener('change', (e) => zmenSki
 document.getElementById('tlacitko-export-zobrazit').addEventListener('click', vykresliPrehledExport);
 ['export-firma', 'export-mesic', 'export-rok', 'export-stredisko'].forEach((id) => {
   document.getElementById(id).addEventListener('change', vykresliPrehledExport);
+});
+
+// Export XML pro Money S3 (od v4.27) - používá STEJNÉ filtry jako přehled
+// výš v záložce Export (firma/měsíc/rok/středisko), appka jen skládá query
+// string a stáhne soubor přes stahniSouborZApi() (viz definice výš u
+// zavolejApi - export vrací XML, ne JSON, takže nejde použít zavolejApi
+// přímo). Firma je POVINNÁ (backend/netlify/functions/export-money-s3.js
+// bez ní vrátí 400) - "Všechny firmy" appka pro tenhle export nepodporuje,
+// Money S3 stejně vždycky importuje účetnictví jedné konkrétní firmy.
+document.getElementById('tlacitko-export-money-s3').addEventListener('click', async (e) => {
+  const tlacitko = e.target;
+  const zprava = document.getElementById('export-money-s3-zprava');
+  const firma = document.getElementById('export-firma').value;
+  if (!firma) {
+    zprava.textContent = 'Nejdřív vyberte konkrétní firmu (ne „Všechny firmy“).';
+    zprava.className = 'zprava chyba';
+    return;
+  }
+  const mesic = document.getElementById('export-mesic').value;
+  const rok = document.getElementById('export-rok').value;
+  const stredisko = document.getElementById('export-stredisko').value;
+
+  tlacitko.disabled = true;
+  zprava.className = 'zprava skryto';
+  try {
+    const params = new URLSearchParams({ smer: 'prijate', firma });
+    if (mesic) params.set('mesic', mesic);
+    if (rok) params.set('rok', rok);
+    if (stredisko) params.set('stredisko', stredisko);
+    await stahniSouborZApi('/export-money-s3?' + params.toString());
+    zprava.textContent = 'Export stažen.';
+    zprava.className = 'zprava uspech';
+  } catch (err) {
+    zprava.textContent = 'Nepodařilo se stáhnout export: ' + err.message;
+    zprava.className = 'zprava chyba';
+  }
+  tlacitko.disabled = false;
+});
+
+document.getElementById('tlacitko-export-money-s3-vf').addEventListener('click', async (e) => {
+  const tlacitko = e.target;
+  const zprava = document.getElementById('vf-export-money-s3-zprava');
+  const firma = document.getElementById('vf-filtr-firma').value;
+  if (!firma) {
+    zprava.textContent = 'Nejdřív vyberte konkrétní firmu výš (ne „Všechny firmy“).';
+    zprava.className = 'zprava chyba';
+    return;
+  }
+
+  tlacitko.disabled = true;
+  zprava.className = 'zprava skryto';
+  try {
+    const params = new URLSearchParams({ smer: 'vydane', firma });
+    await stahniSouborZApi('/export-money-s3?' + params.toString());
+    zprava.textContent = 'Export stažen.';
+    zprava.className = 'zprava uspech';
+  } catch (err) {
+    zprava.textContent = 'Nepodařilo se stáhnout export: ' + err.message;
+    zprava.className = 'zprava chyba';
+  }
+  tlacitko.disabled = false;
 });
 
 // v4.15 - viz poznámka u prepniZalozku() výše, stejný důvod pro

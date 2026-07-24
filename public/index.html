@@ -291,6 +291,14 @@
       </select>
       <div id="vf-souhrn" class="popis" style="margin-top:8px"></div>
 
+      <button type="button" id="tlacitko-export-money-s3-vf" class="maly sekundarni" style="margin-top:4px">
+        Stáhnout XML pro Money S3 (vydané faktury)
+      </button>
+      <div class="poznamka-dokladu" style="margin-top:4px">
+        Nejdřív vyberte konkrétní firmu výš (ne „Všechny firmy“) - appka stáhne jen zpracované (ne rozpracované/duplicitní) faktury vybrané firmy.
+      </div>
+      <div id="vf-export-money-s3-zprava" class="zprava skryto" style="margin-top:8px"></div>
+
       <div id="vf-nacitani" class="nacitani" style="margin-top:12px">Načítám…</div>
       <div id="vf-zprava-akce" class="zprava uspech skryto"></div>
       <div class="vf-tabulka-obal">
@@ -457,8 +465,12 @@
       <div id="export-nacitani" class="nacitani skryto" style="margin-top:12px">Načítám…</div>
       <div id="export-vysledek" style="margin-top:12px"></div>
 
-      <div class="zprava info" id="export-money-s3-info" style="margin-top:16px">
-        Export přímo pro účetní program Money S3 (XML DE) appka zatím nemá – čeká se na přesný formát/ukázkový soubor od Jana. Zatím appka nabízí aspoň přehled na obrazovce výš.
+      <div id="export-money-s3" style="margin-top:16px">
+        <button type="button" id="tlacitko-export-money-s3">Stáhnout XML pro Money S3 (přijaté faktury)</button>
+        <div class="poznamka-dokladu" style="margin-top:6px">
+          Použije stejný výběr firmy/období/střediska jako přehled výš. Stáhne jen SCHVÁLENÉ doklady vybrané firmy.
+        </div>
+        <div id="export-money-s3-zprava" class="zprava skryto" style="margin-top:8px"></div>
       </div>
     </div>
 

@@ -19,6 +19,8 @@ const { readSheetObjects, updateRow } = require('../../lib/sheetsHelpers');
 const { extrahujDataZVydaneFaktury } = require('../../lib/gemini');
 const { isMoznaDuplicitaFaktura } = require('../../lib/duplicity');
 const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
+const { VYDANE_FAKTURY_POLOZKY_HEADERS } = require('../../lib/vydaneFakturyPolozkySchema');
+const { nahradPolozky } = require('../../lib/polozkyHelpers');
 const { json } = require('../../lib/http');
 
 exports.handler = async (event) => {
@@ -92,6 +94,15 @@ exports.handler = async (event) => {
     });
 
     await updateRow(sheets, process.env.SPREADSHEET_ID, 'Vydane_faktury', VYDANE_FAKTURY_HEADERS, faktura._row, aktualizovana);
+
+    // Od v4.27 (export do Money S3, viz netlify/functions/export-money-
+    // s3.js) appka rovnou uloží i položky, které Gemini vytěžila (viz
+    // lib/gemini.js, extrahujDataZVydaneFaktury, klíč "polozky") - stejný
+    // mechanismus jako u přijatých Dokladů (lib/polozkyHelpers.js).
+    await nahradPolozky(
+      sheets, process.env.SPREADSHEET_ID, 'Vydane_Faktury_Polozky', VYDANE_FAKTURY_POLOZKY_HEADERS,
+      'Faktura_ID', aktualizovana.ID, extrakce.polozky
+    );
 
     return json(200, { ok: true, faktura: aktualizovana });
   } catch (e) {

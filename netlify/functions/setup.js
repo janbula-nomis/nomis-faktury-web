@@ -1,7 +1,8 @@
 /**
  * netlify/functions/setup.js
  * Administrátorská funkce: vytvoří (pokud chybí) listy Firmy, Auta, Ucty,
- * Strediska, Doklady, Bankovni_pohyby, Vydane_faktury, Log a Uzivatele
+ * Strediska, Doklady, Bankovni_pohyby, Vydane_faktury, Doklady_Polozky
+ * (od v4.27), Vydane_Faktury_Polozky (od v4.27), Log a Uzivatele
  * s hlavičkami a ukázkovými daty.
  * Bezpečně chráněná SETUP_SECRET, aby ji nemohl spustit kdokoliv, kdo
  * uhodne URL. Je bezpečné funkci spustit opakovaně i po aktualizaci appky -
@@ -33,6 +34,8 @@ const { SMLOUVY_HEADERS, dalsiPoradiSmlouvy } = require('../../lib/smlouvySchema
 const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
 const { KNIHA_JIZD_HEADERS } = require('../../lib/knihaJizdSchema');
 const { STREDISKA_HEADERS } = require('../../lib/strediskaSchema');
+const { DOKLADY_POLOZKY_HEADERS } = require('../../lib/dokladyPolozkySchema');
+const { VYDANE_FAKTURY_POLOZKY_HEADERS } = require('../../lib/vydaneFakturyPolozkySchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
 
@@ -94,6 +97,11 @@ const LISTY = [
   },
   { nazev: 'Bankovni_pohyby', hlavicky: BANKOVNI_HEADERS, ukazka: [] },
   { nazev: 'Vydane_faktury', hlavicky: VYDANE_FAKTURY_HEADERS, ukazka: [] },
+  // Položky faktury (od v4.27, viz lib/dokladyPolozkySchema.js) - appka
+  // je eviduje odděleně od Doklady/Vydane_faktury (jeden doklad/faktura
+  // může mít 0 až N položek), kvůli exportu do Money S3.
+  { nazev: 'Doklady_Polozky', hlavicky: DOKLADY_POLOZKY_HEADERS, ukazka: [] },
+  { nazev: 'Vydane_Faktury_Polozky', hlavicky: VYDANE_FAKTURY_POLOZKY_HEADERS, ukazka: [] },
   {
     // Trvalé příkazy (nájem/elektřina/leasing) - viz lib/smlouvySchema.js
     // a claude/nomis-faktury-backlog.md (od v3.19).

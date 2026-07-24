@@ -698,4 +698,15 @@ input[type="file"] { margin-top: 8px; }
   font-size: 13px;
   cursor: pointer;
 }
+
+/* Položky faktury/dokladu (od v4.27, export do Money S3) - sdílená sekce
+   uvnitř rozbaleného Dokladu i Vydané faktury (viz vytvorSekciPolozek v
+   app.js), tabulka jednotlivých řádků + mini-formulář na přidání + tlačítko
+   zpětného vytěžení ze zdrojového souboru. */
+.polozky-sekce { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--barva-hranice); }
+.polozky-sekce h4 { margin: 0 0 8px; font-size: 12.5px; color: var(--barva-text-tlumena); font-weight: 600; }
+.polozky-tabulka input { margin: 0; padding: 4px 6px; font-size: 12px; }
+.polozky-tabulka td { vertical-align: middle; }
+.polozky-pridat { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.polozky-pridat input { width: auto; flex: 1 1 120px; margin: 0; }
 .varovani-odhlaseni-box button:hover { background: var(--barva-primarni-tmava); }
