@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.23 – 2026-07-23';
+const APP_VERZE = 'v4.24 – 2026-07-24';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -2409,36 +2409,71 @@ function vytvorDetailBanka(p) {
     );
   } else if (p.Stav_parovani === 'Navrženo - trvalý příkaz') {
     // Od v3.19 - appka auto-navrhla přiřazení ke stejné Smlouvě jako u
-    // jiného už dřív ručně potvrzeného pohybu (podobná protistrana/
-    // podobná částka) - stejný princip jako "Navrženo" u dokladů, pořád
-    // čeká na potvrzení/zamítnutí účetní.
+    // jiného už dřív ručně potvrzeného pohybu (podobná protistrana/podobná
+    // částka), nebo appka (od v4.19, sjednoceno v4.24 - Jan: "příchozí
+    // platby musí mít stejně jako odchozí možnost přiřadit smlouvu/trvalý
+    // příkaz") rovnou u PŘÍCHOZÍ platby rozpoznala odpovídající aktivní
+    // smlouvu podle jména protistrany a očekávané částky - appka v obou
+    // případech jen NAVRHUJE, pořád čeká na potvrzení/zamítnutí účetní.
+    const jePrijemNavrzeno = parsujCastkuZListu(p.Castka) > 0;
     const smlouvaNavrzena = bankaSmlouvySeznam.find((s) => s.ID === p.Smlouva_ID);
     const infoSmlouva = document.createElement('div');
     infoSmlouva.className = 'popis';
     infoSmlouva.style.marginBottom = '6px';
     infoSmlouva.textContent = smlouvaNavrzena
-      ? 'Appka navrhuje přiřadit ke smlouvě „' + smlouvaNavrzena.Nazev + '“ (podobná protistrana/částka jako u jiného už přiřazeného pohybu).'
+      ? 'Appka navrhuje přiřadit ke smlouvě „' + smlouvaNavrzena.Nazev + '“ (podobná protistrana/částka jako u jiného už přiřazeného pohybu).' +
+        (jePrijemNavrzeno && smlouvaNavrzena.Stredisko
+          ? ' Po potvrzení appka převezme středisko „' + smlouvaNavrzena.Stredisko + '“ ze smlouvy.'
+          : '')
       : 'Appka navrhuje přiřadit ke smlouvě, kterou v seznamu nenašla (možná byla mezitím smazána).';
     akce.appendChild(infoSmlouva);
     akce.appendChild(
       tlacitkoBanka('Potvrdit trvalý příkaz', (e) => ulozZmenuBanka({ Stav_parovani: 'Trvalý příkaz' }, e.target))
     );
     akce.appendChild(
-      tlacitkoBanka('Zamítnout návrh', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Smlouva_ID: '' }, e.target))
+      tlacitkoBanka('Zamítnout návrh', (e) =>
+        ulozZmenuBanka(
+          // Od v4.24 - appka zamítnutý PŘÍJEM vrací do "Bez dokladu" (jeho
+          // obvyklý výchozí nerozhodnutý stav), ne do "Nespárováno" (to appka
+          // používá jen pro odchozí platby, viz netlify/functions/banka.js).
+          jePrijemNavrzeno
+            ? { Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }
+            : { Stav_parovani: 'Nespárováno', Smlouva_ID: '' },
+          e.target
+        )
+      )
     );
   } else if (p.Stav_parovani === 'Trvalý příkaz') {
     // Pohyb ručně (nebo z návrhu) potvrzený jako součást trvalého příkazu -
-    // appka ho NEPOVAŽUJE za chybějící doklad (viz lib/bankSchema.js).
+    // appka ho NEPOVAŽUJE za chybějící doklad/nevyřízený příjem (viz
+    // lib/bankSchema.js). Od v4.24 appka tenhle stav používá pro OBOJÍ směr -
+    // výdajovou (beze změny od v3.19) i příjmovou stranu (dřív samostatné
+    // "Spárováno - nájemní smlouva", appka teď sjednotila do jednoho
+    // obecného mechanismu, viz dashboard-firmy.js pro dopad na Dashboard).
+    const jePrijemPotvrzeno = parsujCastkuZListu(p.Castka) > 0;
     const smlouvaPotvrzena = bankaSmlouvySeznam.find((s) => s.ID === p.Smlouva_ID);
     const infoSmlouvaPotvrzena = document.createElement('div');
     infoSmlouvaPotvrzena.className = 'popis';
     infoSmlouvaPotvrzena.style.marginBottom = '6px';
-    infoSmlouvaPotvrzena.textContent = smlouvaPotvrzena
-      ? 'Přiřazeno ke smlouvě „' + smlouvaPotvrzena.Nazev + '“' + (smlouvaPotvrzena.Typ ? ' (' + smlouvaPotvrzena.Typ + ')' : '') + '.'
-      : 'Přiřazeno ke smlouvě, kterou appka v seznamu nenašla (možná byla mezitím smazána).';
+    infoSmlouvaPotvrzena.textContent =
+      (smlouvaPotvrzena
+        ? 'Přiřazeno ke smlouvě „' + smlouvaPotvrzena.Nazev + '“' + (smlouvaPotvrzena.Typ ? ' (' + smlouvaPotvrzena.Typ + ')' : '') + '.'
+        : 'Přiřazeno ke smlouvě, kterou appka v seznamu nenašla (možná byla mezitím smazána).') +
+      (jePrijemPotvrzeno
+        ? p.Stredisko
+          ? ' Středisko: ' + p.Stredisko + '.'
+          : ' Appka nemá u tohohle pohybu vyplněné středisko.'
+        : '');
     akce.appendChild(infoSmlouvaPotvrzena);
     akce.appendChild(
-      tlacitkoBanka('Zrušit přiřazení ke smlouvě', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Smlouva_ID: '' }, e.target))
+      tlacitkoBanka('Zrušit přiřazení ke smlouvě', (e) =>
+        ulozZmenuBanka(
+          jePrijemPotvrzeno
+            ? { Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }
+            : { Stav_parovani: 'Nespárováno', Smlouva_ID: '' },
+          e.target
+        )
+      )
     );
   } else if (p.Stav_parovani === 'Příjem přiřazen') {
     // Příchozí platba, které appka/účetní přiřadila Středisko a/nebo účet
@@ -2661,55 +2696,62 @@ function vytvorDetailBanka(p) {
       );
     }
 
-    // Od v4.19 - appka nabídne i ruční přiřazení přímo k nájemní Smlouvě
-    // (ne jen automatický návrh, viz "Navrženo - nájemní smlouva" výš) -
-    // pro případ, že appka sama žádnou vhodnou smlouvu nenašla (např. jiné
-    // psaní jména nájemce), ale účetní ví, ke které smlouvě platba patří.
-    const najemniSmlouvy = bankaSmlouvySeznam.filter((s) => String(s.Typ || '').trim() === 'Nájem');
-    if (najemniSmlouvy.length > 0) {
-      const vyberNajemniSmlouvy = document.createElement('select');
-      vyberNajemniSmlouvy.style.fontSize = '13px';
-      vyberNajemniSmlouvy.innerHTML =
-        '<option value="">— přiřadit k nájemní smlouvě —</option>' +
-        najemniSmlouvy
+    // Od v4.19 appka nabízela ruční přiřazení jen k nájemní Smlouvě - od
+    // v4.24 appka tuhle volbu zobecnila na KTEROUKOLI aktivní smlouvu firmy
+    // (Jan: "příchozí platby musí mít stejně jako odchozí možnost přiřadit
+    // smlouvu/trvalý příkaz") a sjednotila ji se stejným obecným
+    // mechanismem, jaký appka od v3.19 používá u odchozích plateb (viz
+    // stejnojmenný blok "přiřadit ke smlouvě (trvalý příkaz)" ve výdajové
+    // větvi níže) - pro případ, že appka sama žádnou vhodnou smlouvu
+    // nenašla (např. jiné psaní jména protistrany), ale účetní ví, ke
+    // které smlouvě platba patří.
+    const aktivniSmlouvyPrijem = bankaSmlouvySeznam.filter((s) => String(s.Aktivni || 'ANO').trim() !== 'NE');
+    if (aktivniSmlouvyPrijem.length > 0) {
+      const vyberSmlouvyPrijem = document.createElement('select');
+      vyberSmlouvyPrijem.style.fontSize = '13px';
+      vyberSmlouvyPrijem.innerHTML =
+        '<option value="">— přiřadit ke smlouvě (trvalý příkaz) —</option>' +
+        aktivniSmlouvyPrijem
           .map(
             (s) =>
               '<option value="' + escapeAttr(s.ID) + '">' + escapeHtml(s.Nazev || '(bez názvu)') +
+              (s.Typ ? ' (' + escapeHtml(s.Typ) + ')' : '') +
               (s.Druha_strana ? ' – ' + escapeHtml(s.Druha_strana) : '') +
               (s.Ocekavana_castka ? ' – ' + escapeHtml(formatCastkaSMenou(s.Ocekavana_castka, s.Mena)) : '') +
               '</option>'
           )
           .join('');
-      akce.appendChild(vyberNajemniSmlouvy);
+      akce.appendChild(vyberSmlouvyPrijem);
 
-      // Od v4.23 - appka i u ručního přiřazení vyžaduje Středisko (appka po
-      // zrušení samostatné entity Nemovitosti kategorizuje nájemní příjem
-      // čistě přes Středisko) - appka select předvyplní Střediskem vybrané
-      // smlouvy, jakmile účetní smlouvu zvolí.
-      const vyberStrediskoNajemRucne = document.createElement('select');
-      vyberStrediskoNajemRucne.style.fontSize = '13px';
-      vyberStrediskoNajemRucne.innerHTML = moznostiStrediska('');
-      vyberNajemniSmlouvy.addEventListener('change', () => {
-        const vybranaSmlouva = najemniSmlouvy.find((s) => s.ID === vyberNajemniSmlouvy.value);
-        vyberStrediskoNajemRucne.innerHTML = moznostiStrediska((vybranaSmlouva && vybranaSmlouva.Stredisko) || '');
+      // Od v4.23 - appka i u ručního přiřazení příjmu vyžaduje Středisko
+      // (appka po zrušení samostatné entity Nemovitosti kategorizuje
+      // příjem čistě přes Středisko, viz dashboard-firmy.js) - appka select
+      // předvyplní Střediskem vybrané smlouvy, jakmile účetní smlouvu
+      // zvolí (jde jen o předvyplnění, appka nechá hodnotu přepsat).
+      const vyberStrediskoSmlouvaPrijem = document.createElement('select');
+      vyberStrediskoSmlouvaPrijem.style.fontSize = '13px';
+      vyberStrediskoSmlouvaPrijem.innerHTML = moznostiStrediska('');
+      vyberSmlouvyPrijem.addEventListener('change', () => {
+        const vybranaSmlouva = aktivniSmlouvyPrijem.find((s) => s.ID === vyberSmlouvyPrijem.value);
+        vyberStrediskoSmlouvaPrijem.innerHTML = moznostiStrediska((vybranaSmlouva && vybranaSmlouva.Stredisko) || '');
       });
-      akce.appendChild(vyberStrediskoNajemRucne);
+      akce.appendChild(vyberStrediskoSmlouvaPrijem);
 
       akce.appendChild(
-        tlacitkoBanka('Přiřadit k nájmu', (e) => {
-          if (!vyberNajemniSmlouvy.value) {
-            alert('Nejdřív vyberte nájemní smlouvu.');
+        tlacitkoBanka('Přiřadit ke smlouvě', (e) => {
+          if (!vyberSmlouvyPrijem.value) {
+            alert('Nejdřív vyberte smlouvu.');
             return;
           }
-          if (!vyberStrediskoNajemRucne.value) {
+          if (!vyberStrediskoSmlouvaPrijem.value) {
             alert('Vyberte středisko.');
             return;
           }
           ulozZmenuBanka(
             {
-              Smlouva_ID: vyberNajemniSmlouvy.value,
-              Stav_parovani: 'Spárováno - nájemní smlouva',
-              Stredisko: vyberStrediskoNajemRucne.value,
+              Smlouva_ID: vyberSmlouvyPrijem.value,
+              Stav_parovani: 'Trvalý příkaz',
+              Stredisko: vyberStrediskoSmlouvaPrijem.value,
             },
             e.target
           );

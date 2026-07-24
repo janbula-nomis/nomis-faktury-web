@@ -186,9 +186,14 @@ exports.handler = async (event) => {
 
         // Appka projde nespárované pohyby od nejstaršího - u víc shodných
         // kandidátů tak dostane přednost ten, který je datem blíž tomu
-        // dřívějšímu pohybu.
+        // dřívějšímu pohybu. Od v4.24 appka navíc pojistkou vyžaduje
+        // zápornou částku (výdaj) - "Nespárováno" appka u příjmů běžně
+        // nepoužívá (výchozí nerozhodnutý stav příjmu je "Bez dokladu"),
+        // ale appka takhle jistí, že by omylem nezkusila spárovat příchozí
+        // platbu s VÝDAJOVÝM dokladem, kdyby se tam přeci jen nějaký příjem
+        // ocitl.
         const nesparovane = pohybyFirmy
-          .filter((p) => p.Stav_parovani === 'Nespárováno')
+          .filter((p) => p.Stav_parovani === 'Nespárováno' && parsujCastkuZListu(p.Castka) < 0)
           .slice()
           .sort((a, b) => String(a.Datum || '').localeCompare(String(b.Datum || '')));
 
@@ -274,11 +279,18 @@ exports.handler = async (event) => {
             // převezme Středisko ze smlouvy (appka po zrušení samostatné
             // entity Nemovitosti řeší kategorizaci nájemního příjmu čistě
             // přes Středisko, stejně jako u ostatních příjmů/výdajů).
+            // Od v4.24 (Jan: "příchozí platby musí mít stejně jako odchozí
+            // možnost přiřadit smlouvu/trvalý příkaz") appka sjednotila tenhle
+            // návrh se stejným obecným mechanismem, jaký appka od v3.19 už
+            // používá u odchozích plateb ("Navrženo - trvalý příkaz") - dřívější
+            // nájemně-specifický stav "Navrženo - nájemní smlouva" appka nově
+            // negeneruje (starší už uložené pohyby s tímhle stavem appka dál
+            // beze změny zobrazuje/obsluhuje, viz public/app.js).
             const smlouvaNajmu = kandidatiSmlouvyNajem.find((s) => s.ID === navrhNajem.smlouvaId);
             await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, {
               ...pohyb,
               Smlouva_ID: navrhNajem.smlouvaId,
-              Stav_parovani: 'Navrženo - nájemní smlouva',
+              Stav_parovani: 'Navrženo - trvalý příkaz',
               Stredisko: (smlouvaNajmu && smlouvaNajmu.Stredisko) || pohyb.Stredisko || '',
             });
             noveNavrzenoNajmu += 1;
@@ -428,7 +440,11 @@ exports.handler = async (event) => {
             // dokladu".
             const navrhNajem = navrhniShoduNajem(p, kandidatiSmlouvyNajem);
             if (navrhNajem && navrhNajem.skore >= 2) {
-              stav = 'Navrženo - nájemní smlouva';
+              // Od v4.24 - appka sjednotila nájemní auto-návrh se stejným
+              // obecným "trvalý příkaz" mechanismem, jaký appka od v3.19
+              // používá u odchozích plateb - viz stejná úvaha výš u
+              // "prepocitatShody".
+              stav = 'Navrženo - trvalý příkaz';
               smlouvaId = navrhNajem.smlouvaId;
               // Od v4.23 - appka rovnou převezme Středisko ze smlouvy (viz
               // stejná úvaha u "prepocitatShody" výš) - Nemovitosti appka
@@ -577,18 +593,27 @@ exports.handler = async (event) => {
 
       // Od v4.23 (Jan: "nemovitost je zase jen středisko", zrušení
       // samostatné entity Nemovitosti) - když appka dostane RUČNÍ potvrzení
-      // (nebo rovnou ruční přiřazení) spárování s nájemní Smlouvou, appka -
+      // (nebo rovnou ruční přiřazení) spárování PŘÍJMU se Smlouvou, appka -
       // pokud volající explicitně neposlal vlastní Středisko a pohyb ještě
       // žádné nemá - převezme Středisko přímo ze smlouvy (Smlouvy.Stredisko,
       // stejné pole appka používá i u trvalých příkazů) - appka jinak nemá
-      // odkud kategorizaci nájemního příjmu vzít. Appka NEPŘEPISUJE
-      // Středisko, které už na pohybu je (ať appka neruší ruční opravu
-      // účetní, např. při "Potvrdit spárování" u pohybu, kterému appka
+      // odkud kategorizaci příjmu vzít (viz dashboard-firmy.js). Appka
+      // NEPŘEPISUJE Středisko, které už na pohybu je (ať appka neruší ruční
+      // opravu účetní, např. při "Potvrdit spárování" u pohybu, kterému appka
       // Středisko už dřív nastavila při návrhu, viz import/prepocitatShody).
+      // Od v4.24 - appka tenhle mechanismus zobecnila z dřívějšího
+      // "Spárováno - nájemní smlouva" na jakýkoli PŘÍJEM přiřazený ke
+      // KTERÉKOLI smlouvě (appka od téhle verze u příjmů nabízí stejné
+      // obecné "Trvalý příkaz" jako u odchozích, ne jen u nájmů) - appka
+      // proto rozhoduje podle ZNAMÉNKA částky pohybu, ne podle konkrétního
+      // stavu. Na výdajové straně appka Středisko na pohyb nekopíruje
+      // (dashboard-firmy.js ho tam bere přímo ze Smlouvy, appka ho tam
+      // nepotřebuje mít duplicitně).
       if (
-        zmenyBezpecne.Stav_parovani === 'Spárováno - nájemní smlouva' &&
+        zmenyBezpecne.Stav_parovani === 'Trvalý příkaz' &&
         !zmenyBezpecne.Stredisko &&
-        !pohyb.Stredisko
+        !pohyb.Stredisko &&
+        parsujCastkuZListu(pohyb.Castka) > 0
       ) {
         const smlouvaIdProStredisko = zmenyBezpecne.Smlouva_ID || pohyb.Smlouva_ID;
         if (smlouvaIdProStredisko) {
@@ -617,6 +642,12 @@ exports.handler = async (event) => {
       // Auto-návrh dalších pohybů ke stejné smlouvě (v3.19) - jen při
       // RUČNÍM potvrzení (Stav_parovani "Trvalý příkaz", ne jen návrhu),
       // ať appka nezačne řetězit návrhy z návrhů.
+      // Od v4.24 - appka mezi kandidáty zahrnuje i "Bez dokladu" (výchozí
+      // nerozhodnutý stav PŘÍJMŮ, appka je do v4.23 nikdy nedávala do
+      // "Nespárováno" - to zůstává jen pro odchozí platby), ať appka umí
+      // navrhnout i další podobné příchozí platby, ne jen odchozí.
+      // `jePodobnaShodaSmlouvy` (lib/bankHelpers.js) navíc sama vyžaduje
+      // shodu ZNAMÉNKA částky, takže příjem a výdaj appka nikdy nesplete.
       let autoNavrzenoDalsich = 0;
       if (noveSmlouvaId && zmenyBezpecne.Stav_parovani === 'Trvalý příkaz') {
         const vzor = {
@@ -624,7 +655,10 @@ exports.handler = async (event) => {
           protistrana: pohyb.Protistrana || pohyb.Popis || '',
         };
         const ostatniNesparovane = rows.filter(
-          (r) => r.Firma === pohyb.Firma && r.ID !== pohyb.ID && r.Stav_parovani === 'Nespárováno'
+          (r) =>
+            r.Firma === pohyb.Firma &&
+            r.ID !== pohyb.ID &&
+            (r.Stav_parovani === 'Nespárováno' || r.Stav_parovani === 'Bez dokladu')
         );
         for (const kandidat of ostatniNesparovane) {
           const kProNavrh = {

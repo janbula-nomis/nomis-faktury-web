@@ -19,22 +19,34 @@
  * Výdaje appka počítá stejnou logikou, jakou dřív používala záložka Přehled
  * plateb: doklady
  * dané firmy (mimo placeholder "Zpracovává se") PLUS bankovní pohyby
- * přiřazené jako trvalý příkaz ke Smlouvě (Stav_parovani == "Trvalý
- * příkaz") - středisko u těch appka bere ze samotné Smlouvy
- * (lib/smlouvySchema.js, pole Stredisko), protože pohyb sám středisko
- * nenese. Příjmy appka počítá ze TŘÍ zdrojů bankovních pohybů: (a)
- * Stav_parovani == "Příjem přiřazen" (příchozí platba, které účetní ručně
- * přiřadila středisko), (b) OD v3.23 i Stav_parovani == "Spárováno -
- * vydaná faktura" (příchozí platba potvrzeně spárovaná s konkrétní
- * Vydanou fakturou, v3.22) - středisko appka u těchhle bere z pole
- * `Jednotka` napárované faktury (lib/vydaneFakturySchema.js). Do v3.23
- * appka tenhle druhý zdroj v Dashboardu OMYLEM vůbec nepočítala - Jan to
- * nahlásil jako "uhrazené (vydané faktury) se nepropisuje do dashboardu".
- * (c) OD v4.23 i Stav_parovani == "Spárováno - nájemní smlouva" (příchozí
- * platba potvrzeně spárovaná s nájemní Smlouvou, v4.19) - appka po zrušení
- * samostatné entity Nemovitosti (Jan: "nemovitost je zase jen středisko")
- * bere středisko přímo z pohybu, kam ho appka zkopírovala ze Smlouvy při
- * potvrzení/návrhu (viz netlify/functions/banka.js).
+ * přiřazené jako trvalý příkaz ke Smlouvě se ZÁPORNOU částkou
+ * (Stav_parovani == "Trvalý příkaz") - středisko u těch appka bere ze
+ * samotné Smlouvy (lib/smlouvySchema.js, pole Stredisko), protože pohyb
+ * sám středisko nenese. Příjmy appka počítá ze TŘÍ zdrojů bankovních
+ * pohybů: (a) Stav_parovani == "Příjem přiřazen" (příchozí platba, které
+ * účetní ručně přiřadila středisko), (b) OD v3.23 i Stav_parovani ==
+ * "Spárováno - vydaná faktura" (příchozí platba potvrzeně spárovaná s
+ * konkrétní Vydanou fakturou, v3.22) - středisko appka u těchhle bere z
+ * pole `Jednotka` napárované faktury (lib/vydaneFakturySchema.js). Do
+ * v3.23 appka tenhle druhý zdroj v Dashboardu OMYLEM vůbec nepočítala -
+ * Jan to nahlásil jako "uhrazené (vydané faktury) se nepropisuje do
+ * dashboardu". (c) bankovní pohyby přiřazené jako trvalý příkaz ke
+ * Smlouvě se KLADNOU částkou (Stav_parovani == "Trvalý příkaz", stejný
+ * stav jako u výdajů výš, appka pohyby rozlišuje podle znaménka částky) -
+ * appka bere středisko přímo z pohybu, kam ho appka zkopírovala ze
+ * Smlouvy při potvrzení/návrhu (viz netlify/functions/banka.js), se
+ * zálohou na Smlouva.Stredisko. Do v4.19 appka tenhle zdroj vůbec
+ * neuměla (nájemní příjem appka tehdy ještě neuměla párovat se
+ * Smlouvou), v4.19-v4.23 šlo o samostatný stav "Spárováno - nájemní
+ * smlouva" jen pro nájmy (appka po zrušení samostatné entity Nemovitosti,
+ * Jan: "nemovitost je zase jen středisko", řešila nájemní příjem čistě
+ * přes Středisko) - OD v4.24 (Jan: "příchozí platby musí mít stejně jako
+ * odchozí možnost přiřadit smlouvu/trvalý příkaz") appka tenhle
+ * nájemně-specifický mechanismus sjednotila se stejným obecným "trvalý
+ * příkaz", jaký appka od v3.19 používá u odchozích plateb - appka proto
+ * dál PRO JISTOTU počítá i starší, dosud nepřevedené pohyby se stavem
+ * "Spárováno - nájemní smlouva" (appka existující data retroaktivně
+ * needituje, viz zavedená konvence).
  *
  * Appka navíc vrací globální (ne per-firma) upozornění googleAuthVarovani -
  * pokud selže i jen základní čtení listu Firmy/Doklady (typicky vypršelý/
@@ -144,14 +156,32 @@ exports.handler = async (event) => {
 
       const pohybyTetoFirmy = pohybyVsechny.filter((p) => p.Firma === firma);
 
+      // (v4.24) "Trvalý příkaz" appka od téhle verze používá i na příjmové
+      // straně (Jan: "příchozí platby musí mít stejně jako odchozí možnost
+      // přiřadit smlouvu/trvalý příkaz", appka to sjednotila s dřívějším
+      // "Spárováno - nájemní smlouva" - viz netlify/functions/banka.js) -
+      // appka proto MUSÍ každý pohyb rozlišit podle ZNAMÉNKA částky, ne ho
+      // rovnou počítat jako výdaj jako dřív. Výdajová strana (záporná
+      // částka) appka bere středisko ze SAMOTNÉ Smlouvy (pohyb sám středisko
+      // nenese - beze změny oproti dřívějšku), příjmová strana (kladná
+      // částka) appka bere středisko PŘÍMO z pohybu (appka ho tam zkopírovala
+      // ze smlouvy při potvrzení/návrhu, viz banka.js), se zálohou na
+      // Smlouva.Stredisko, kdyby kopírování z nějakého důvodu chybělo.
       pohybyTetoFirmy
         .filter((p) => p.Stav_parovani === 'Trvalý příkaz')
         .filter((p) => String(p.Datum || '') >= zacatekOkna)
         .forEach((p) => {
-          const abs = Math.abs(parsujCastkuZListu(p.Castka));
-          const stredisko = strediskoPodleSmlouvy[p.Smlouva_ID] || '(smlouva)';
-          strediskaVydaje[stredisko] = (strediskaVydaje[stredisko] || 0) + abs;
-          vydajeCelkem += abs;
+          const castka = parsujCastkuZListu(p.Castka);
+          if (castka > 0) {
+            const stredisko = p.Stredisko || strediskoPodleSmlouvy[p.Smlouva_ID] || '(bez střediska)';
+            strediskaPrijmy[stredisko] = (strediskaPrijmy[stredisko] || 0) + castka;
+            prijmyCelkem += castka;
+          } else {
+            const abs = Math.abs(castka);
+            const stredisko = strediskoPodleSmlouvy[p.Smlouva_ID] || '(smlouva)';
+            strediskaVydaje[stredisko] = (strediskaVydaje[stredisko] || 0) + abs;
+            vydajeCelkem += abs;
+          }
         });
 
       pohybyTetoFirmy

@@ -2727,6 +2727,72 @@ používá i u ostatních příjmů/výdajů:
   Smluv bez pole Nemovitost, select Střediska u návrhu/potvrzení nájemního
   spárování) - všech 56 backendových testů appky prošlo.
 
+## 64. Příchozí platby: přiřazení ke KTERÉKOLI smlouvě/trvalému příkazu, ne jen k nájmu (v4.24)
+
+Jan zadal (mimo číslovaný backlog, jen v chatu): *"příchozí platby musí mít
+stejně jako odchozí mít možnost ve vypisech přiřadit smlouvu / trvalý
+příkaz."* Appka do téhle verze uměla u příchozích plateb přiřadit smlouvu
+jen typu **Nájem** (v4.19) - u odchozích plateb appka od v3.19 nabízela
+obecné přiřazení ke KTERÉKOLI aktivní smlouvě ("Trvalý příkaz"). Appka si
+přes AskUserQuestion nechala potvrdit dvě otevřené otázky, než začala
+implementovat: (a) sjednotit nájemní mechanismus s obecným "Trvalý příkaz"
+(místo dvou souběžných mechanismů vedle sebe), (b) po ručním potvrzení
+appka auto-navrhne i další podobné nespárované příchozí platby, stejně
+jako appka dělá u odchozích - Jan zvolil obě doporučené možnosti.
+
+- **Sjednocení mechanismu.** Appka od téhle verze u příchozích plateb
+  nabízí přiřazení ke KTERÉKOLI aktivní smlouvě (libovolný `Typ` -
+  Nájem/Energie/Leasing/Ostatní), stejným stavem `Stav_parovani =
+  "Trvalý příkaz"` (návrh: `"Navrženo - trvalý příkaz"`), jaký appka od
+  v3.19 používá u odchozích plateb. Dřívější nájemně-specifické stavy
+  `"Navrženo - nájemní smlouva"`/`"Spárováno - nájemní smlouva"` appka
+  nově negeneruje (existující, už uložené pohyby appka s nimi dál beze
+  změny zobrazuje/obsluhuje - appka stará data retroaktivně needituje,
+  zavedená konvence).
+  - Automatický návrh při importu výpisu i "Spustit kontrolu dokladů"
+    appka beze změny hledá aktivní nájemní smlouvu podle jména nájemce +
+    očekávané částky (`lib/bankHelpers.js`, `navrhniShoduNajem`) - appka
+    jen zapisuje sjednocený stav `"Navrženo - trvalý příkaz"` místo
+    dřívějšího nájemně-specifického.
+  - Appka v detailu příchozí platby (`public/app.js`) nahradila dřívější
+    nabídku "přiřadit k nájemní smlouvě" (jen `Typ = "Nájem"`) obecnou
+    nabídkou "přiřadit ke smlouvě (trvalý příkaz)" se VŠEMI aktivními
+    smlouvami firmy, se stejným selectem Střediska jako dřív (appka ho
+    předvyplní Střediskem vybrané smlouvy, jde jen o předvyplnění -
+    appka nechá hodnotu přepsat).
+  - **Středisko appka i nadále vyžaduje/doplňuje jen u PŘÍJMU** (appka
+    kategorizuje příjem čistě přes Středisko, viz "Novinky v4.23" výš) -
+    appka rozhoduje podle ZNAMÉNKA částky pohybu, ne podle konkrétního
+    stavu (`netlify/functions/banka.js`, PATCH). Na výdajové straně appka
+    Středisko na pohyb beze změny nekopíruje (`dashboard-firmy.js` ho
+    bere přímo ze Smlouvy).
+- **Auto-návrh dalších podobných plateb.** Appka od v3.19 po ručním
+  potvrzení "Trvalý příkaz" u odchozí platby zkusí najít a navrhnout i
+  další podobné nespárované pohyby stejné firmy (podobná protistrana/
+  částka, `lib/bankHelpers.js`, `jePodobnaShodaSmlouvy`) - appka tenhle
+  mechanismus rozšířila i na příchozí platby: appka teď mezi kandidáty
+  zahrnuje i výchozí nerozhodnutý stav příjmu `"Bez dokladu"` (dřív jen
+  `"Nespárováno"`, což u příjmů appka prakticky nikdy nenastavovala).
+  `jePodobnaShodaSmlouvy` appka nezměnila - už dřív sama vyžadovala shodu
+  ZNAMÉNKA částky, takže příjem a výdaj appka nikdy nesplete dohromady.
+- **Zamítnutí návrhu/zrušení přiřazení u příjmu appka vrací do `"Bez
+  dokladu"`** (jeho obvyklý výchozí stav), ne do `"Nespárováno"` (to appka
+  používá jen pro odchozí platby) - appka rozhoduje stejně podle znaménka
+  částky (`public/app.js`).
+- Appka pro jistotu ještě přidala drobnou pojistku do `prepocitatShody`
+  (dokladové párování u výdajů appka omezila jen na skutečně záporné
+  částky) - čistě defenzivní, appka příjem do stavu `"Nespárováno"` teď
+  už nikdy sama nedává.
+- Žádný nový sloupec v Sheets, není potřeba `/api/setup`.
+- Ověřeno rozšířením `test_banka_najemni_smlouva.js`/
+  `test_banka_stredisko_najem.js` (nový sjednocený stav) + novým testem
+  `test_banka_prijem_smlouva_libovolna.js` (příjem ke smlouvě MIMO typ
+  Nájem, auto-návrh dalšího podobného příjmu napříč "Bez dokladu", výdaj
+  beze změny bez kopírování Střediska na pohyb) + Playwright vizuální
+  kontrolou (nabídka smlouvy u příjmu obsahuje smlouvy obou typů,
+  Středisko se předvyplní podle vybrané smlouvy, appka odešle PATCH se
+  správnými hodnotami) - všech 57 backendových testů appky prošlo.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
