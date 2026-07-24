@@ -2959,6 +2959,51 @@ dvě desetinná místa.
 Celá regresní sada appky po týhle verzi: **60 backendových testů appky
 prošlo.**
 
+## 67. Doladění: měna bankovního pohybu podle měny účtu, čísla bez zalomení (v4.26.1)
+
+Dvě drobné návazné žádosti na v4.26 ze stejné konverzace.
+
+**Měna se musí zobrazovat podle bankovního účtu (Jan: "CZK nebo EUR se musí
+zobrazovat na základě měny bankovních účtů").** Appka do téhle verze u
+bankovního pohybu brala měnu z pole `Bankovni_pohyby.Mena`, které appka
+sama odvodila PŘI IMPORTU výpisu ze sloupce/metadat souboru (viz
+`lib/bankImportTabular.js`) - tahle hodnota appce může snadno "ujet"
+(chybějící sloupec s měnou, špatně rozpoznaná hlavička apod.). List Účty
+(`Ucty`) má u každého bankovního účtu firmy jednu pevnou měnu - účet
+logicky vždycky drží jen jednu měnu, je to tedy spolehlivější zdroj
+pravdy než to, co appka odvodila z jednotlivého řádku výpisu.
+
+- `netlify/functions/dashboard-firmy.js` teď navíc čte list Ucty a měnu
+  bankovního pohybu odvozuje PŘEDNOSTNĚ podle jeho vlastního účtu
+  (`Cislo_uctu_vlastni` -> `Ucty.Mena`, viz nová funkce `vytvorMenaPohybu`)
+  - jen když appka k číslu účtu nenajde odpovídající řádek v Účtech
+  (starší data, smazaný účet), spadne zpátky na `Mena` uloženou přímo na
+  pohybu (beze změny oproti dřívějšku).
+- `public/app.js` (záložka Bankovní výpisy) appka stejným způsobem
+  doplnila o novou funkci `menaPohybuBanka`, která totéž dělá nad
+  frontendovým seznamem účtů appka už měla načtený (`bankaUctySeznam`) -
+  appka to použije všude, kde předtím zobrazovala `p.Mena` (řádek pohybu
+  v seznamu i potvrzovací dialog při mazání pohybu).
+- Appka NEPŘEPISUJE uloženou hodnotu `Bankovni_pohyby.Mena` v Sheets - jen
+  mění, kterou měnu použije pro zobrazení/výpočet. Doklady mají svoji
+  vlastní měnu nezávislou na účtu (nejsou vázané na jeden konkrétní
+  bankovní účet), appka je proto touhle změnou nechala beze změny.
+- Ověřeno novým `test_dashboard_mena_ucet.js` (pohyb s nespolehlivou "CZK"
+  na sobě, ale napojený na účet vedený v EUR, appka správně zařadí pod
+  EUR; pohyb s nedohledatelným účtem appka správně spadne zpátky na jeho
+  vlastní Mena) + Playwright ověřením zobrazení v Bankovních výpisech.
+
+**Čísla se nesmí zalamovat (Jan: "ještě se číslo a měna musí vlézt na
+jeden řádek, nesmí se zalamovat").** Appka doplnila `white-space: nowrap`
+na všechny elementy s částkou (`.castka` u Dokladů/Bankovních výpisů/
+Smluv/Vydaných faktur/Knihy jízd, `th.cislo`/`td.cislo` u Exportu a
+Daňového přehledu, hodnotu v řádcích Dashboardu) - číslo a jednotka/měna
+za ním appka teď drží pohromadě na jednom řádku, nikdy se nezalomí mezi
+dva řádky.
+
+Ověřeno celou regresní sadou appky (61 backendových testů) + Playwright
+ověřením (`white-space: nowrap` skutečně vykreslené na `.castka`).
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

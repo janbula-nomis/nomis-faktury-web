@@ -168,7 +168,7 @@ th { color: var(--barva-text-tlumena); font-weight: 600; white-space: nowrap; }
    přehled - viz vykresliPrehledExport/bunkyRadku v app.js), ať appka čísla
    zarovná k pravému okraji sloupce místo výchozího zarovnání vlevo (th/td
    výš). */
-th.cislo, td.cislo { text-align: right; }
+th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 
 /* Daňový přehled (od v4.6.2) - roční řádek firmy je rozklikávací (stejný
    princip šipky/rotace jako .doklad-sipka/.smlouva-sipka výše, appka tu
@@ -209,7 +209,7 @@ th.cislo, td.cislo { text-align: right; }
 .doklad-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
 .doklad-radek-hlava:hover { filter: brightness(0.97); }
 .doklad-radek-hlava .dodavatel { font-weight: 600; }
-.doklad-radek-hlava .castka { font-weight: 600; margin-left: auto; text-align: right; }
+.doklad-radek-hlava .castka { font-weight: 600; margin-left: auto; text-align: right; white-space: nowrap; }
 .doklad-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
 .doklad-radek.rozbaleno .doklad-radek-detail { display: block; }
 .doklad-radek.rozbaleno .doklad-sipka { transform: rotate(90deg); }
@@ -256,7 +256,7 @@ th.cislo, td.cislo { text-align: right; }
 .smlouva-radek-hlava:hover { filter: brightness(0.97); }
 .smlouva-radek-hlava .nazev-smlouvy { font-weight: 600; }
 .smlouva-radek-hlava .cislo-smlouvy { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; color: var(--barva-text-tlumena); background: rgba(127,127,127,0.15); padding: 1px 6px; border-radius: var(--radius-sm); }
-.smlouva-radek-hlava .castka { text-align: right; }
+.smlouva-radek-hlava .castka { text-align: right; white-space: nowrap; }
 .smlouva-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
 .smlouva-radek.rozbaleno .smlouva-radek-detail { display: block; }
 .smlouva-radek.rozbaleno .smlouva-sipka { transform: rotate(90deg); }
@@ -317,7 +317,7 @@ th.cislo, td.cislo { text-align: right; }
 .vf-tabulka-obal::-webkit-scrollbar-thumb { background: var(--barva-hranice); border-radius: 4px; }
 .vf-radek-hlava:hover { filter: brightness(0.97); }
 .vf-radek-hlava .nazev-vf { font-weight: 600; }
-.vf-radek-hlava .castka { font-weight: 600; text-align: right; }
+.vf-radek-hlava .castka { font-weight: 600; text-align: right; white-space: nowrap; }
 .vf-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
 .vf-radek.rozbaleno .vf-radek-detail { display: block; }
 .vf-radek.rozbaleno .vf-sipka { transform: rotate(90deg); }
@@ -348,7 +348,7 @@ th.cislo, td.cislo { text-align: right; }
 .kj-radek-hlava > span, .kj-radek-hlavicka > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .kj-radek-hlavicka { padding: 0 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
 .kj-radek-hlava:hover { filter: brightness(0.97); }
-.kj-radek-hlava .castka { text-align: right; }
+.kj-radek-hlava .castka { text-align: right; white-space: nowrap; }
 .kj-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
 .kj-radek.rozbaleno .kj-radek-detail { display: block; }
 .kj-radek.rozbaleno .kj-sipka { transform: rotate(90deg); }
@@ -357,6 +357,7 @@ th.cislo, td.cislo { text-align: right; }
 
 .mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .polozka-souhrn { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 13px; }
+.polozka-souhrn strong { white-space: nowrap; margin-left: 12px; }
 .polozka-souhrn:last-child { border-bottom: none; }
 
 /* Dashboard (od v3.22) - karta pro každou firmu vedle sebe (ne přepínač/
@@ -485,7 +486,7 @@ input[type="file"] { margin-top: 8px; }
 .banka-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; overflow: hidden; font-size: 13px; }
 .banka-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
 .banka-radek-hlava:hover { filter: brightness(0.97); }
-.banka-radek-hlava .castka { font-weight: 600; margin-left: auto; text-align: right; }
+.banka-radek-hlava .castka { font-weight: 600; margin-left: auto; text-align: right; white-space: nowrap; }
 .banka-radek-hlava .castka.prijem { color: var(--barva-uspech); }
 .banka-radek-hlava .castka.vydaj { color: var(--barva-text); }
 .banka-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }

@@ -110,6 +110,35 @@ function pripoctiStredisko(mapaStredisek, stredisko, mena, castka) {
   pripoctiCelkem(mapaStredisek[stredisko], mena, castka);
 }
 
+// Od v4.26.1 (Jan: "CZK nebo EUR se musí zobrazovat na základě měny
+// bankovních účtů") - appka dřív u bankovního pohybu brala měnu z pole
+// `Mena` uloženého NA POHYBU, které appka odvodila při importu výpisu ze
+// sloupce/metadat souboru (viz lib/bankImportTabular.js) - tahle hodnota
+// appce může snadno "ujet" (chybějící sloupec s měnou, špatně rozpoznaná
+// hlavička apod.). List Účty (`Ucty`, viz lib/uctySchema.js) má u
+// KAŽDÉHO bankovního účtu firmy jednu pevnou měnu (appka ji tam nastaví
+// při založení účtu, ať už automaticky při prvním importu, nebo ručně v
+// Nastavení) - účet logicky vždycky drží jen jednu měnu, takže je to
+// spolehlivější zdroj pravdy. Appka proto měnu bankovního pohybu odvozuje
+// PŘEDNOSTNĚ podle jeho vlastního účtu (`Cislo_uctu_vlastni` -> Ucty.Mena),
+// a jen když appka k číslu účtu nenajde odpovídající řádek v Účtech
+// (starší data, smazaný účet, import přes "účet nesedí"), spadne zpátky na
+// měnu uloženou přímo na pohybu (beze změny oproti dřívějšku). Appka
+// samotnou hodnotu `Bankovni_pohyby.Mena` v Sheets nijak nepřepisuje - jen
+// mění, kterou měnu použije pro zobrazení/výpočet.
+function vytvorMenaPohybu(uctyVsechny) {
+  const menaPodleUctu = {};
+  (uctyVsechny || []).forEach((u) => {
+    if (u.Cislo_uctu) menaPodleUctu[u.Cislo_uctu] = u.Mena || 'CZK';
+  });
+  return function menaPohybu(p) {
+    if (p.Cislo_uctu_vlastni && menaPodleUctu[p.Cislo_uctu_vlastni]) {
+      return menaPodleUctu[p.Cislo_uctu_vlastni];
+    }
+    return p.Mena;
+  };
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return json(200, {});
   if (event.httpMethod !== 'GET') return json(405, { error: 'Method not allowed' });
@@ -143,18 +172,22 @@ exports.handler = async (event) => {
     let pohybyVsechny = [];
     let smlouvyVsechny = [];
     let fakturyVsechny = [];
+    let uctyVsechny = [];
     try {
-      const [{ rows: p }, { rows: s }, { rows: f }] = await Promise.all([
+      const [{ rows: p }, { rows: s }, { rows: f }, { rows: u }] = await Promise.all([
         readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby'),
         readSheetObjects(sheets, spreadsheetId, 'Smlouvy'),
         readSheetObjects(sheets, spreadsheetId, 'Vydane_faktury').catch(() => ({ rows: [] })),
+        readSheetObjects(sheets, spreadsheetId, 'Ucty').catch(() => ({ rows: [] })),
       ]);
       pohybyVsechny = p;
       smlouvyVsechny = s;
       fakturyVsechny = f;
+      uctyVsechny = u;
     } catch (e) {
       // Banka appka zatím nemá zapnutou - Dashboard pokračuje bez ní.
     }
+    const menaPohybu = vytvorMenaPohybu(uctyVsechny);
 
     const strediskoPodleSmlouvy = {};
     smlouvyVsechny.forEach((s) => {
@@ -206,13 +239,13 @@ exports.handler = async (event) => {
           const castka = parsujCastkuZListu(p.Castka);
           if (castka > 0) {
             const stredisko = p.Stredisko || strediskoPodleSmlouvy[p.Smlouva_ID] || '(bez střediska)';
-            pripoctiStredisko(strediskaPrijmy, stredisko, p.Mena, castka);
-            pripoctiCelkem(prijmyPodleMeny, p.Mena, castka);
+            pripoctiStredisko(strediskaPrijmy, stredisko, menaPohybu(p), castka);
+            pripoctiCelkem(prijmyPodleMeny, menaPohybu(p), castka);
           } else {
             const abs = Math.abs(castka);
             const stredisko = strediskoPodleSmlouvy[p.Smlouva_ID] || '(smlouva)';
-            pripoctiStredisko(strediskaVydaje, stredisko, p.Mena, abs);
-            pripoctiCelkem(vydajePodleMeny, p.Mena, abs);
+            pripoctiStredisko(strediskaVydaje, stredisko, menaPohybu(p), abs);
+            pripoctiCelkem(vydajePodleMeny, menaPohybu(p), abs);
           }
         });
 
@@ -222,8 +255,8 @@ exports.handler = async (event) => {
         .forEach((p) => {
           const castka = parsujCastkuZListu(p.Castka);
           const stredisko = p.Stredisko || '(bez střediska)';
-          pripoctiStredisko(strediskaPrijmy, stredisko, p.Mena, castka);
-          pripoctiCelkem(prijmyPodleMeny, p.Mena, castka);
+          pripoctiStredisko(strediskaPrijmy, stredisko, menaPohybu(p), castka);
+          pripoctiCelkem(prijmyPodleMeny, menaPohybu(p), castka);
         });
 
       // (v3.23) Platby potvrzeně spárované s Vydanou fakturou appka do
@@ -235,8 +268,8 @@ exports.handler = async (event) => {
         .forEach((p) => {
           const castka = parsujCastkuZListu(p.Castka);
           const stredisko = jednotkaPodleFaktury[p.Vydana_faktura_ID] || '(bez střediska)';
-          pripoctiStredisko(strediskaPrijmy, stredisko, p.Mena, castka);
-          pripoctiCelkem(prijmyPodleMeny, p.Mena, castka);
+          pripoctiStredisko(strediskaPrijmy, stredisko, menaPohybu(p), castka);
+          pripoctiCelkem(prijmyPodleMeny, menaPohybu(p), castka);
         });
 
       // (v4.23) Platby potvrzeně spárované s nájemní Smlouvou (appka od
@@ -252,8 +285,8 @@ exports.handler = async (event) => {
         .forEach((p) => {
           const castka = parsujCastkuZListu(p.Castka);
           const stredisko = p.Stredisko || strediskoPodleSmlouvy[p.Smlouva_ID] || '(bez střediska)';
-          pripoctiStredisko(strediskaPrijmy, stredisko, p.Mena, castka);
-          pripoctiCelkem(prijmyPodleMeny, p.Mena, castka);
+          pripoctiStredisko(strediskaPrijmy, stredisko, menaPohybu(p), castka);
+          pripoctiCelkem(prijmyPodleMeny, menaPohybu(p), castka);
         });
 
       // Provozní upozornění appka počítá BEZ ohledu na klouzavé okno 12

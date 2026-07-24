@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.26 – 2026-07-24';
+const APP_VERZE = 'v4.26.1 – 2026-07-24';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -2141,6 +2141,21 @@ let bankaSmlouvySeznam = []; // od v3.19 - trvalé příkazy dané firmy
 let bankaUctySeznam = []; // od v3.19 - vlastní účty dané firmy (pro ruční doplnění u příjmů)
 let bankaFakturySeznam = []; // od v3.22 - vydané faktury dané firmy (párování příjmů)
 
+// Od v4.26.1 (Jan: "CZK nebo EUR se musí zobrazovat na základě měny
+// bankovních účtů") - appka dřív u pohybu zobrazovala rovnou p.Mena
+// (hodnota odvozená appkou při IMPORTU výpisu ze sloupce/metadat souboru,
+// viz lib/bankImportTabular.js) - appka teď přednostně dohledá měnu podle
+// VLASTNÍHO ÚČTU pohybu (Cislo_uctu_vlastni -> Ucty.Mena, appka má tenhle
+// seznam už načtený v bankaUctySeznam) - účet logicky vždycky drží jen
+// jednu měnu, je to tedy spolehlivější než to, co appka odvodila z
+// jednotlivého řádku výpisu. Když appka účet nedohledá (starší data,
+// smazaný účet), spadne zpátky na p.Mena beze změny oproti dřívějšku.
+function menaPohybuBanka(p) {
+  const ucet = bankaUctySeznam.find((u) => u.Cislo_uctu === p.Cislo_uctu_vlastni);
+  if (ucet && ucet.Mena) return ucet.Mena;
+  return p.Mena;
+}
+
 async function inicializujZalozkuBanka() {
   const vyber = document.getElementById('banka-vyber-firmy');
 
@@ -2348,7 +2363,7 @@ function vytvorRadekBanka(p) {
     '<span>' + escapeHtml(p.Datum || '') + '</span>' +
     '<span>' + escapeHtml(p.Protistrana || p.Typ_pohybu || '') + '</span>' +
     bankaStavBadge(p.Stav_parovani) +
-    '<span class="castka ' + castkaTrida + '">' + formatCastkaSMenou(p.Castka, p.Mena) + '</span>';
+    '<span class="castka ' + castkaTrida + '">' + formatCastkaSMenou(p.Castka, menaPohybuBanka(p)) + '</span>';
 
   const detail = document.createElement('div');
   detail.className = 'banka-radek-detail';
@@ -3039,7 +3054,7 @@ async function smazBankovniPohyb(p, tlacitko) {
   if (
     !confirm(
       'Opravdu smazat tenhle bankovní pohyb (' + (p.Protistrana || p.Typ_pohybu || '(bez popisu)') + ', ' +
-        formatCastkaSMenou(p.Castka, p.Mena) + ')? Appka NEVRACÍ žádnou napojenou vazbu (doklad/fakturu/smlouvu) ' +
+        formatCastkaSMenou(p.Castka, menaPohybuBanka(p)) + ')? Appka NEVRACÍ žádnou napojenou vazbu (doklad/fakturu/smlouvu) ' +
         'zpátky do stavu čekání - jen odstraní řádek pohybu. Tuhle akci nejde vrátit zpět.'
     )
   ) {
