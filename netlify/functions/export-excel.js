@@ -26,7 +26,12 @@
  *   zjednodušeně na měsíční rozpad a s volitelným filtrem firma/rok - appka
  *   výpočet záměrně nesdílí importem (stejná konvence jako appka má u
  *   duplikovaných přístupových helperů v jiných souborech), appka je
- *   případně udržuje ručně synchronně s danovy-prehled.js.
+ *   případně udržuje ručně synchronně s danovy-prehled.js. POZOR (oprava
+ *   v4.33): appka tenhle duplikát při zavedení DUZP/Dobropis přepínače ve
+ *   v4.32 zapomněla přepnout spolu s danovy-prehled.js - od v4.33 appka tu
+ *   bilanci řadí podle DUZP (fallback na Datum_vystaveni/Datum_dokladu) a
+ *   Dobropis mění znaménko, stejně jako appka počítá na obrazovce Daňový
+ *   přehled a v Money S3 exportu.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -207,7 +212,12 @@ exports.handler = async (event) => {
           if (!platciDph.includes(f.Firma)) return;
           const dph = parsujCastkuZListu(f.DPH);
           if (!dph) return;
-          pripoctiDph(f.Datum_vystaveni, f.Firma, 'dphVydane', dph);
+          // v4.33: appka sjednotila výpočet s netlify/functions/danovy-
+          // prehled.js (DUZP s fallbackem na Datum_vystaveni, Dobropis mění
+          // znaménko) - appka to tu do teď zapomněla přepnout spolu s tím
+          // (viz Jan: "potřebuji aby měli shodný obsah").
+          const znamenko = f.Typ_dokladu === 'Dobropis' ? -1 : 1;
+          pripoctiDph(f.DUZP || f.Datum_vystaveni, f.Firma, 'dphVydane', dph * znamenko);
         });
       } catch (e) {
         // List Vydane_faktury nemusí existovat - appka nechá tuhle část prázdnou.
@@ -220,7 +230,10 @@ exports.handler = async (event) => {
           if (!platciDph.includes(firma)) return;
           const dph = parsujCastkuZListu(d.DPH);
           if (!dph) return;
-          pripoctiDph(d.Datum_dokladu, firma, 'dphPrijate', dph);
+          // Stejný DUZP-přepínač a Dobropis-znaménko jako u Vydaných faktur
+          // výš (v4.33) - viz netlify/functions/danovy-prehled.js.
+          const znamenko = d.Typ_dokladu === 'Dobropis' ? -1 : 1;
+          pripoctiDph(d.DUZP || d.Datum_dokladu, firma, 'dphPrijate', dph * znamenko);
         });
       } catch (e) {
         // Nemělo by nastat (Doklady appka má vždy), ale appka se přesto nemá zastavit.
