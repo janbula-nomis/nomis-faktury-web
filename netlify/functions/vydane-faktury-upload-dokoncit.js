@@ -89,6 +89,12 @@ exports.handler = async (event) => {
       Mena: extrakce.mena || 'CZK',
       DPH: extrakce.dph || '',
       Sazba_DPH: extrakce.sazba_dph || '',
+      Konstantni_symbol: extrakce.konstantni_symbol || '',
+      Specificky_symbol: extrakce.specificky_symbol || '',
+      // DUZP fallback na datum_vystaveni appka počítá hned tady, stejná
+      // konvence jako u Dokladů (upload-dokoncit.js) - viz lib/dokladySchema.js.
+      DUZP: extrakce.duzp || extrakce.datum_vystaveni || '',
+      Typ_dokladu: extrakce.typ_dokladu || 'Faktura',
       Stav: duplicita ? 'Možná duplicita' : 'Neuhrazeno',
       Poznamka: extrakce.poznamka_ai || '',
     });

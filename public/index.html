@@ -667,6 +667,31 @@
         </table>
         </div>
       </details>
+
+      <details class="panel-skladaci">
+        <summary>Předkontace (Money S3 export)</summary>
+        <p class="popis">Kód předkontace, který appka pošle do Money S3 exportu (element &lt;PredKontac&gt;) u
+          přijatých dokladů dané firmy a kategorie. Appka žádné kódy sama nevymýšlí - dokud tu kombinaci
+          firma+kategorie nenastavíte, appka element pošle prázdný, přesně jako dřív.</p>
+        <h3>Přidat předkontaci</h3>
+        <label for="nova-pk-firma">Firma</label>
+        <select id="nova-pk-firma"></select>
+        <label for="nova-pk-kategorie">Kategorie</label>
+        <select id="nova-pk-kategorie"></select>
+        <label for="nova-pk-kod">Kód předkontace</label>
+        <input type="text" id="nova-pk-kod" placeholder="např. PF006" />
+        <button id="tlacitko-pridat-predkontaci">Přidat předkontaci</button>
+        <div id="predkontace-zprava"></div>
+
+        <h3 style="margin-top:24px">Existující předkontace</h3>
+        <div id="predkontace-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-predkontace">
+          <thead><tr><th>Firma</th><th>Kategorie</th><th>Kód</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-predkontace-telo"></tbody>
+        </table>
+        </div>
+      </details>
     </div>
   </section>
 
@@ -681,6 +706,17 @@
     <div class="varovani-odhlaseni-box">
       <p>Kvůli neaktivitě budete automaticky odhlášeni za <strong id="varovani-odhlaseni-cas">10</strong> s.</p>
       <button id="tlacitko-zustat-prihlasen" type="button">Zůstat přihlášen</button>
+    </div>
+  </div>
+
+  <!-- QR Platba (v4.32, viz lib/qrPlatba.js) - appka tenhle overlay používá
+       pro zobrazení vygenerovaného QR kódu k naskenování v bankovní appce.
+       Appka tu nic sama neposílá/neplatí - jde jen o zobrazení. -->
+  <div id="qr-platba-modal" class="varovani-odhlaseni-overlay skryto">
+    <div class="varovani-odhlaseni-box" style="max-width: 340px;">
+      <h3 style="margin-top:0;">QR Platba</h3>
+      <div id="qr-platba-obsah"></div>
+      <button id="tlacitko-zavrit-qr-platbu" type="button" class="sekundarni">Zavřít</button>
     </div>
   </div>
 

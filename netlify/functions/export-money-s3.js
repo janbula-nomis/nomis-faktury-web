@@ -104,7 +104,19 @@ exports.handler = async (event) => {
       const { rows: polozkyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Doklady_Polozky').catch(() => ({ rows: [] }));
       const polozkyPodleId = seskupPolozkyPodleId(polozkyVsechny, 'Doklad_ID');
 
-      const telo = vytvorXmlPrijateFaktury(vybrane, polozkyPodleId, firma);
+      // Předkontace (od v4.32, viz lib/predkontaceSchema.js) - appka mapu
+      // "Firma|Kategorie" -> Kod sestaví z listu Predkontace a pošle do
+      // exportu, ať <PredKontac> obsahuje skutečný kód, pokud je pro tuhle
+      // kombinaci nastavený (list nemusí ještě existovat na starších
+      // appkách bez spuštěného /api/setup - appka v tom případě export
+      // nezastaví, jen PredKontac zůstane prázdný jako dřív).
+      const { rows: predkontaceVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Predkontace').catch(() => ({ rows: [] }));
+      const predkontaceMapa = {};
+      predkontaceVsechny.forEach((p) => {
+        if (p.Firma && p.Kategorie) predkontaceMapa[p.Firma + '|' + p.Kategorie] = p.Kod || '';
+      });
+
+      const telo = vytvorXmlPrijateFaktury(vybrane, polozkyPodleId, firma, null, predkontaceMapa);
       const nazevSouboru = 'money_s3_prijate_' + bezpecnyNazevSouboru(firmaFiltr) + '_' + Date.now() + '.xml';
       return xml(200, telo, nazevSouboru);
     }

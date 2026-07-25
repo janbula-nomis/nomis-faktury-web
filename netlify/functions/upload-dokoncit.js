@@ -171,6 +171,16 @@ exports.handler = async (event) => {
       SPZ_auta: extrakce.spz_auta || '',
       Mnozstvi_litru: extrakce.mnozstvi_litru || '',
       Druh_paliva: extrakce.druh_paliva || '',
+      Datum_splatnosti: extrakce.datum_splatnosti || '',
+      Konstantni_symbol: extrakce.konstantni_symbol || '',
+      Specificky_symbol: extrakce.specificky_symbol || '',
+      // DUZP appka fallbackuje na datum_dokladu hned tady při zpracování
+      // (ne až při čtení/exportu) - viz zdůvodnění v lib/dokladySchema.js -
+      // appka posílá do Money S3 i do DPH bilance vždy hotovou hodnotu z
+      // téhle buňky, žádné další místo v appce fallback neřeší.
+      DUZP: extrakce.duzp || extrakce.datum_dokladu || '',
+      Typ_dokladu: extrakce.typ_dokladu || 'Faktura',
+      Cislo_uctu_dodavatele: extrakce.cislo_uctu_dodavatele || '',
       Stav: duplicita ? 'Možná duplicita' : 'Ke kontrole',
       Poznamka:
         extrakce.poznamka_ai ||
@@ -248,6 +258,12 @@ exports.handler = async (event) => {
         SPZ_auta: dalsi.spz_auta || '',
         Mnozstvi_litru: dalsi.mnozstvi_litru || '',
         Druh_paliva: dalsi.druh_paliva || '',
+        Datum_splatnosti: dalsi.datum_splatnosti || '',
+        Konstantni_symbol: dalsi.konstantni_symbol || '',
+        Specificky_symbol: dalsi.specificky_symbol || '',
+        DUZP: dalsi.duzp || dalsi.datum_dokladu || '',
+        Typ_dokladu: dalsi.typ_dokladu || 'Faktura',
+        Cislo_uctu_dodavatele: dalsi.cislo_uctu_dodavatele || '',
         Stav: duplicitaDalsi ? 'Možná duplicita' : 'Ke kontrole',
         Poznamka: poznamkaFragmenty.join(' '),
         Nahral_uzivatel: aktualizovany.Nahral_uzivatel,

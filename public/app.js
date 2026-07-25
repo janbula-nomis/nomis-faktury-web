@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.31 – 2026-07-25';
+const APP_VERZE = 'v4.32 – 2026-07-25';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -448,6 +448,7 @@ function prepniZalozku(nazev) {
     nactiAuta();
     nactiUcty();
     nactiStrediska();
+    nactiPredkontace();
   }
 }
 
@@ -1256,6 +1257,66 @@ function vytvorDetailDoklad(d) {
   wrap.appendChild(vstupDph);
   wrap.appendChild(vstupSazbaDph);
 
+  // Rozšíření pro Money S3 export a QR Platbu (v4.32, viz claude/nomis-
+  // faktury-backlog.md a lib/dokladySchema.js pro plné zdůvodnění) - appka
+  // pole nabízí jako AI odhad + ruční kontrolu, stejná konvence jako DPH/
+  // Sazba_DPH výš. Datum splatnosti + Konst./spec. symbol appka posílá do
+  // Money S3 exportu (viz lib/moneyS3Export.js), DUZP appka navíc používá i
+  // pro řazení DPH bilance v Daňovém přehledu.
+  const labelSplatnost = document.createElement('label');
+  labelSplatnost.textContent = 'Datum splatnosti';
+  const vstupSplatnost = document.createElement('input');
+  vstupSplatnost.type = 'date';
+  vstupSplatnost.value = d.Datum_splatnosti || '';
+  wrap.appendChild(labelSplatnost);
+  wrap.appendChild(vstupSplatnost);
+
+  const labelSymboly = document.createElement('label');
+  labelSymboly.textContent = 'Konstantní a specifický symbol';
+  const vstupKonstSym = document.createElement('input');
+  vstupKonstSym.type = 'text';
+  vstupKonstSym.value = d.Konstantni_symbol || '';
+  vstupKonstSym.placeholder = 'konstantní symbol';
+  vstupKonstSym.style.marginBottom = '6px';
+  const vstupSpecSym = document.createElement('input');
+  vstupSpecSym.type = 'text';
+  vstupSpecSym.value = d.Specificky_symbol || '';
+  vstupSpecSym.placeholder = 'specifický symbol';
+  wrap.appendChild(labelSymboly);
+  wrap.appendChild(vstupKonstSym);
+  wrap.appendChild(vstupSpecSym);
+
+  const labelDuzp = document.createElement('label');
+  labelDuzp.textContent = 'DUZP (datum uskutečnění zdanitelného plnění)';
+  const vstupDuzp = document.createElement('input');
+  vstupDuzp.type = 'date';
+  vstupDuzp.value = d.DUZP || '';
+  vstupDuzp.title = 'Vyplňte, jen pokud se liší od data dokladu (appka jinak pro export/DPH bilanci použije datum dokladu).';
+  wrap.appendChild(labelDuzp);
+  wrap.appendChild(vstupDuzp);
+
+  const labelTypDokladu = document.createElement('label');
+  labelTypDokladu.textContent = 'Typ dokladu';
+  const vstupTypDokladu = document.createElement('select');
+  ['Faktura', 'Dobropis', 'Zálohová faktura'].forEach((moznost) => {
+    const option = document.createElement('option');
+    option.value = moznost;
+    option.textContent = moznost;
+    if ((d.Typ_dokladu || 'Faktura') === moznost) option.selected = true;
+    vstupTypDokladu.appendChild(option);
+  });
+  wrap.appendChild(labelTypDokladu);
+  wrap.appendChild(vstupTypDokladu);
+
+  const labelUcetDodavatele = document.createElement('label');
+  labelUcetDodavatele.textContent = 'Číslo účtu dodavatele (pro QR Platbu)';
+  const vstupUcetDodavatele = document.createElement('input');
+  vstupUcetDodavatele.type = 'text';
+  vstupUcetDodavatele.value = d.Cislo_uctu_dodavatele || '';
+  vstupUcetDodavatele.placeholder = 'např. 19-2000145399/0800 nebo IBAN';
+  wrap.appendChild(labelUcetDodavatele);
+  wrap.appendChild(vstupUcetDodavatele);
+
   const labelFirma = document.createElement('label');
   labelFirma.textContent = 'Firma';
   const vstupFirma = document.createElement('select');
@@ -1356,6 +1417,12 @@ function vytvorDetailDoklad(d) {
       Mnozstvi_litru: vstupLitry.value,
       Druh_paliva: vstupDruhPaliva.value.trim(),
       Hrazeno_mimo_ucet: vstupMimoUcet.checked ? 'ANO' : '',
+      Datum_splatnosti: vstupSplatnost.value,
+      Konstantni_symbol: vstupKonstSym.value.trim(),
+      Specificky_symbol: vstupSpecSym.value.trim(),
+      DUZP: vstupDuzp.value,
+      Typ_dokladu: vstupTypDokladu.value,
+      Cislo_uctu_dodavatele: vstupUcetDodavatele.value.trim(),
     };
   }
 
@@ -1383,6 +1450,18 @@ function vytvorDetailDoklad(d) {
       tlacitkoSchvalit
     );
     akce.appendChild(tlacitkoSchvalit);
+  }
+
+  // QR Platba (v4.32, viz lib/qrPlatba.js) - appka tlačítko ukáže jen u
+  // SCHVÁLENÉHO dokladu (appka nechce nabízet platbu k dokladu, který ještě
+  // čeká na kontrolu) a jen adminovi/účetní (příprava platby, stejné
+  // omezení jako export-money-s3.js/netlify/functions/qr-platba.js).
+  if (d.Stav === 'Schváleno' && jeUcetniNeboAdminDoklad) {
+    const tlacitkoQr = document.createElement('button');
+    tlacitkoQr.className = 'maly sekundarni';
+    tlacitkoQr.textContent = 'QR Platba';
+    tlacitkoQr.onclick = () => zobrazQrPlatbu(d.ID, tlacitkoQr);
+    akce.appendChild(tlacitkoQr);
   }
 
   // Jan (2026-07-19, v4.11): "Smazat" appka běžnému uživateli ukáže jen u
@@ -1451,6 +1530,42 @@ async function smazDoklad(id, dodavatel, tlacitko) {
     zobrazZpravuDoklady('Doklad smazán.');
   } catch (e) {
     alert('Nepodařilo se smazat doklad: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+// QR Platba (v4.32, viz lib/qrPlatba.js/netlify/functions/qr-platba.js) -
+// appka zavolá backend, který sestaví SPAYD text a QR kód (appka žádnou
+// generaci QR appka needělá ve frontendu, appka posílá hotový PNG data
+// URL) a zobrazí je v overlay #qr-platba-modal (stejný vizuální vzor jako
+// #varovani-odhlaseni). Appka tu nic sama neposílá/neplatí - jde jen o
+// zobrazení k naskenování v bankovní appce uživatele.
+async function zobrazQrPlatbu(id, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    const data = await zavolejApi('/qr-platba?id=' + encodeURIComponent(id));
+    const obsah = document.getElementById('qr-platba-obsah');
+    obsah.innerHTML = '';
+
+    const obrazek = document.createElement('img');
+    obrazek.src = data.qrObrazek;
+    obrazek.alt = 'QR Platba';
+    obrazek.style.width = '100%';
+    obrazek.style.maxWidth = '260px';
+    obrazek.style.display = 'block';
+    obrazek.style.margin = '0 auto 12px';
+    obsah.appendChild(obrazek);
+
+    const info = document.createElement('p');
+    info.style.fontSize = '12px';
+    info.style.wordBreak = 'break-all';
+    info.textContent = data.spayd;
+    obsah.appendChild(info);
+
+    document.getElementById('qr-platba-modal').classList.remove('skryto');
+  } catch (e) {
+    alert('Nepodařilo se připravit QR Platbu: ' + e.message);
+  } finally {
     tlacitko.disabled = false;
   }
 }
@@ -2200,6 +2315,48 @@ function vytvorDetailVydanaFaktura(f) {
   wrap.appendChild(vstupDph);
   wrap.appendChild(vstupSazbaDph);
 
+  // Rozšíření pro Money S3 export (v4.32, viz claude/nomis-faktury-
+  // backlog.md a lib/vydaneFakturySchema.js pro plné zdůvodnění) - appka
+  // pole nabízí jako AI odhad + ruční kontrolu, stejná konvence jako DPH/
+  // Sazba_DPH výš. DUZP appka navíc používá pro řazení DPH bilance v
+  // Daňovém přehledu.
+  const labelSymboly = document.createElement('label');
+  labelSymboly.textContent = 'Konstantní a specifický symbol';
+  const vstupKonstSym = document.createElement('input');
+  vstupKonstSym.type = 'text';
+  vstupKonstSym.value = f.Konstantni_symbol || '';
+  vstupKonstSym.placeholder = 'konstantní symbol';
+  vstupKonstSym.style.marginBottom = '6px';
+  const vstupSpecSym = document.createElement('input');
+  vstupSpecSym.type = 'text';
+  vstupSpecSym.value = f.Specificky_symbol || '';
+  vstupSpecSym.placeholder = 'specifický symbol';
+  wrap.appendChild(labelSymboly);
+  wrap.appendChild(vstupKonstSym);
+  wrap.appendChild(vstupSpecSym);
+
+  const labelDuzp = document.createElement('label');
+  labelDuzp.textContent = 'DUZP (datum uskutečnění zdanitelného plnění)';
+  const vstupDuzp = document.createElement('input');
+  vstupDuzp.type = 'date';
+  vstupDuzp.value = f.DUZP || '';
+  vstupDuzp.title = 'Vyplňte, jen pokud se liší od data vystavení (appka jinak pro export/DPH bilanci použije datum vystavení).';
+  wrap.appendChild(labelDuzp);
+  wrap.appendChild(vstupDuzp);
+
+  const labelTypDokladu = document.createElement('label');
+  labelTypDokladu.textContent = 'Typ dokladu';
+  const vstupTypDokladu = document.createElement('select');
+  ['Faktura', 'Dobropis', 'Zálohová faktura'].forEach((moznost) => {
+    const option = document.createElement('option');
+    option.value = moznost;
+    option.textContent = moznost;
+    if ((f.Typ_dokladu || 'Faktura') === moznost) option.selected = true;
+    vstupTypDokladu.appendChild(option);
+  });
+  wrap.appendChild(labelTypDokladu);
+  wrap.appendChild(vstupTypDokladu);
+
   const labelPoznamka = document.createElement('label');
   labelPoznamka.textContent = 'Poznámka';
   const vstupPoznamka = document.createElement('input');
@@ -2245,6 +2402,10 @@ function vytvorDetailVydanaFaktura(f) {
       Mena: vstupMena.value.trim() || 'CZK',
       DPH: vstupDph.value,
       Sazba_DPH: vstupSazbaDph.value.trim(),
+      Konstantni_symbol: vstupKonstSym.value.trim(),
+      Specificky_symbol: vstupSpecSym.value.trim(),
+      DUZP: vstupDuzp.value,
+      Typ_dokladu: vstupTypDokladu.value,
       Poznamka: vstupPoznamka.value.trim(),
     };
   }
@@ -4234,6 +4395,126 @@ async function smazStredisko(row, nazev, tlacitko) {
   }
 }
 
+// ---------- ADMIN: PŘEDKONTACE (od v4.32 - viz lib/predkontaceSchema.js a
+// netlify/functions/predkontace.js) - kódy pro Money S3 export <PredKontac>,
+// per firma a kategorie dokladu. Appka list zakládá s prázdnými kódy - Jan/
+// účetní je doplní tady, jakmile bude vědět, jaké kódy chce použít. ----------
+
+async function nactiPredkontace() {
+  const nacitani = document.getElementById('predkontace-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  document.getElementById('nova-pk-kategorie').innerHTML = moznostiKategorie('');
+
+  try {
+    // Appka si tu firmy načítá ČERSTVĚ vlastním voláním (ne přes sdílené
+    // firmyProVyberDokladu, které appka plní jen při otevření záložky
+    // Doklady) - kdyby uživatel otevřel Nastavení jako úplně první záložku,
+    // sdílené pole by ještě bylo prázdné a výběr firmy by zůstal nabídkou bez možností.
+    const [dataFirmy, data] = await Promise.all([
+      zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+      zavolejApi('/predkontace', { method: 'GET' }),
+    ]);
+    document.getElementById('nova-pk-firma').innerHTML =
+      moznostiFirmySeznam((dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean), '');
+    vykresliPredkontace(data.predkontace || []);
+    nacitani.classList.add('skryto');
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst předkontace: ' + e.message;
+  }
+}
+
+function vykresliPredkontace(predkontace) {
+  const telo = document.getElementById('tabulka-predkontace-telo');
+  telo.innerHTML = '';
+
+  predkontace.forEach((p) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td data-label="Firma"></td>' +
+      '<td data-label="Kategorie"></td>' +
+      '<td data-label="Kód"></td>' +
+      '<td data-label="Akce"></td>';
+
+    tr.children[0].textContent = p.Firma || '';
+    tr.children[1].textContent = p.Kategorie || '';
+
+    const vstupKod = document.createElement('input');
+    vstupKod.type = 'text';
+    vstupKod.value = p.Kod || '';
+    vstupKod.placeholder = 'kód předkontace';
+    tr.children[2].appendChild(vstupKod);
+
+    const tlacitkoUlozit = document.createElement('button');
+    tlacitkoUlozit.className = 'maly sekundarni';
+    tlacitkoUlozit.textContent = 'Uložit';
+    tlacitkoUlozit.onclick = () => ulozPredkontaci(p._row, { Kod: vstupKod.value.trim() }, tlacitkoUlozit);
+    tr.children[3].appendChild(tlacitkoUlozit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.style.marginLeft = '6px';
+    tlacitkoSmazat.onclick = () => smazPredkontaci(p._row, (p.Firma || '') + ' / ' + (p.Kategorie || ''), tlacitkoSmazat);
+    tr.children[3].appendChild(tlacitkoSmazat);
+
+    telo.appendChild(tr);
+  });
+
+  if (predkontace.length === 0) {
+    telo.innerHTML = '<tr><td colspan="4" class="nacitani">Zatím žádné předkontace - appka do Money S3 exportu posílá prázdný &lt;PredKontac&gt;.</td></tr>';
+  }
+}
+
+async function pridatPredkontaci() {
+  const zprava = document.getElementById('predkontace-zprava');
+  zprava.innerHTML = '';
+
+  const firma = document.getElementById('nova-pk-firma').value.trim();
+  const kategorie = document.getElementById('nova-pk-kategorie').value.trim();
+  const kod = document.getElementById('nova-pk-kod').value.trim();
+  if (!firma || !kategorie) {
+    zprava.innerHTML = '<div class="zprava chyba">Firma i kategorie jsou povinné.</div>';
+    return;
+  }
+
+  try {
+    await zavolejApi('/predkontace', {
+      method: 'POST',
+      body: JSON.stringify({ Firma: firma, Kategorie: kategorie, Kod: kod }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Předkontace přidána.</div>';
+    document.getElementById('nova-pk-kod').value = '';
+    await nactiPredkontace();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function ulozPredkontaci(row, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/predkontace', { method: 'PATCH', body: JSON.stringify({ row, zmeny }) });
+    await nactiPredkontace();
+  } catch (e) {
+    alert('Nepodařilo se uložit předkontaci: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazPredkontaci(row, popis, tlacitko) {
+  if (!confirm('Opravdu smazat předkontaci „' + popis + '“?')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/predkontace?row=' + row, { method: 'DELETE' });
+    await nactiPredkontace();
+  } catch (e) {
+    alert('Nepodařilo se smazat předkontaci: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
 // ---------- SMLOUVY (trvalé příkazy, od v3.19) ----------
 // Od v3.21 (Janovo zadání "není vidět všechny údaje ze smlouvy... doplnit
 // vytěžení smlouvy AI + zavést registr smluv, tedy i s přílohou") appka
@@ -5384,6 +5665,9 @@ document.getElementById('pole-pin').addEventListener('keydown', (e) => {
 });
 document.getElementById('tlacitko-odhlasit').addEventListener('click', odhlasit);
 document.getElementById('tlacitko-zustat-prihlasen').addEventListener('click', idleResetovatCasovac);
+document.getElementById('tlacitko-zavrit-qr-platbu').addEventListener('click', () => {
+  document.getElementById('qr-platba-modal').classList.add('skryto');
+});
 document.getElementById('tlacitko-vyfotit').addEventListener('click', () => document.getElementById('pole-foto').click());
 document.getElementById('tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('pole-soubor').click());
 document.getElementById('pole-foto').addEventListener('change', (e) => zpracujVybranySoubor(e.target.files[0]));
@@ -5396,6 +5680,7 @@ document.getElementById('tlacitko-pridat-firmu').addEventListener('click', prida
 document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridatAuto);
 document.getElementById('tlacitko-pridat-ucet').addEventListener('click', pridatUcet);
 document.getElementById('tlacitko-pridat-stredisko').addEventListener('click', pridatStredisko);
+document.getElementById('tlacitko-pridat-predkontaci').addEventListener('click', pridatPredkontaci);
 document.getElementById('tlacitko-pridat-smlouvu').addEventListener('click', pridatSmlouvu);
 document.getElementById('sm-tlacitko-vyfotit').addEventListener('click', () => document.getElementById('sm-pole-foto').click());
 document.getElementById('sm-tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('sm-pole-soubor').click());

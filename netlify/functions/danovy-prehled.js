@@ -103,7 +103,13 @@ exports.handler = async (event) => {
           if (!platciDph.includes(f.Firma)) return;
           const dph = parsujCastkuZListu(f.DPH);
           if (!dph) return;
-          pripoctiDph(f.Datum_vystaveni, f.Firma, 'dphVydane', dph);
+          // v4.32: appka bilanci řadí podle DUZP (datum uskutečnění
+          // zdanitelného plnění), s fallbackem na Datum_vystaveni u starších
+          // faktur/dokladů bez vyplněného DUZP (viz Jan výslovné přání "Ano,
+          // přepnout na DUZP" a lib/vydaneFakturySchema.js). Dobropis appka
+          // ODEČÍTÁ (mění znaménko), místo aby ho přičetla jako normální výstup.
+          const znamenko = f.Typ_dokladu === 'Dobropis' ? -1 : 1;
+          pripoctiDph(f.DUZP || f.Datum_vystaveni, f.Firma, 'dphVydane', dph * znamenko);
         });
       } catch (e) {
         // List Vydane_faktury nemusí existovat - appka jen nechá výstup prázdný.
@@ -117,7 +123,10 @@ exports.handler = async (event) => {
           if (!platciDph.includes(firma)) return;
           const dph = parsujCastkuZListu(d.DPH);
           if (!dph) return;
-          pripoctiDph(d.Datum_dokladu, firma, 'dphPrijate', dph);
+          // Stejný DUZP-přepínač a Dobropis-znaménko jako u Vydaných faktur
+          // výš - viz lib/dokladySchema.js.
+          const znamenko = d.Typ_dokladu === 'Dobropis' ? -1 : 1;
+          pripoctiDph(d.DUZP || d.Datum_dokladu, firma, 'dphPrijate', dph * znamenko);
         });
       } catch (e) {
         // Nemělo by nastat (Doklady appka má vždy), ale appka se přesto nemá zastavit.

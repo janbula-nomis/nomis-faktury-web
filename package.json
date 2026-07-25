@@ -5,6 +5,7 @@
   "description": "Evidence faktur a účtenek pro Nomis Group – Netlify Functions + statický frontend, data v Google Sheets/Disku.",
   "dependencies": {
     "googleapis": "^144.0.0",
+    "qrcode": "^1.5.4",
     "xlsx": "^0.18.5"
   }
 }

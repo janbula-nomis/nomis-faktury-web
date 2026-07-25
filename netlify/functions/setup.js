@@ -34,6 +34,7 @@ const { SMLOUVY_HEADERS, dalsiPoradiSmlouvy } = require('../../lib/smlouvySchema
 const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
 const { KNIHA_JIZD_HEADERS } = require('../../lib/knihaJizdSchema');
 const { STREDISKA_HEADERS } = require('../../lib/strediskaSchema');
+const { PREDKONTACE_HEADERS } = require('../../lib/predkontaceSchema');
 const { DOKLADY_POLOZKY_HEADERS } = require('../../lib/dokladyPolozkySchema');
 const { VYDANE_FAKTURY_POLOZKY_HEADERS } = require('../../lib/vydaneFakturyPolozkySchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
@@ -85,6 +86,16 @@ const LISTY = [
       ['Holečkova 9', 'Nemovitost', 'ANO'],
       ['Holečkova - garáž', 'Nemovitost', 'ANO'],
     ],
+  },
+  {
+    // Předkontace (od v4.32) - kódy pro Money S3 export <PredKontac>, per
+    // firma a kategorie dokladu, viz lib/predkontaceSchema.js a
+    // netlify/functions/predkontace.js. Appka list zakládá s PRÁZDNÝMI
+    // ukázkovými daty - žádné reálné kódy nemá, Jan/účetní je doplní ručně
+    // v appce (Nastavení) až budou k dispozici.
+    nazev: 'Predkontace',
+    hlavicky: PREDKONTACE_HEADERS,
+    ukazka: [],
   },
   {
     nazev: 'Doklady',

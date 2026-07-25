@@ -215,8 +215,13 @@ exports.handler = async (event) => {
         .forEach((d) => {
           const stredisko = d.Stredisko || '(bez střediska)';
           const castka = parsujCastkuZListu(d.Castka);
-          pripoctiStredisko(strediskaVydaje, stredisko, d.Mena, castka);
-          pripoctiCelkem(vydajePodleMeny, d.Mena, castka);
+          // v4.32: Dobropis (opravný daňový doklad) SNIŽUJE dřívější náklad,
+          // ne přičítá nový - appka proto částku odečte (záporné znaménko),
+          // stejný princip jako u DPH bilance v danovy-prehled.js, viz
+          // lib/dokladySchema.js pro plné zdůvodnění.
+          const znamenko = d.Typ_dokladu === 'Dobropis' ? -1 : 1;
+          pripoctiStredisko(strediskaVydaje, stredisko, d.Mena, castka * znamenko);
+          pripoctiCelkem(vydajePodleMeny, d.Mena, castka * znamenko);
         });
 
       const pohybyTetoFirmy = pohybyVsechny.filter((p) => p.Firma === firma);
