@@ -3,28 +3,55 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>NOMIS Group – evidence dokladů</title>
+<title>NOMIS Group CRM system</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Jost:wght@300;400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="style.css" />
 <link rel="icon" type="image/svg+xml" href="assets/icon-navy.svg" />
 </head>
 <body>
 <div id="app">
 
-  <!-- PŘIHLÁŠENÍ -->
-  <section id="view-login" class="karta">
-    <div class="znacka">
-      <img class="misto-logo" src="assets/icon-navy.svg" alt="NOMIS Group" />
-      <h1>NOMIS Group evidence dokladů</h1>
+  <!-- PŘIHLÁŠENÍ (v4.30 - "Split Hero", návrh C dle výběru Jana z luxusních
+       maket přihlašovací obrazovky, viz /tmp/login_mockups/c_split_hero.html
+       z v4.29). Appka nechává ID prvků (vyber-jmeno/pole-pin/tlacitko-
+       prihlasit/login-zprava) beze změny, ať přihlašovací logika v app.js
+       funguje beze změny. Monogram appka tady kreslí jako INLINE SVG bez
+       navy podkladu (jen zlaté tahy), na rozdíl od assets/icon-navy.svg
+       (má navy čtverec jako podklad, hodí se na světlé pozadí hlavičky
+       appky) - na tomhle panelu je podklad sám o sobě navy gradient, takže
+       navy čtverec by na navy pozadí splynul a logo by nebylo vidět. -->
+  <section id="view-login" class="prihlaseni-split">
+    <div class="prihlaseni-panel-vlevo">
+      <svg class="prihlaseni-logo-znak" viewBox="0 0 1024 1024" aria-hidden="true">
+        <g transform="translate(249.5,236) scale(4.375)">
+          <polyline points="42,26 60,10 78,26" fill="none" stroke="#e6cd98" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <polygon points="60,20 108,64 60,108 12,64" fill="none" stroke="#e6cd98" stroke-width="3"/>
+          <line x1="42" y1="40" x2="42" y2="88" stroke="#e6cd98" stroke-width="5.5" stroke-linecap="round"/>
+          <line x1="78" y1="40" x2="78" y2="88" stroke="#e6cd98" stroke-width="5.5" stroke-linecap="round"/>
+          <line x1="42" y1="42" x2="78" y2="86" stroke="#e6cd98" stroke-width="5.5" stroke-linecap="round"/>
+        </g>
+      </svg>
+      <h1>NOMIS Group <span class="znacka-crm-split">CRM system</span></h1>
+      <p class="prihlaseni-tagline">Evidence dokladů, faktur a bankovních výpisů pro všechny firmy skupiny NOMIS Group na jednom místě.</p>
+      <div class="prihlaseni-pill">Privátní systém</div>
     </div>
-    <p class="popis">Evidence faktur, účtenek a bankovních výpisů</p>
-    <label for="vyber-jmeno">Jméno</label>
-    <select id="vyber-jmeno">
-      <option value="">Načítám seznam uživatelů…</option>
-    </select>
-    <label for="pole-pin">PIN</label>
-    <input type="password" id="pole-pin" inputmode="numeric" autocomplete="off" placeholder="Zadejte svůj PIN" />
-    <button id="tlacitko-prihlasit">Přihlásit se</button>
-    <div id="login-zprava"></div>
+    <div class="prihlaseni-panel-vpravo">
+      <div class="prihlaseni-karta">
+        <h2>Přihlášení</h2>
+        <p class="prihlaseni-podnadpis">Zadejte své jméno a PIN.</p>
+        <label for="vyber-jmeno">Jméno</label>
+        <select id="vyber-jmeno">
+          <option value="">Načítám seznam uživatelů…</option>
+        </select>
+        <label for="pole-pin">PIN</label>
+        <input type="password" id="pole-pin" inputmode="numeric" autocomplete="off" placeholder="Zadejte svůj PIN" />
+        <button id="tlacitko-prihlasit">Přihlásit se</button>
+        <div id="login-zprava"></div>
+        <div class="prihlaseni-paticka">© 2026 NOMIS Group</div>
+      </div>
+    </div>
   </section>
 
   <!-- HLAVNÍ APLIKACE -->
@@ -32,7 +59,7 @@
     <div class="hlavicka-app">
       <div class="znacka">
         <img class="misto-logo" src="assets/icon-navy.svg" alt="NOMIS Group" />
-        <h1>NOMIS Group evidence dokladů</h1>
+        <h1>NOMIS Group <span class="znacka-crm">CRM system</span></h1>
       </div>
       <div class="uzivatel">
         <select id="vyber-skinu" title="Vzhled appky">
@@ -61,10 +88,10 @@
       <button data-zalozka="prehled" id="nav-prehled">Daňový přehled</button>
       <button data-zalozka="kniha-jizd" id="nav-kniha-jizd">Kniha jízd</button>
       <button data-zalozka="nemovitosti" id="nav-nemovitosti">Nemovitosti</button>
-      <button data-zalozka="banka" id="nav-banka" class="skryto">Bankovní výpisy</button>
-      <button data-zalozka="smlouvy" id="nav-smlouvy" class="skryto">Registr smluv</button>
-      <button data-zalozka="export" id="nav-export" class="skryto">Export</button>
-      <button data-zalozka="nastaveni" id="nav-nastaveni" class="skryto">Nastavení</button>
+      <button data-zalozka="banka" id="nav-banka">Bankovní výpisy</button>
+      <button data-zalozka="smlouvy" id="nav-smlouvy">Registr smluv</button>
+      <button data-zalozka="export" id="nav-export">Export</button>
+      <button data-zalozka="nastaveni" id="nav-nastaveni">Nastavení</button>
     </nav>
 
     <!-- NAHRÁT -->

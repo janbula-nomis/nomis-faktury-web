@@ -3178,6 +3178,207 @@ adminovi na všech čtyřech místech, správný název staženého souboru).
 
 `APP_VERZE` appka zvýšila na `v4.28 – 2026-07-24`.
 
+## 70. Přejmenování appky, oprava navigace a viditelnost běžné role (v4.29)
+
+Jan poslal screenshot admin dashboardu s poznámkou "tlačítka jsou excentricky,
+tohle se mi nelíbí, ani v mobilu, logo používám jiné, musíš to opravit, app
+má název NOMIS Group CRM system, přihlašovací obrazovku udělej velmi
+luxusní..." - appka na to reagovala čtyřmi samostatnými změnami:
+
+- **Přejmenování appky**: `<title>` a oba `<h1>` výskyty (přihlašovací
+  obrazovka i hlavička appky, `public/index.html`) appka přejmenovala z
+  "NOMIS Group evidence dokladů" na "NOMIS Group CRM system" ("CRM system"
+  appka odlišuje tlumenější barvou/váhou písma, ne stejně důrazně jako
+  "NOMIS Group"). Appka zjistila (viz komentář u `.misto-logo` v
+  `public/style.css`), že aktuální logo (`assets/icon-navy.svg`) appka
+  dostala přímo od Jana už ve v4.6 - nejde tedy o žádný dřívější
+  neoficiální placeholder, appka ho beze změny ponechala. Appka navíc
+  přidala font "Space Grotesk" (Google Fonts, stejný font Jan používá i na
+  marketingovém webu NOMIS Group) pro nadpis značky `.znacka h1`, ať appka
+  vizuálně navazuje na existující brand identitu skupiny.
+- **Oprava rozložení hlavní navigace** (`nav.zalozky` v `public/style.css`):
+  appka měnila CSS grid s pevnou šířkou sloupce (`repeat(auto-fill, 140px)`,
+  resp. `105px` na mobilu) na flexbox s `flex-wrap: wrap` +
+  `justify-content: center` - dokud počet viditelných tlačítek (liší se
+  podle role) nevyšel na celočíselný násobek počtu sloupců, zůstal poslední
+  řádek zarovnaný doleva s prázdným místem vpravo, což appka teď centruje.
+  Ověřeno Playwrightem na šířkách 1280/390/320 px pro role admin/účetní/
+  běžný uživatel.
+- **Přenastavení viditelnosti běžné role** (role `""`, ne admin/účetní): Jan
+  upřesnil požadavek na "uživatel vidí přijaté, vydané a bank výpisy, víc
+  nic, ale jen pro určenou firmu, kterou zvolí admin, uživatel nemůže
+  schvalovat, ale vidí proces až po zápis do bankovních výpisů" - appka
+  proto RUŠÍ omezení viditelnosti zavedené ve v4.11:
+  - `netlify/functions/doklady.js` (`smiVidetDoklad`) appka běžné roli
+    v GET už nefiltruje na `Stav !== 'Schváleno'` - vrací doklad v
+    libovolném stavu, pokud má uživatel přístup k jeho firmě.
+  - `netlify/functions/vydaneFaktury.js` (`viditelnostFaktury`) appka
+    stejně tak přestala schovávat faktury se `Stav === 'Uhrazeno'`.
+  - PATCH/DELETE omezení appka NECHÁVÁ beze změny - běžná role pořád nesmí
+    nastavit `Stav: 'Schváleno'`/`'Uhrazeno'` ani editovat/mazat cizí nebo
+    už schválený/uhrazený záznam (jen svůj vlastní nepotvrzený).
+  - `public/app.js` (`zobrazApp()`) appka přestala schovávat přepínač "Ke
+    schválení/Schválené" u Dokladů běžné roli (a přestala ji nutit vždy do
+    sekce "Ke schválení") - teď si mezi sekcemi přepíná stejně jako admin/
+    účetní.
+  - Appka navíc schovala záložku Nemovitosti (`nav-nemovitosti`) běžné
+    roli - dřív appka tuhle záložku neschovávala nikomu, i když jde jen o
+    prázdný placeholder (viz komentář u v4.23 v `public/index.html`), teď
+    odpovídá přesně specifikovaným třem záložkám (Přijaté/Vydané/Bankovní
+    výpisy).
+  - Appka aktualizovala `test_doklady_omezeny_uzivatel.js` a
+    `test_vf_omezeny_uzivatel.js` (test č. 1 v obou souborech obrácen -
+    běžná role teď VIDÍ i schválené/uhrazené záznamy), zbytek testů
+    (PATCH/DELETE omezení) appka nechala beze změny.
+  - **Pozn.**: appka si při analýze všimla, že `ucetni` role má nesrovnalost
+    v scoping na firmy - 4 soubory (`danovy-prehled.js`, `vydaneFaktury.js`,
+    `vydane-faktury-polozky.js`, `vydane-faktury-vytezit-polozky.js`) dávají
+    účetní neomezený přístup ke všem firmám bez ohledu na `uzivatel.firmy`,
+    zatímco většina ostatních souborů `ucetni` scopuje stejně jako běžnou
+    roli. Appka tohle Janovi nahlásila, ale NEOPRAVILA (mimo zadaný rozsah
+    téhle změny, čeká na explicitní potvrzení).
+- **Návrhy luxusní přihlašovací obrazovky**: appka připravila 3 mockupy
+  (Navy Executive - tmavé sklo/gradient, Cream Minimal Luxury - světlá karta
+  se zlatou linkou, Split Hero - dvousloupcové rozložení s brand panelem) v
+  navy/gold paletě a fontech Space Grotesk/Jost shodných s marketingovým
+  webem NOMIS Group - poslány Janovi jako obrázky k výběru, DOSUD nejsou
+  zapojené do `public/index.html` (čeká se, který směr Jan vybere).
+
+Ověřeno: celá regresní sada appky (65+ backendových testů, aktualizované 2),
+Playwright ověřením rozložení navigace (9 screenshotů, 3 role × 3 šířky) a
+Playwright ověřením viditelnosti sekcí Dokladů běžné roli.
+
+`APP_VERZE` appka zvýšila na `v4.29 – 2026-07-25`.
+
+## 71. Nav-tlačítka "vždy vidět, zamknout podle role" + přihlašovací obrazovka Split Hero (v4.30)
+
+Navazuje přímo na v4.29. Jan si vybral mockup "C – Split Hero" pro reálné
+nasazení, ale zároveň upozornil, že poslední oprava rozložení navigace
+(v4.29, flexbox s centrováním) je nedostatečná: "tlačítka musí být v mřížce
+zarovnané pod sebou, pokud se zlomí". Appka rozebrala příčinu (flexbox
+centruje KAŽDÝ zalomený řádek zvlášť, takže sloupce dvou řádků s různým
+počtem tlačítek nejsou pod sebou zarovnané - a počet viditelných tlačítek se
+lišil právě podle role) a navrhla vysvětlení Janovi, který na to zareagoval
+návrhem řešení: "tlačítka pro různé role tam budou, ale pokud nebude
+oprávnění, bude na nich znak zámku" - appka na dotaz k detailům (klikatelnost
+zamčených tlačítek, zahrnutí admin panelu) dostala odpověď "neklikatelné,
+včetně admin panelu".
+
+- **Nav-tlačítka "vždy vidět, zamknout"**: appka už žádnou z 10 záložek
+  hlavní navigace nikdy neschovává (`class="skryto"` appka odstranila z
+  `nav-banka`/`nav-smlouvy`/`nav-export`/`nav-nastaveni` v
+  `public/index.html` - byly poslední 4, co se ještě schovávaly). Místo
+  toho appka v `public/app.js` (`zobrazApp()`) přidala pomocnou funkci
+  `nastavZamekZalozky(id, zamceno)`, která na tlačítko nastaví `disabled`
+  (prohlížeč sám zabrání click eventu - appka proto nepotřebuje žádnou
+  dodatečnou pojistku v listeneru `[data-zalozka]`), přidá třídu
+  `zamcena-zalozka` (vizuální ztlumení + ikona zámku přes `::before` v
+  `public/style.css`) a nastaví tooltip `title="Nemáte oprávnění k této
+  sekci."`. Všechny dřívější `.classList.toggle('skryto', !jeXxx)` volání
+  appka nahradila voláním `nastavZamekZalozky` se STEJNOU podmínkou (jen
+  invertovaný efekt - zamyká, ne schovává):
+  - `nav-nastaveni` - zamčeno pro kohokoli, kdo není admin (dřív úplně
+    schované neadminům - teď appka Nastavení VŽDY vykreslí, i pro běžnou
+    roli a účetní, jen zamčené, přesně dle Janova "neklikatelné, včetně
+    admin panelu").
+  - `nav-smlouvy`, `nav-export`, `nav-dashboard`, `nav-kniha-jizd`,
+    `nav-prehled`, `nav-nemovitosti` - zamčeno pro běžnou roli (ne
+    admin/účetní), beze změny v tom, KDO smí co vidět/dělat.
+  - `nav-banka` - appka nechává VŽDY odemčené pro všechny role (beze změny
+    oproti v4.12 politice "náhled pro všechny").
+- **Pevná CSS grid místo flexboxu** (`nav.zalozky` v `public/style.css`):
+  protože appka teď vykresluje VŽDY přesně 10 tlačítek bez ohledu na roli,
+  appka mohla nahradit flexbox (`justify-content: center`) opravdovou CSS
+  grid s PEVNÝM počtem sloupců - `grid-template-columns: repeat(5, 1fr)` na
+  desktopu (5×2), `repeat(2, 1fr)` na mobilu (2×5, uvnitř stávající
+  `@media (max-width: 640px)`). Deset je beze zbytku dělitelné oběma počty
+  sloupců, takže poslední řádek appky je VŽDY plně zaplněný a sloupce zůstávají
+  zarovnané napříč oběma řádky za všech okolností a při libovolné roli -
+  problém z v4.29 tím appka odstranila strukturálně, ne kosmeticky.
+- **Přihlašovací obrazovka "Split Hero"** (`#view-login` v
+  `public/index.html` + `public/style.css`): appka nahradila dosavadní
+  jednoduchou kartu (`class="karta"`) dvoupanelovým rozložením podle
+  vybraného mockupu C (`/tmp/login_mockups/c_split_hero.html` z v4.29) -
+  vlevo navy/zlatý brand panel (`.prihlaseni-panel-vlevo`: gradient pozadí,
+  monogram appky jako inline SVG bez navy podkladu - na navy pozadí panelu
+  by navy čtverec `assets/icon-navy.svg` splynul, proto appka kreslí jen
+  zlaté tahy -, nadpis "NOMIS Group **CRM system**" ve Space Grotesk,
+  popisek, pilulka "Privátní systém"), vpravo krémová karta se samotným
+  formulářem (`.prihlaseni-panel-vpravo`/`.prihlaseni-karta`: "Přihlášení",
+  Jméno/PIN, tlačítko "Přihlásit se", patička). Appka zachovala VŠECHNA
+  původní ID prvků (`vyber-jmeno`, `pole-pin`, `tlacitko-prihlasit`,
+  `login-zprava`), takže přihlašovací logika v `public/app.js` funguje beze
+  změny. Appka přidala font "Jost" (Google Fonts) vedle už existujícího
+  "Space Grotesk" pro tělo textu na přihlašovací obrazovce. Appka element
+  `#view-login` umístila přes `position: fixed; inset: 0` (appka tak
+  obchází `#app { max-width: 900px; padding: 16px }`, které platí jen pro
+  obsah PO přihlášení) - appka `.skryto` (má `!important`) funguje beze
+  změny, `fixed` pozicování s ním nekoliduje. Pod 760px appka panely skládá
+  vertikálně (`@media (max-width: 760px)`, panely nad sebou místo vedle
+  sebe).
+- Appka aktualizovala `/tmp/verify_branding_v429.js` (kontrola viditelnosti
+  `nav-nemovitosti` appka přepnula z `classList.contains('skryto')` na
+  `.disabled`, protože se role od v4.30 řeší zámkem, ne schováním).
+
+Ověřeno: celá regresní sada appky (65 backendových testů, beze změny - jde
+čistě o frontend/UI, appka nemění žádnou access-control logiku, jen vizuální
+projev), nová Playwright sada (`/tmp/verify_v430_navlock_login.js`) ověřující
+pro všechny 3 role: appka vždy vykreslí přesně 10 tlačítek, zamčené/odemčené
+tlačítko odpovídá roli, klik na zamčené tlačítko nepřepne záložku, grid má
+5, resp. 2 sloupce na desktopu/mobilu, a přihlašovací obrazovka má očekávanou
+strukturu a zachovaná ID i na mobilní šířce (sloupcové řazení panelů).
+
+`APP_VERZE` appka zvýšila na `v4.30 – 2026-07-25`.
+
+## 72. Oprava: role "ucetni" scoped na přiřazené firmy (odstranění neomezeného bypassu, v4.31)
+
+Jan jednoslovně potvrdil ("oprav") dřívější nahlášenou-ale-neopravenou
+nesrovnalost z v4.29: appka ve 4 souborech dávala roli `ucetni` neomezený
+bypass přes VŠECHNY firmy bez ohledu na `uzivatel.firmy` (seznam firem, který
+uživateli přiřazuje admin), zatímco většina appky (`doklady.js`, `banka.js`,
+`smlouvy.js`, `smlouvy-upload.js`, `kniha-jizd.js`, `kniha-jizd-import.js`,
+`kniha-jizd-prehled.js`, `smlouvy-prilohy.js`, `export-excel.js`) bypass dává
+JEN roli `admin` - `ucetni` je v nich scoped na přiřazené firmy stejně jako
+běžná role, liší se jen OPRÁVNĚNÍMI (schvalování/mazání/export), ne rozsahem
+viditelných firem.
+
+Appka opravila `maPristupKFirme` (odstranila `|| uzivatel.role === 'ucetni'`)
+ve všech 4 nahlášených souborech, ať appka drží jednotné pravidlo napříč
+celým backendem - bypass VŠECH firem má JEN admin:
+
+- `netlify/functions/danovy-prehled.js`
+- `netlify/functions/vydaneFaktury.js` (+ aktualizace zastaralého komentáře v
+  hlavičce souboru, který mylně popisoval `ucetni` jako "vidí a spravuje
+  vše")
+- `netlify/functions/vydane-faktury-polozky.js`
+- `netlify/functions/vydane-faktury-vytezit-polozky.js`
+
+Appka aktualizovala i existující testy, které dřív (nevědomky) ověřovaly
+PŮVODNÍ (chybné) chování - `ucetni` s prázdným `firmy: []` a přesto viditelná
+data všech firem:
+
+- `/tmp/test_vf.js` (test č. 4) - účetní teď test přiřazuje explicitně k
+  oběma firmám z testovacích dat, appka přidala i nový test č. 4b, který
+  potvrzuje, že účetní BEZ přiřazení k firmě B tuhle fakturu nevidí (scoping
+  je opravdu vynucen, ne jen dřívější bypass beze změny).
+- `/tmp/test_polozky_crud.js` - `UCETNI` testovací uživatel appka přiřadila k
+  firmě `NOMIS Investment`, se kterou v testu pracuje.
+
+Appka navíc napsala novou dedikovanou regresní sadu
+`/tmp/test_ucetni_firma_scoping_v430.js`, která pro všechny 4 opravené
+soubory ověřuje: účetní bez přiřazení k firmě dostane 403/nevidí data té
+firmy, účetní s přiřazením vidí svoji firmu beze změny, a admin má pořád
+neomezený přístup ke všem firmám beze změny.
+
+Appka NEMĚNILA nic jiného - žádná další oprávnění (kdo smí schvalovat, mazat,
+exportovat) se neměnila, mění se JEN rozsah firem, které `ucetni` vidí v
+těchhle 4 endpointech.
+
+Ověřeno: celá regresní sada appky (66 backendových testů - 65 původních + 1
+nová, všechny prošly).
+
+`APP_VERZE` appka zvýšila na `v4.31 – 2026-07-25`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

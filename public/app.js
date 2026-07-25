@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.28 – 2026-07-24';
+const APP_VERZE = 'v4.31 – 2026-07-25';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -278,30 +278,56 @@ function zobrazApp() {
 
   const jeAdmin = stav.role === 'admin';
   const jeUcetniNeboAdmin = stav.role === 'admin' || stav.role === 'ucetni';
-  document.getElementById('nav-nastaveni').classList.toggle('skryto', !jeAdmin);
-  document.getElementById('nav-smlouvy').classList.toggle('skryto', !jeUcetniNeboAdmin);
-  document.getElementById('nav-export').classList.toggle('skryto', !jeUcetniNeboAdmin);
-  // Jan (2026-07-21, v4.12): Bankovní výpisy appka nově zobrazuje VŠEM
-  // přihlášeným (dřív jen adminovi/účetní, viz odstraněný toggle níže v
-  // historii) - viz poznámka o v4.12 níže pro plný kontext.
-  document.getElementById('nav-banka').classList.remove('skryto');
 
-  // Jan (2026-07-19, v4.10): běžný uživatel (role "" - ne admin, ne účetní)
-  // má v hlavní navigaci vidět JEN Nahrát doklady/Přijaté faktury/Vydané
-  // faktury/Daňový přehled - appka mu Dashboard a Knihu jízd schová (dřív
-  // je viděl každý přihlášený bez ohledu na roli). Admin i účetní vidí
-  // obojí beze změny.
-  document.getElementById('nav-dashboard').classList.toggle('skryto', !jeUcetniNeboAdmin);
-  document.getElementById('nav-kniha-jizd').classList.toggle('skryto', !jeUcetniNeboAdmin);
+  // Jan (2026-07-25, v4.30): appka dřív nepovolené záložky pro danou roli
+  // SCHOVÁVALA (třída .skryto) - to ale znamenalo, že počet viditelných
+  // tlačítek v nav.zalozky se lišil podle role, takže se poslední (neúplný)
+  // řádek mřížky nedal spolehlivě zarovnat pod řádek první (viz v4.29
+  // rozbor). Jan navrhl: appka teď VŽDY vykresluje všech 10 tlačítek pro
+  // každou roli - tlačítka mimo oprávnění dané role appka jen ZAMKNE
+  // (atribut disabled + ikona zámku + tooltip), místo aby je schovávala.
+  // Zamčené tlačítko appka dělá zcela neklikatelné (nativní chování
+  // <button disabled> - žádný click event se nespustí, netřeba žádná
+  // dodatečná pojistka v listeneru níže u `[data-zalozka]`). Díky pevnému
+  // počtu tlačítek (10 = 5×2 na desktopu, 2×5 na mobilu) appka může použít
+  // opravdovou CSS grid s pevným počtem sloupců (viz nav.zalozky ve
+  // style.css) - sloupce tak zůstanou zarovnané napříč řádky za všech
+  // okolností, nezávisle na roli přihlášeného uživatele.
+  function nastavZamekZalozky(id, zamceno) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = zamceno;
+    el.classList.toggle('zamcena-zalozka', zamceno);
+    el.title = zamceno ? 'Nemáte oprávnění k této sekci.' : '';
+  }
 
-  // Jan (2026-07-21, v4.12): oprava v4.10 - Bankovní výpisy appka teď
-  // NESCHOVÁVÁ ani běžnému uživateli (dřív byly jen pro admina/účetní) -
-  // Jan chce, aby je viděl (jen náhled, jen k firmám, které má přiřazené -
-  // appka scopuje přes stejnou maPristupKFirme jako jinde, viz
-  // netlify/functions/banka.js). Naopak Daňový přehled appka běžnému
-  // uživateli teď SCHOVÁVÁ (byl součástí čtyř záložek z v4.10, Jan ho
-  // pro běžnou roli už nechce). Admin a účetní mají obojí beze změny.
-  document.getElementById('nav-prehled').classList.toggle('skryto', !jeUcetniNeboAdmin);
+  nastavZamekZalozky('nav-nastaveni', !jeAdmin);
+  nastavZamekZalozky('nav-smlouvy', !jeUcetniNeboAdmin);
+  nastavZamekZalozky('nav-export', !jeUcetniNeboAdmin);
+  // Jan (2026-07-21, v4.12): Bankovní výpisy appka zobrazuje VŠEM
+  // přihlášeným bez zámku (jen náhled, scopováno na přiřazené firmy stejně
+  // jako jinde) - viz poznámka o v4.12 níže pro plný kontext.
+  nastavZamekZalozky('nav-banka', false);
+
+  // Jan (2026-07-19, v4.10 → v4.30 zámek místo schování): běžný uživatel
+  // (role "" - ne admin, ne účetní) má v hlavní navigaci mít přístup JEN k
+  // Nahrát doklady/Přijaté faktury/Vydané faktury/Bankovní výpisy -
+  // Dashboard a Knihu jízd appka zamyká (dřív schovávala). Admin i účetní
+  // mají obojí odemčené beze změny.
+  nastavZamekZalozky('nav-dashboard', !jeUcetniNeboAdmin);
+  nastavZamekZalozky('nav-kniha-jizd', !jeUcetniNeboAdmin);
+
+  // Jan (2026-07-21, v4.12 → v4.30 zámek místo schování): Daňový přehled
+  // appka běžné roli zamyká (byl součástí čtyř záložek z v4.10, Jan ho pro
+  // běžnou roli nechce zpřístupněný). Admin a účetní mají odemčeno beze
+  // změny.
+  nastavZamekZalozky('nav-prehled', !jeUcetniNeboAdmin);
+
+  // Jan (2026-07-25, v4.29 → v4.30 zámek místo schování): "uživatel vidí
+  // přijaté, vydané a bank výpisy, víc nic" - appka zamyká i Nemovitosti
+  // běžné roli.
+  nastavZamekZalozky('nav-nemovitosti', !jeUcetniNeboAdmin);
+
   // Appka pro běžnou roli navíc schová akce se zápisem v Bankovních
   // výpisech (nahrání výpisu, přepočet shod) - detail pohybu appka
   // stejně odmítne PATCHnout (viz banka.js), appka jen zbytečně
@@ -318,14 +344,12 @@ function zobrazApp() {
   const bankaExcelExport = document.getElementById('banka-excel-export');
   if (bankaExcelExport) bankaExcelExport.classList.toggle('skryto', !jeUcetniNeboAdmin);
 
-  // Jan (2026-07-19, v4.11): běžný uživatel vidí u Dokladů jen "Ke schválení"
-  // (appka mu schválené doklady stejně vůbec nevrátí z backendu - viz
-  // netlify/functions/doklady.js, smiVidetDoklad) - přepínač Ke schválení/
-  // Schválené appka mu proto celý schová, ať nesvádí k přepnutí na sekci,
-  // která bude vždy prázdná.
-  const prepinacDokladySekce = document.querySelector('#zalozka-doklady .prepinac-sekce');
-  if (prepinacDokladySekce) prepinacDokladySekce.classList.toggle('skryto', !jeUcetniNeboAdmin);
-  if (!jeUcetniNeboAdmin) dokladySekce = 'keSchvaleni';
+  // Jan (2026-07-19, v4.11 → zrušeno v4.29): appka dřív běžné roli schovávala
+  // přepínač Ke schválení/Schválené (backend jí schválené doklady stejně
+  // vůbec nevracel). Jan teď chce, aby běžný uživatel viděl "proces až po
+  // zápis do bankovních výpisů" - tedy celý životní cyklus - appka proto
+  // přepínač ukazuje VŠEM rolím stejně (viz odpovídající zrušení v
+  // netlify/functions/doklady.js, smiVidetDoklad).
 
   prepniZalozku('nahrat');
   spustIdleSledovani();

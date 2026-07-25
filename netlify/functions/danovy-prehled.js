@@ -45,8 +45,14 @@ const { readSheetObjects } = require('../../lib/sheetsHelpers');
 const { parsujCastkuZListu } = require('../../lib/bankHelpers');
 const { json } = require('../../lib/http');
 
+// Oprava (v4.30): appka tu dřív dávala roli `ucetni` neomezený bypass přes
+// VŠECHNY firmy bez ohledu na uzivatel.firmy - nekonzistentní s většinou
+// appky (doklady.js/banka.js/smlouvy.js/kniha-jizd.js aj.), kde bypass má
+// jen `admin`, `ucetni` je scoped na přiřazené firmy stejně jako běžná
+// role (liší se jen OPRÁVNĚNÍMI, ne rozsahem viditelných firem). Appka
+// bypass pro `ucetni` odstranila, ať se chová stejně jako zbytek appky.
 function maPristupKFirme(uzivatel, firma) {
-  return uzivatel.role === 'admin' || uzivatel.role === 'ucetni' || (uzivatel.firmy || []).includes(firma);
+  return uzivatel.role === 'admin' || (uzivatel.firmy || []).includes(firma);
 }
 
 function zaokrouhli(cislo) {

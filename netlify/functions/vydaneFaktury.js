@@ -10,8 +10,12 @@
  * PATCH  { id, zmeny: { Stav?, Datum_uhrady?, Poznamka?, ... } }
  *          -> typicky označení Uhrazeno/Neuhrazeno, oprava údajů
  *
- * Přístup: role "admin" a "ucetni" vidí a spravují vše, běžný uživatel jen
- * faktury firem ze svého seznamu Firmy (stejný princip jako u Dokladů).
+ * Přístup: role "admin" vidí a spravuje faktury VŠECH firem bez omezení.
+ * "ucetni" i běžný uživatel vidí jen faktury firem ze svého přiřazeného
+ * seznamu Firmy (nastavuje admin) - stejný princip jako u Dokladů (viz
+ * Pozn. v4.30 níže). "ucetni" a "admin" se od běžné role liší jen
+ * OPRÁVNĚNÍMI (schvalování/mazání uhrazené faktury), ne rozsahem
+ * viditelných firem.
  *
  * Od v3.22: appka nabízí i AI vytěžení faktury ze souboru jako ALTERNATIVU
  * k ručnímu zadání přes tenhle POST - viz netlify/functions/vydane-faktury-
@@ -29,6 +33,21 @@
  * "Uhrazeno" ani upravovat/mazat už uhrazenou fakturu - to zůstává na
  * adminovi/účetní. Smazat smí jen fakturu, kterou sám vytvořil (pole
  * `Vytvoril`, appka ho appka plní stejně u ručního zadání i AI uploadu).
+ *
+ * Pozn. (v4.29): appka RUŠÍ omezení viditelnosti z v4.11 (viz stejná změna a
+ * důvod v netlify/functions/doklady.js) - běžný uživatel teď v GET vidí i
+ * už uhrazené faktury (celý životní cyklus, ne jen čekající), pořád ale jen
+ * u svých přiřazených firem. PATCH/DELETE omezení (žádné nastavení Uhrazeno,
+ * mazání jen vlastní neuhrazené faktury) appka nechává beze změny.
+ *
+ * Pozn. (v4.30): appka opravila nesrovnalost nahlášenou po v4.29 -
+ * `maPristupKFirme` tu dřív dávala roli `ucetni` neomezený bypass přes
+ * VŠECHNY firmy bez ohledu na `uzivatel.firmy`, nekonzistentně s většinou
+ * appky (doklady.js/banka.js/smlouvy.js/kniha-jizd.js aj.), kde bypass má
+ * jen `admin`. Appka bypass pro `ucetni` odstranila - `ucetni` je teď
+ * scoped na přiřazené firmy stejně jako běžná role, liší se jen
+ * OPRÁVNĚNÍMI (viz `jeUcetniNeboAdmin` níže), ne rozsahem viditelných
+ * firem.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -43,7 +62,7 @@ function jeUcetniNeboAdmin(uzivatel) {
 }
 
 function maPristupKFirme(uzivatel, firma) {
-  return uzivatel.role === 'admin' || uzivatel.role === 'ucetni' || (uzivatel.firmy || []).includes(firma);
+  return uzivatel.role === 'admin' || (uzivatel.firmy || []).includes(firma);
 }
 
 exports.handler = async (event) => {
@@ -74,12 +93,10 @@ exports.handler = async (event) => {
         const zakladniPristup =
           (r.Firma && maPristupKFirme(uzivatel, r.Firma)) ||
           (!r.Firma && (jeUcetniNeboAdmin(uzivatel) || r.Nahral_uzivatel === uzivatel.jmeno));
-        if (!zakladniPristup) return false;
-        // v4.11: běžný uživatel vidí jen faktury, které ještě nejsou uhrazené -
-        // jakmile appka fakturu označí "Uhrazeno", mizí mu z pohledu úplně
-        // (obdoba "ke schválení" u Dokladů).
-        if (!jeUcetniNeboAdmin(uzivatel) && r.Stav === 'Uhrazeno') return false;
-        return true;
+        // v4.29: appka zrušila dřívější v4.11 omezení, které tu schovávalo
+        // už uhrazené faktury běžné roli (viz stejná změna v doklady.js) -
+        // stačí přístup k firmě, appka dál nerozlišuje podle Stav.
+        return zakladniPristup;
       };
 
       const viditelne = rows.filter(viditelnostFaktury);

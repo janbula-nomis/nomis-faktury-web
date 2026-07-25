@@ -87,9 +87,25 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
    šířky kontejneru, ne podle počtu tlačítek) - tlačítka mají teď vždy
    stejnou pevnou šířku bez ohledu na to, kolik jich je v posledním
    řádku, přebytečné místo v řádku appka nechá prázdné. */
+/* Oprava (v4.29): Jan - "tlačítka jsou excentricky, tohle se mi nelíbí, ani
+   v mobilu." Appka do v4.28 skládala navigaci jako CSS grid s pevnou šířkou
+   sloupce (viz historie výš) - dokud byl poslední řádek plný, vypadalo to
+   dobře, ale pokaždé, když počet VIDITELNÝCH tlačítek (lišil se podle role)
+   nevyšel na celočíselný násobek počtu sloupců, zůstal poslední řádek
+   zarovnaný doleva s prázdným místem vpravo - appka proto v4.29 přešla na
+   flexbox s `flex-wrap: wrap` + `justify-content: center`.
+   Oprava (v4.30): Jan upozornil, že centrování KAŽDÉHO řádku zvlášť
+   (flexbox) zase rozbíjí zarovnání SLOUPCŮ napříč řádky, pokud mají různou
+   délku (5 tlačítek v 1. řádku, 4 ve 2. atd. - tlačítko ve stejném sloupci
+   pak není pod sebou). Jan navrhl řešení: appka teď VŽDY vykresluje
+   VŠECH 10 tlačítek pro každou roli (nepovolené appka jen zamkne, viz
+   zobrazApp()/.zamcena-zalozka níže) - počet tlačítek je tak vždy stejný a
+   appka může použít opravdovou CSS grid s PEVNÝM počtem sloupců (5 na
+   desktopu → 5×2, viz media query níže pro mobil → 2×5), takže sloupce
+   zůstávají přesně zarovnané napříč oběma řádky, nezávisle na roli. */
 nav.zalozky {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 140px);
+  grid-template-columns: repeat(5, 1fr);
   gap: 6px;
   margin-bottom: 14px;
 }
@@ -101,11 +117,24 @@ nav.zalozky button {
   font-weight: 600;
   padding: 7px 12px;
   margin-top: 0;
-  width: 100%;
   box-sizing: border-box;
   text-align: center;
 }
 nav.zalozky button.aktivni { background: var(--barva-primarni); color: white; border-color: var(--barva-primarni); }
+
+/* Zamčená záložka (v4.30) - appka tlačítko zobrazuje pro každou roli, ale
+   pokud k němu daná role nemá oprávnění, appka ho ztlumí, přidá ikonu
+   zámku a natvrdo zakáže (viz nastavZamekZalozky() v public/app.js -
+   nastavuje atribut `disabled`, takže appka nepotřebuje žádnou zvláštní
+   pojistku proti kliknutí, prohlížeč sám click event na disabled tlačítku
+   nespustí). */
+nav.zalozky button.zamcena-zalozka {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--barva-text-tlumena);
+}
+nav.zalozky button.zamcena-zalozka::before { content: "🔒 "; }
+nav.zalozky button.zamcena-zalozka:hover { background: var(--barva-karta); }
 
 /* Jan (2026-07-18): "Nahrát doklady" má být vizuálně odlišené od
    ostatních záložek (červené pozadí, i „Novinky v4.5"). Appka to řešila
@@ -136,12 +165,14 @@ nav.zalozky button.aktivni { background: var(--barva-primarni); color: white; bo
 .hlavicka-app { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .hlavicka-app .uzivatel { font-size: 12px; color: var(--barva-text-tlumena); text-align: right; }
 
-/* Značka appky (logo + název) - stejná struktura na přihlašovací obrazovce
-   i v hlavičce appky, ať jde logo jednou vyměnit na obou místech stejně.
-   Od v4.6 appka používá reálné logo (icon-navy.svg, dodané Janem) místo
-   dřívějšího rezervovaného prázdného místa. Od v4.6.2 appka logo zvětšila
-   (Jan: „zvětši trochu logo“) - z 34px na 46px, beze změny na jiných
-   rozměrech/rozložení hlavičky. */
+/* Značka appky (logo + název) v hlavičce appky (do v4.29 appka stejnou
+   strukturu `.znacka` používala i na přihlašovací obrazovce - od v4.30
+   má přihlašovací obrazovka vlastní "Split Hero" rozložení, viz blok
+   `#view-login.prihlaseni-split` níže, takže `.znacka` teď appka používá
+   JEN uvnitř `.hlavicka-app`). Od v4.6 appka používá reálné logo
+   (icon-navy.svg, dodané Janem) místo dřívějšího rezervovaného prázdného
+   místa. Od v4.6.2 appka logo zvětšila (Jan: „zvětši trochu logo“) - z
+   34px na 46px, beze změny na jiných rozměrech/rozložení hlavičky. */
 .znacka { display: flex; align-items: center; gap: 10px; }
 .misto-logo {
   width: 46px;
@@ -149,6 +180,133 @@ nav.zalozky button.aktivni { background: var(--barva-primarni); color: white; bo
   flex: none;
   border-radius: var(--radius-sm);
   object-fit: contain;
+}
+/* v4.29 (přejmenování appky na "NOMIS Group CRM system"): appka pro nadpis
+   značky používá stejný font (Space Grotesk), jaký Jan používá i na
+   marketingovém webu NOMIS Group - "CRM system" appka odlišuje jako
+   tlumenější doplněk k tučnému "NOMIS Group", ne stejně důrazně. */
+.znacka h1 { font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.znacka-crm { font-weight: 500; color: var(--barva-text-tlumena); }
+:root[data-skin="navy"] .hlavicka-app .znacka-crm,
+:root[data-skin="gold"] .hlavicka-app .znacka-crm { color: #b7c2dd; }
+
+/* Přihlašovací obrazovka "Split Hero" (v4.30, návrh C z luxusních maket
+   přihlášení z v4.29 - viz /tmp/login_mockups/c_split_hero.html, Jan:
+   "použijeme C split"). Appka rozdělí celou obrazovku na dva panely: vlevo
+   navy/zlatý brand panel (logo, název, tagline, "Privátní systém" pill),
+   vpravo krémová karta se samotným přihlašovacím formulářem. `position:
+   fixed; inset:0` appka použije záměrně, aby se přihlašovací obrazovka
+   roztáhla přes CELÝ viewport bez ohledu na `#app { max-width: 900px;
+   padding: 16px }` (ten platí jen pro obsah PO přihlášení) - appka `.skryto`
+   (má `!important`, viz výš) na tomhle elementu funguje beze změny, `fixed`
+   pozicování nijak nekoliduje se schováním po přihlášení. */
+#view-login.prihlaseni-split {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  min-height: 100vh;
+  font-family: 'Jost', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 300;
+}
+.prihlaseni-panel-vlevo {
+  flex: 1 1 46%;
+  background:
+    repeating-linear-gradient(120deg, rgba(200,161,90,0.05) 0px, rgba(200,161,90,0.05) 1px, transparent 1px, transparent 60px),
+    linear-gradient(160deg, #0d1a2b 0%, #132540 100%);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 60px;
+}
+.prihlaseni-logo-znak { width: 60px; height: 60px; flex: none; }
+.prihlaseni-panel-vlevo h1 {
+  font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 700;
+  font-size: 2rem;
+  margin-top: 26px;
+  color: #fff;
+  line-height: 1.2;
+}
+.znacka-crm-split { color: #e6cd98; font-weight: 700; }
+.prihlaseni-tagline { margin-top: 14px; max-width: 320px; color: #a9b6c8; font-size: 0.92rem; line-height: 1.6; font-weight: 300; }
+.prihlaseni-pill {
+  margin-top: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  border: 1px solid rgba(200,161,90,0.35);
+  padding: 7px 14px;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #e6cd98;
+}
+.prihlaseni-panel-vpravo {
+  flex: 1 1 54%;
+  background: #f7f3ea;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  overflow-y: auto;
+}
+.prihlaseni-karta { width: 100%; max-width: 360px; }
+.prihlaseni-karta h2 {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  color: #0d1a2b;
+  font-size: 1.3rem;
+  margin: 0;
+}
+.prihlaseni-podnadpis { margin-top: 6px; color: #6b7a8d; font-size: 0.85rem; margin-bottom: 30px; }
+.prihlaseni-karta label {
+  display: block;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6b7a8d;
+  margin: 18px 0 6px;
+}
+.prihlaseni-karta select,
+.prihlaseni-karta input {
+  width: 100%;
+  padding: 11px 13px;
+  font-size: 0.92rem;
+  font-family: 'Jost', sans-serif;
+  background: #fff;
+  border: 1px solid rgba(200,161,90,0.35);
+  border-radius: 2px;
+  color: #12202f;
+  outline: none;
+}
+.prihlaseni-karta select:focus,
+.prihlaseni-karta input:focus { border-color: #a4874f; box-shadow: 0 0 0 3px rgba(200,161,90,0.12); }
+.prihlaseni-karta input::placeholder { color: #c2c8d1; }
+#view-login #tlacitko-prihlasit {
+  width: 100%;
+  margin-top: 28px;
+  padding: 13px;
+  border: 1px solid #0d1a2b;
+  background: #0d1a2b;
+  color: #fff;
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 2px;
+}
+#view-login #tlacitko-prihlasit:hover { background: #0a1522; }
+.prihlaseni-paticka { margin-top: 22px; font-size: 0.68rem; color: #a9b0bb; }
+
+@media (max-width: 760px) {
+  #view-login.prihlaseni-split { flex-direction: column; overflow-y: auto; min-height: 100vh; height: auto; }
+  .prihlaseni-panel-vlevo { padding: 36px 30px; flex: 0 0 auto; }
+  .prihlaseni-panel-vpravo { padding: 30px; flex: 0 0 auto; }
 }
 
 .zprava { padding: 9px 11px; border-radius: var(--radius-sm); font-size: 13px; margin-top: 10px; }
@@ -403,13 +561,11 @@ input[type="file"] { margin-top: 8px; }
   .hlavicka-app { flex-wrap: wrap; gap: 8px; }
   .hlavicka-app .uzivatel { text-align: left; }
 
-  /* Tlačítka hlavní navigace appka zvětší na výšku (snazší dotykový cíl)
-     a zúží PEVNOU šířku sloupce gridu (od v4.9 grid místo flexu, od
-     2026-07-24 pevná šířka místo `1fr`, viz komentář výš u `nav.zalozky`),
-     ať se na užší obrazovce vejde víc tlačítek vedle sebe místo jednoho
-     přes celou šířku - a ať tlačítka v neúplně zaplněném řádku (běžné na
-     mobilu) zůstanou stejně velká jako všude jinde, ne roztažená. */
-  nav.zalozky { gap: 6px 8px; grid-template-columns: repeat(auto-fill, 105px); }
+  /* Tlačítka hlavní navigace appka na mobilu skládá do 2 sloupců (od v4.30
+     appka je skládá pevnou CSS grid, viz komentář výš u `nav.zalozky` -
+     10 tlačítek / 2 sloupce = přesně 5 zarovnaných řádků, žádný neúplný
+     poslední řádek nikdy nevznikne). */
+  nav.zalozky { grid-template-columns: repeat(2, 1fr); gap: 6px 8px; }
   nav.zalozky button { padding: 9px 10px; font-size: 12.5px; min-height: 38px; }
 
   /* Karty s auto-fit mřížkou (Export filtry, Dashboard firmy, souhrn

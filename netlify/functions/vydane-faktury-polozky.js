@@ -11,9 +11,11 @@
  * DELETE ?id=X                  -> smazání položky
  *
  * Přístup: appka kontroluje přes RODIČOVSKOU fakturu (Vydane_faktury.ID ==
- * Faktura_ID), stejná logika jako vydaneFaktury.js (maPristupKFirme).
- * Editaci/mazání appka zakazuje běžnému uživateli u už UHRAZENÉ faktury
- * (stejná konvence jako u samotné faktury) - admin/účetní vždy mohou.
+ * Faktura_ID), stejná logika jako vydaneFaktury.js (maPristupKFirme -
+ * bypass jen pro admina, "ucetni" scoped na přiřazené firmy stejně jako
+ * běžná role, viz Pozn. v4.30 tam). Editaci/mazání appka zakazuje běžnému
+ * uživateli u už UHRAZENÉ faktury (stejná konvence jako u samotné
+ * faktury) - admin/účetní vždy mohou.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -26,8 +28,11 @@ function jeUcetniNeboAdmin(uzivatel) {
   return uzivatel.role === 'admin' || uzivatel.role === 'ucetni';
 }
 
+// Oprava (v4.30): appka odstranila neomezený bypass pro roli `ucetni` (viz
+// stejná oprava a zdůvodnění v netlify/functions/vydaneFaktury.js) -
+// `ucetni` je teď scoped na přiřazené firmy stejně jako běžná role.
 function maPristupKFirme(uzivatel, firma) {
-  return uzivatel.role === 'admin' || uzivatel.role === 'ucetni' || (uzivatel.firmy || []).includes(firma);
+  return uzivatel.role === 'admin' || (uzivatel.firmy || []).includes(firma);
 }
 
 async function najdiFakturuNeboChybu(sheets, spreadsheetId, fakturaId) {

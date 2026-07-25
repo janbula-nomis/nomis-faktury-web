@@ -25,6 +25,16 @@
  * Role "ucetni" má u Dokladů beze změny stejná práva jako "admin" (obojí
  * schvaluje, obojí vidí i schválené, obojí může smazat cokoli v rámci svých
  * přiřazených firem).
+ *
+ * Pozn. (v4.29): Jan přenastavil viditelnost běžné role - "uživatel vidí
+ * přijaté, vydané a bank výpisy, víc nic, ale jen pro určenou firmu, kterou
+ * zvolí admin, uživatel nemůže schvalovat, ale vidí proces až po zápis do
+ * bankovních výpisů." Appka proto RUŠÍ omezení z v4.11, které běžné roli
+ * schované schválené doklady úplně (GET je nevracel) - běžný uživatel teď
+ * vidí celý životní cyklus dokladu (i po schválení, i po spárování s
+ * bankovním výpisem), stejně jako admin/účetní. PATCH/DELETE omezení (bod
+ * a/b výš - žádné schvalování, mazání jen vlastního nepotvrzeného dokladu)
+ * appka NECHÁVÁ beze změny - to je pořád v platnosti, mění se jen GET.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
@@ -43,13 +53,13 @@ function maPristupKDokladu(uzivatel, doklad) {
   return (uzivatel.firmy || []).includes(firma);
 }
 
-// v4.11: běžný uživatel (role "", ne admin/účetní) smí vidět jen doklady
-// čekající na schválení - jakmile appka doklad schválí, mizí mu z pohledu
-// úplně (appka ho vůbec nevrátí v GET odpovědi, ne jen skryje na frontendu).
+// v4.29: appka rušila dřívější v4.11 omezení - běžný uživatel teď vidí
+// doklad v libovolném stavu (pending i schválený), pokud má přístup k jeho
+// firmě - stejně jako admin/účetní. Funkce zůstává jako pojmenovaný wrapper
+// (dřív dělala víc), ať je v GET handleru pod ní vidět, PROČ appka doklady
+// filtruje, i když teď dělá totéž co maPristupKDokladu.
 function smiVidetDoklad(uzivatel, doklad) {
-  if (!maPristupKDokladu(uzivatel, doklad)) return false;
-  if (jeUcetniNeboAdmin(uzivatel)) return true;
-  return doklad.Stav !== 'Schváleno';
+  return maPristupKDokladu(uzivatel, doklad);
 }
 
 exports.handler = async (event) => {

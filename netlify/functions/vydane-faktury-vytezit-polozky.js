@@ -9,9 +9,10 @@
  * Zdrojovy_soubor_ID - appka faktury vytvořené RUČNĚ přes vydaneFaktury.js
  * POST žádný zdrojový soubor nemá, u těch zpětné vytěžení nedává smysl).
  *
- * Přístup: maPristupKFirme (stejná jako vydaneFaktury.js). Editaci položek
- * appka běžnému uživateli zakazuje u už UHRAZENÉ faktury - admin/účetní
- * mohou vytěžit kdykoli.
+ * Přístup: maPristupKFirme (stejná jako vydaneFaktury.js - bypass jen pro
+ * admina, "ucetni" scoped na přiřazené firmy stejně jako běžná role, viz
+ * Pozn. v4.30 tam). Editaci položek appka běžnému uživateli zakazuje u už
+ * UHRAZENÉ faktury - admin/účetní mohou vytěžit kdykoli.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
@@ -25,8 +26,11 @@ function jeUcetniNeboAdmin(uzivatel) {
   return uzivatel.role === 'admin' || uzivatel.role === 'ucetni';
 }
 
+// Oprava (v4.30): appka odstranila neomezený bypass pro roli `ucetni` (viz
+// stejná oprava a zdůvodnění v netlify/functions/vydaneFaktury.js) -
+// `ucetni` je teď scoped na přiřazené firmy stejně jako běžná role.
 function maPristupKFirme(uzivatel, firma) {
-  return uzivatel.role === 'admin' || uzivatel.role === 'ucetni' || (uzivatel.firmy || []).includes(firma);
+  return uzivatel.role === 'admin' || (uzivatel.firmy || []).includes(firma);
 }
 
 exports.handler = async (event) => {
