@@ -189,6 +189,28 @@ exports.handler = async (event) => {
     }
     const menaPohybu = vytvorMenaPohybu(uctyVsechny);
 
+    // v4.34 (Jan: "v dashboard uvádět částky pouze v měně účtu") - appka
+    // dosud u Dokladů (na rozdíl od Bankovních pohybů, viz vytvorMenaPohybu
+    // výš od v4.26.1) brala měnu přímo z pole `Mena` NA DOKLADU (appka ho
+    // vytěží/appka ho ručně zadá při zpracování) - to appce může "ujet"
+    // stejně jako u pohybu (překlep, špatně rozpoznaná měna), ale doklad
+    // sám žádný účet nenese, takže appka nemá odkud spolehlivější měnu vzít
+    // BEZ DALŠÍHO KROKU. Appka proto zkusí doklad dohledat mezi Bankovními
+    // pohyby PODLE Doklad_ID (appka tenhle svazek už používá pro spárování
+    // výdaje s odchozí platbou, viz banka.js) - je-li doklad spárovaný s
+    // konkrétní platbou, appka převezme měnu ÚČTU, kterým platba prošla
+    // (stejně spolehlivý zdroj jako u pohybů samotných). Není-li doklad
+    // (zatím) spárovaný, appka na Janovo výslovné potvrzení (AskUserQuestion)
+    // NECHÁVÁ beze změny - zůstane v měně uvedené přímo na dokladu, jak appka
+    // dělala dosud, dokud párování neproběhne.
+    const menaDokladuPodleId = {};
+    pohybyVsechny.forEach((p) => {
+      if (p.Doklad_ID) menaDokladuPodleId[p.Doklad_ID] = menaPohybu(p);
+    });
+    function menaDokladu(d) {
+      return menaDokladuPodleId[d.ID] || d.Mena;
+    }
+
     const strediskoPodleSmlouvy = {};
     smlouvyVsechny.forEach((s) => {
       if (s.ID) strediskoPodleSmlouvy[s.ID] = s.Stredisko || '(bez střediska)';
@@ -220,8 +242,8 @@ exports.handler = async (event) => {
           // stejný princip jako u DPH bilance v danovy-prehled.js, viz
           // lib/dokladySchema.js pro plné zdůvodnění.
           const znamenko = d.Typ_dokladu === 'Dobropis' ? -1 : 1;
-          pripoctiStredisko(strediskaVydaje, stredisko, d.Mena, castka * znamenko);
-          pripoctiCelkem(vydajePodleMeny, d.Mena, castka * znamenko);
+          pripoctiStredisko(strediskaVydaje, stredisko, menaDokladu(d), castka * znamenko);
+          pripoctiCelkem(vydajePodleMeny, menaDokladu(d), castka * znamenko);
         });
 
       const pohybyTetoFirmy = pohybyVsechny.filter((p) => p.Firma === firma);

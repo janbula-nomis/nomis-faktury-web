@@ -54,11 +54,35 @@ const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects, appendRow, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
+const { dalsiEvidencniCislo } = require('../../lib/evidencniCislo');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
 
 function jeUcetniNeboAdmin(uzivatel) {
   return uzivatel.role === 'admin' || uzivatel.role === 'ucetni';
+}
+
+function ziskejFirmuFaktury(f) {
+  return f.Firma || '';
+}
+
+// v4.34 (viz lib/evidencniCislo.js pro plné zdůvodnění) - appka u Vydaných
+// faktur nemá samostatné schvalování jako u Dokladů, takže evidenční číslo
+// (kód "FV") appka přiřazuje hned, jak se faktura stane REÁLNÝM záznamem
+// (ne placeholder "Zpracovává se", ne nevyřešená "Možná duplicita") - appka
+// jen JEDNOU (nepřepisuje existující číslo).
+function jeStavPotvrzeny(stav) {
+  return stav && stav !== 'Zpracovává se' && stav !== 'Možná duplicita';
+}
+
+function doplnEvidencniCisloPokudChybi(faktura, existujiciFaktury) {
+  if (faktura.Evidencni_cislo || !jeStavPotvrzeny(faktura.Stav)) return faktura;
+  const firma = ziskejFirmuFaktury(faktura);
+  const rok = String(faktura.DUZP || faktura.Datum_vystaveni || '').slice(0, 4) ||
+    String(new Date().getFullYear());
+  return Object.assign({}, faktura, {
+    Evidencni_cislo: dalsiEvidencniCislo(existujiciFaktury, 'FV', firma, rok, ziskejFirmuFaktury),
+  });
 }
 
 function maPristupKFirme(uzivatel, firma) {
@@ -116,7 +140,7 @@ exports.handler = async (event) => {
       if (!zakaznik) return json(400, { error: 'Vyplňte zákazníka.' });
       if (!castka || Number.isNaN(castka)) return json(400, { error: 'Vyplňte platnou částku.' });
 
-      const radek = {
+      let radek = {
         ID: crypto.randomUUID(),
         Firma: firma,
         Cislo_faktury: cisloFaktury,
@@ -133,6 +157,14 @@ exports.handler = async (event) => {
         Vytvoril: uzivatel.jmeno || '',
         Datum_vytvoreni: new Date().toISOString(),
       };
+
+      // v4.34: ručně založená faktura appka rovnou začíná ve stavu
+      // "Neuhrazeno" (appka u ní nemá placeholder fázi jako u AI uploadu) -
+      // appka jí proto evidenční číslo (FV ...) přiřadí hned při založení,
+      // stejná logika jako appka používá i po dokončení AI zpracování
+      // (viz vydane-faktury-upload-dokoncit.js).
+      const { rows: existujiciFaktury } = await readSheetObjects(sheets, spreadsheetId, 'Vydane_faktury');
+      radek = doplnEvidencniCisloPokudChybi(radek, existujiciFaktury);
 
       await appendRow(sheets, spreadsheetId, 'Vydane_faktury', VYDANE_FAKTURY_HEADERS, radek);
       return json(200, { ok: true, faktura: radek });
@@ -155,10 +187,15 @@ exports.handler = async (event) => {
         }
       }
 
-      const aktualizovana = Object.assign({}, faktura, zmeny || {});
+      let aktualizovana = Object.assign({}, faktura, zmeny || {});
+      // v4.34: appka tady dožene evidenční číslo pro faktury, které ho ještě
+      // nemají (typicky "Možná duplicita" ručně vyřešená na "Neuhrazeno") -
+      // u většiny PATCH volání (běžná oprava údajů) `doplnEvidencniCisloPokudChybi`
+      // nic nedělá, protože faktura evidenční číslo už dávno má.
+      aktualizovana = doplnEvidencniCisloPokudChybi(aktualizovana, rows);
       await updateRow(sheets, spreadsheetId, 'Vydane_faktury', VYDANE_FAKTURY_HEADERS, faktura._row, aktualizovana);
 
-      return json(200, { ok: true });
+      return json(200, { ok: true, faktura: aktualizovana });
     }
 
     if (event.httpMethod === 'DELETE') {

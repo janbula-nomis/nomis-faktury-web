@@ -162,6 +162,41 @@ exports.handler = async (event) => {
 
       const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
       const proFirmu = rows.filter((r) => r.Firma === firma);
+
+      // v4.34 (Jan: "pokud bylo přidáno středisko nebo předkontace, tak ji
+      // tam uvést, aby bylo vidět kde chybí vyplnění") - appka pro KAŽDÝ
+      // spárovaný pohyb (Doklad_ID vyplněné) dopočítá Středisko a Předkontace
+      // kód spárovaného dokladu - appka to appce ukáže přímo u bankovního
+      // výpisu, ať účetní vidí na první pohled, u kterých spárovaných
+      // dokladů ještě chybí zařazení, bez nutnosti otvírat každý doklad
+      // zvlášť v záložce Přijaté faktury. Jde o DOPOČÍTANÁ pole appky pro
+      // odpověď (appka nic tímhle needituje/neukládá do listu Bankovni_pohyby
+      // samotného), stejná konvence jako `Stav_parovani_bankou` v doklady.js.
+      try {
+        const [{ rows: dokladyVsechny }, { rows: predkontaceVsechny }] = await Promise.all([
+          readSheetObjects(sheets, spreadsheetId, 'Doklady'),
+          readSheetObjects(sheets, spreadsheetId, 'Predkontace').catch(() => ({ rows: [] })),
+        ]);
+        const dokladyPodleId = {};
+        dokladyVsechny.forEach((d) => { dokladyPodleId[d.ID] = d; });
+        const predkontaceMapa = {};
+        predkontaceVsechny.forEach((p) => {
+          if (p.Firma && p.Kategorie) predkontaceMapa[p.Firma + '|' + p.Kategorie] = p.Kod || '';
+        });
+
+        proFirmu.forEach((p) => {
+          if (!p.Doklad_ID) return;
+          const doklad = dokladyPodleId[p.Doklad_ID];
+          if (!doklad) return;
+          const firmaDokladu = doklad.Firma_potvrzena || doklad.Firma_AI_odhad || '';
+          p.Doklad_Stredisko = doklad.Stredisko || '';
+          p.Doklad_Predkontace = predkontaceMapa[firmaDokladu + '|' + (doklad.Kategorie || '')] || '';
+        });
+      } catch (e) {
+        // List Doklady appka má vždycky, ale appka radši i tak nenechá
+        // tenhle doplněk shodit celý výpis, kdyby cokoli selhalo.
+      }
+
       return json(200, { pohyby: proFirmu });
     }
 

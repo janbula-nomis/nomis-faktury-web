@@ -3379,6 +3379,272 @@ nová, všechny prošly).
 
 `APP_VERZE` appka zvýšila na `v4.31 – 2026-07-25`.
 
+## 73. QR Platba + rozšíření Money S3 exportu (Datum splatnosti, Dobropis, KS/SS, DUZP, Předkontace) (v4.32)
+
+Jan appce postupně poslal (přes forwardovanou analýzu z předchozí konverzace)
+dvě navazující zadání a appka si přes `AskUserQuestion` nechala potvrdit
+otevřené otázky, než začala:
+
+**A) QR Platba** - appka nabízela dvě cesty (QR Platba pro jednu fakturu vs.
+dávkový ABO/.kpc export pro George Business), Jan zvolil **"Jen QR Platba"**.
+Appka NIKDY sama nic neplatí ani se nepřipojuje k žádnému bankovnímu účtu -
+appka jen PŘIPRAVÍ QR kód/SPAYD text k naskenování v bankovní appce
+uživatele, potvrzení/odeslání zůstává vždy na člověku.
+
+**B) Rozšíření Money S3 exportu** - appka měla 5 nahlášených mezer v
+mapování (`lib/moneyS3Export.js`) plus jednu appka sama našla navíc
+(`SazbaDPH1`/`SazbaDPH2` natvrdo "21"/"12"). Jan zvolil **"Všechno najednou
+v jedné dávce"** (ne postupně) a u DUZP appka dostala **"Ano, přepnout na
+DUZP (s fallbackem na datum vystavení)"** pro přepočet DPH bilance.
+
+### Co appka přidala
+
+**Nová pole** (appka je nabízí jako AI odhad + ruční kontrolu, stejná
+konvence jako existující DPH/Sazba_DPH/Variabilni_symbol):
+- `Doklady`: `Datum_splatnosti`, `Konstantni_symbol`, `Specificky_symbol`,
+  `DUZP`, `Typ_dokladu` (Faktura/Dobropis/Zálohová faktura),
+  `Cislo_uctu_dodavatele` (viz `lib/dokladySchema.js` pro plné zdůvodnění
+  každého pole).
+- `Vydane_faktury`: `Konstantni_symbol`, `Specificky_symbol`, `DUZP`,
+  `Typ_dokladu` (`Datum_splatnosti` appka měla už dřív, `Cislo_uctu_dodavatele`
+  appka u vydaných faktur nepotřebuje).
+- AI vytěžení (`lib/gemini.js`) appka rozšířila o odpovídající klíče v
+  `extrahujDataZDokladu` (včetně `dalsi_doklady` sub-schématu pro
+  multi-scan) a `extrahujDataZVydaneFaktury`.
+- `netlify/functions/upload-dokoncit.js` a `vydane-faktury-upload-
+  dokoncit.js` appka rozšířila o mapování nových polí - DUZP appka
+  fallbackuje na datum dokladu/vystavení HNED PŘI ZPRACOVÁNÍ (appka nikde
+  jinde fallback neřeší), `Typ_dokladu` appka fallbackuje na "Faktura".
+- UI (`public/app.js`, `vytvorDetailDoklad`/`vytvorDetailVydanaFaktura`) -
+  appka přidala odpovídající vstupní pole (appka se rozhodla přidat ruční
+  editaci i tam, kde appka dosavadní `Variabilni_symbol` manuální pole
+  nemá - appka usoudila, že u polí vstupujících přímo do účetního
+  exportu/platebního příkazu je ruční kontrola žádoucí).
+
+**Money S3 export** (`lib/moneyS3Export.js`) - appka odstranila natvrdo
+zadané hodnoty:
+- `Splatno` teď používá skutečné `Datum_splatnosti` (dřív appka posílala
+  stejné datum jako datum dokladu).
+- `KonstSym`/`SpecSymbol` appka posílá ze skutečných polí (dřív natvrdo
+  prázdné).
+- Nový element `DatUplDPH` appka posílá z `DUZP` (s fallbackem na datum
+  dokladu/vystavení) - dřív appka tenhle element vůbec neposílala.
+- `Dobropis` appka nastavuje na `1`, když `Typ_dokladu === 'Dobropis'` (dřív
+  natvrdo `0` u všeho).
+- `SazbaDPH1`/`SazbaDPH2` appka odvozuje zpětně z reálných částek/sazeb v
+  položkách (nová funkce `odvozenaSazba`), místo natvrdo "21"/"12".
+- `PredKontac` appka dosadí z nového listu Predkontace (viz níž), pokud je
+  pro danou firmu+kategorii nastavený, jinak zůstává prázdný jako dřív.
+
+**DPH bilance a Dashboard - Dobropis a DUZP** - appka na výslovné přání Jana
+("Ano, přepnout na DUZP") přepnula `netlify/functions/danovy-prehled.js` z
+řazení podle `Datum_vystaveni`/`Datum_dokladu` na `DUZP` (s fallbackem na
+původní pole u starších záznamů bez DUZP). Zároveň appka v tomhle souboru i
+v `netlify/functions/dashboard-firmy.js` přidala znaménkovou logiku pro
+Dobropis - appka částku ODEČÍTÁ (ne přičítá), protože jde o opravný doklad
+snižující dřívější náklad/příjem, ne o nový navíc.
+
+**Předkontace** (`lib/predkontaceSchema.js`, `netlify/functions/
+predkontace.js`) - appka založila nový spravovatelný admin list (stejný CRUD
+vzor jako Střediska) pro kódy předkontace PER FIRMA A KATEGORIE dokladu -
+appka novou záložku appky (Nastavení → "Předkontace (Money S3 export)")
+zpřístupnila roli admin/účetní. **DŮLEŽITÉ**: appka list zakládá s
+PRÁZDNÝMI kódy - appka žádné reálné účetní kódy sama nevymýšlí, Jan/účetní
+je musí doplnit ručně, jinak appka do exportu posílá `<PredKontac>` dál
+prázdný (beze změny oproti dřívějšku).
+
+**QR Platba** (`lib/qrPlatba.js`, `netlify/functions/qr-platba.js`) - appka
+implementovala standardní český algoritmus převodu tuzemského čísla účtu na
+IBAN (appka ho ověřila na reálném testovacím vektoru z ČNB dokumentace:
+"19-2000145399/0800" → "CZ6508000000192000145399") a sestavení SPAYD
+řetězce (formát podle qr-platba.cz). Appka přidala tlačítko "QR Platba" do
+detailu dokladu (jen u SCHVÁLENÝCH dokladů, jen pro roli admin/účetní) -
+appka zobrazí QR kód v modálním okně k naskenování v bankovní appce. Appka
+přidala závislost `qrcode` do `package.json` (appka si ji NAINSTALUJE sama
+při Netlify buildu - žádný ruční krok navíc).
+
+### Nutný krok po nasazení
+
+Appka přidává nové sloupce do existujících listů (Doklady, Vydane_faktury)
+a nový list (Predkontace) - **po nasazení týhle verze je nutné znovu
+spustit `/api/setup`** (appka jen DOPLNÍ chybějící sloupce/list, nic
+nesmaže/nepřepíše, viz krok 9 níž).
+
+### Ověřeno
+
+Appka napsala novou regresní sadu `/tmp/test_v432_money_s3_qr_batch.js` (19
+ověření - IBAN převod, SPAYD sestavení, Money S3 export nových elementů
+včetně fallbacků, DUZP přepínač DPH bilance, Dobropis znaménko v Daňovém
+přehledu i Dashboardu, CRUD Předkontace včetně kontroly duplicity) a
+`/tmp/test_qr_platba_endpoint.js` (6 ověření - přístupová práva, kontrola
+stavu Schváleno, kontrola vyplněného čísla účtu dodavatele). Appka navíc
+ručně (Playwright, statické vykreslení bez backendu) ověřila, že nová pole
+se v detailu dokladu/vydané faktury i v panelu Předkontace v Nastavení
+opravdu vykreslí. Celá regresní sada appky teď má 68 testů, všechny prošly.
+
+`APP_VERZE` appka zvýšila na `v4.32 – 2026-07-25`.
+
+## 74. Sjednocení obsahu Excel exportu s Money S3 XML exportem (DUZP, Dobropis, KS/SS, Datum splatnosti) (v4.33)
+
+Jan si po nasazení v4.32 všiml, že v obecném Excel exportu (záložka Export →
+xlsx, `lib/excelExport.js`/`netlify/functions/export-excel.js`) chybí nové
+pole DUZP - appka totiž v dávce v4.32 rozšířila JEN Money S3 XML export
+(`lib/moneyS3Export.js`), na tenhle paralelní, ručně synchronizovaný Excel
+export appka zapomněla (appka mezi oběma exporty záměrně nesdílí kód, viz
+konvence popsaná v hlavičce `export-excel.js`, ale to appku nemá omlouvat od
+skutečné synchronizace při každé změně). Jan: "potřebuji aby měli shodný
+obsah".
+
+### Co appka opravila
+
+**Sešit Přijatých faktur** (`vytvorExcelDoklady`) - appka přidala sloupce
+"Datum splatnosti", "DUZP", "Typ dokladu", "Konstantní symbol", "Specifický
+symbol", "Číslo účtu dodavatele" (přesně ta pole, co appka posílá i do
+Money S3 XML, plus číslo účtu dodavatele navíc, protože patří mezi nová pole
+stejné dávky i když ho appka v XML nemá - je to jen prerekvizita QR Platby).
+
+**Sešit Vydaných faktur** (`vytvorExcelVydaneFaktury`) - appka přidala
+"Datum splatnosti", "DUZP", "Typ dokladu", "Konstantní symbol", "Specifický
+symbol".
+
+Appka záměrně NEPŘIDALA odvozenou `SazbaDPH1`/`SazbaDPH2` (legacy Money S3
+konstrukce dvou sazbových bucketů) - v Excelu dál stačí existující sloupec
+"Sazba DPH (%)", který appka spravuje odjakživa jako srozumitelnou jednu
+sazbu na doklad.
+
+**Daňový přehled v Excelu** (`export-excel.js`, typ=danovy) - appka měla tady
+DUPLICITNÍ výpočet DPH bilance (appka ho záměrně nesdílí importem se
+`danovy-prehled.js`, ale MĚLA ho udržovat ručně synchronně - to appka u
+v4.32 opomněla). Appka teď i tady řadí DPH bilanci podle DUZP (s fallbackem
+na Datum_vystaveni/Datum_dokladu) a u Dobropisu otáčí znaménko - stejná
+logika jako appka má na obrazovce Daňový přehled a v Money S3 exportu.
+
+### Ověřeno
+
+Appka rozšířila `/tmp/test_export_excel.js` o kontrolu, že hlavičky obou
+sešitů (Přijaté i Vydané faktury) obsahují nová pole, a o fixture s
+Dobropisem, jehož DUZP spadá do jiného měsíce než Datum_dokladu - ověřuje se
+tak zároveň správné řazení podle DUZP i správné odečtení částky u Dobropisu
+v Excel exportu Daňového přehledu. Celá regresní sada appky (68 testů)
+prošla i po týhle úpravě.
+
+`APP_VERZE` appka zvýšila na `v4.33 – 2026-07-25`.
+
+## 75. Oprava vytěžování čísla účtu/cen položek + měna v Dashboardu podle účtu + zařazení viditelné v bance + evidenční čísla FP/FV (v4.34)
+
+Jan nahlásil dva samostatné problémy s AI vytěžováním ("špatně vytěžuje čísla
+účtu a ceny u položek, zkontroluj to a napiš proc") a appka po vysvětlení
+příčiny dostala od Jana potvrzení opravit obě chyby plus tři další
+požadavky v jedné zprávě: "ano opravit, a navíc v dashboard uvádět částky
+pouze v měně účtu. nově u bankovního výpisu pokud bylo přidáno středisko
+nebo předkontace, tak ji tam uvést, aby bylo vidět kde chybí vyplnění,
+přidat sloupec pro číslování řádku... bude to kod např FP (faktura
+přijatá), pořadové číslo dle přidání a rok dle DUZP např. FV 001-2026".
+
+U dvou návrhových otázek (rozsah/reset číslování a měna u nespárovaných
+dokladů v Dashboardu) appka měla na výběr z více rozumných variant, proto se
+zeptala přes výběr možností - Jan ve všech třech případech potvrdil
+doporučenou variantu:
+
+- Číslování: zvlášť pro každou firmu, reset na 001 při novém roce.
+- Kdy appka číslo přiřadí: u Dokladů až při schválení (appka číslo
+  nepřiřazuje předčasně, dokud doklad ještě prochází kontrolou); u
+  Vydaných faktur ihned při vytvoření/potvrzení (appka tu nemá schvalovací
+  krok jako u Dokladů - faktura potřebuje číslo hned, aby šla poslat
+  zákazníkovi).
+- Měna v Dashboardu u nespárovaného dokladu: appka ho nechává v jeho
+  vlastní (možná nespolehlivé) měně jako dosud - opravu appka dělá jen tam,
+  kde má spolehlivější zdroj (spárovanou platbu).
+
+### 1) Oprava vytěžování - číslo účtu dodavatele
+
+Appka (`lib/gemini.js`) upravila prompt, aby AI vracelo číslo účtu jako
+čistý řetězec bez popisků/mezer, a aby si u dokladů s VÍCE účty (např. CZK
+i EUR) vybralo ten, který odpovídá měně dokladu. Appka navíc přidala
+serverovou pojistku (`lib/qrPlatba.js`, funkce `vytezCisloUctu`) - i kdyby
+AI přesto vrátilo znečištěný text (např. "IBAN: CZ65 0800 0000..."), appka
+ho před uložením sama vyčistí. Appka dál přidala kontrolu mod-11
+kontrolního součtu tuzemského čísla účtu (`jeCisloUctuPlatne`, dle
+vyhlášky ČNB č. 169/2011 Sb.) - když součet nesedí (typicky přehozená
+číslice z rozmazaného skenu), appka doklad NEBLOKUJE, ale přidá do
+Poznámky nenápadné upozornění k ruční kontrole.
+
+### 2) Oprava vytěžování - cena položek
+
+Appka v promptu (`lib/gemini.js`) doplnila výslovnou instrukci pro případ,
+kdy doklad u řádku uvádí jen CELKOVOU cenu za víc kusů - AI teď má cenu
+vydělit množstvím, ne ji zkopírovat jako jednotkovou (dřív appka takhle
+nafukovala i navazující výpočet základu daně v Money S3 exportu). Appka
+navíc přidala druhou pojistku (`lib/polozkyHelpers.js`, funkce
+`zkontrolujSoucetPolozek`) - když součet cen×množství položek neodpovídá
+základu daně dokladu (s tolerancí na běžné zaokrouhlení), appka přidá do
+Poznámky upozornění, doklad zase NEBLOKUJE.
+
+Obě pojistky appka zapojila do `netlify/functions/upload-dokoncit.js`
+(zpracování jednoho i více dokladů najednou).
+
+### 3) Dashboard - částky jen v měně účtu
+
+`netlify/functions/dashboard-firmy.js` už od v4.26.1 u Bankovních pohybů
+bere skutečnou měnu z účtu (`Ucty.Mena`), ne z (nespolehlivého) pole na
+pohybu. Appka teď stejný princip rozšířila na Doklady: pokud je doklad
+spárovaný s konkrétní platbou (`Bankovni_pohyby.Doklad_ID`), appka částku
+ve výdajích firmy/střediska přičte v měně ÚČTU, kterým platba prošla - ne
+v měně uložené přímo na dokladu. Nespárovaný doklad zůstává (na Janovo
+potvrzení výše) ve své vlastní měně jako dosud.
+
+### 4) Bankovní výpis - viditelnost střediska/předkontace
+
+`netlify/functions/banka.js` (GET) teď u každého spárovaného pohybu
+dopočítá (appka nic neukládá, jen appka to vrátí v odpovědi) středisko a
+kód předkontace spárovaného dokladu. V appce (`public/app.js`) se to
+projeví jako:
+
+- Chip „chybí zařazení" přímo na sbaleném řádku výpisu, když je pohyb
+  spárovaný s dokladem, ale středisko NEBO předkontace u něj chybí.
+- V rozbaleném detailu appka u spárovaného dokladu zobrazí středisko a
+  předkontaci textem, a tam, kde některá z hodnot chybí, appka to
+  zvýrazní jako „chybí vyplnění" - aby bylo na první pohled vidět, kde je
+  potřeba doplnit.
+
+### 5) Evidenční číslo (FP/FV)
+
+Appka přidala nový sloupec `Evidencni_cislo` do Dokladů i Vydaných faktur
+(appka ho generuje sama, `lib/evidencniCislo.js` - není to pole pro AI
+odhad ani pro ruční editaci). Formát: `<KÓD> <pořadí>-<rok>`, např. „FP
+001-2026" (Doklady, faktura přijatá) nebo „FV 001-2026" (Vydané faktury).
+Pořadí appka počítá jako nejvyšší dosavadní číslo stejné firmy a roku + 1
+(ne podle počtu záznamů - odolné vůči mezerám po smazání), rok appka bere
+z DUZP (s fallbackem na datum dokladu/vystavení).
+
+Appka přiřazuje číslo přesně jednou a nikdy ho nepřepisuje:
+
+- **Doklady** (`netlify/functions/doklady.js`) - appka číslo přiřadí až ve
+  chvíli, kdy se stav změní na „Schváleno".
+- **Vydané faktury** (`netlify/functions/vydaneFaktury.js`,
+  `vydane-faktury-upload-dokoncit.js`) - appka číslo přiřadí hned, jakmile
+  je faktura reálný (ne dočasný) záznam, tj. při vytvoření/potvrzení mimo
+  stavy „Zpracovává se"/„Možná duplicita". Appka číslo dožene i zpětně, když
+  se faktura z „Možná duplicita" ručně vyřeší.
+
+Evidenční číslo appka zobrazuje jako malý štítek u čísla dokladu/faktury v
+seznamu (`public/app.js`).
+
+**DŮLEŽITÉ: po nasazení téhle verze je nutné znovu spustit `/api/setup`** -
+appka potřebuje do listů Doklady a Vydane_faktury doplnit nový sloupec
+`Evidencni_cislo` (appka chybějící sloupce doplňuje automaticky, ale jen
+při zavolání `/api/setup`, viz krok 6 výš).
+
+### Ověřeno
+
+Appka přidala 7 nových testovacích souborů (vytěžení/validace čísla účtu,
+kontrola součtu položek, generování evidenčního čísla, appka i integrace s
+`doklady.js`/`vydaneFaktury.js`/`dashboard-firmy.js`/`banka.js`/
+`upload-dokoncit.js`) a celá regresní sada appky (76 testů) prošla bez
+regrese.
+
+`APP_VERZE` appka zvýšila na `v4.34 – 2026-07-26`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

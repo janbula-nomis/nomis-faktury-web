@@ -41,7 +41,12 @@ const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
+const { dalsiEvidencniCislo } = require('../../lib/evidencniCislo');
 const { json } = require('../../lib/http');
+
+function ziskejFirmuDokladu(d) {
+  return d.Firma_potvrzena || d.Firma_AI_odhad || '';
+}
 
 function jeUcetniNeboAdmin(uzivatel) {
   return uzivatel.role === 'admin' || uzivatel.role === 'ucetni';
@@ -132,6 +137,23 @@ exports.handler = async (event) => {
       }
 
       const aktualizovany = Object.assign({}, doklad, zmeny || {});
+
+      // v4.34 (Jan: "kód např FP..., pořadové číslo dle přidání a rok dle
+      // DUZP") - appka evidenční číslo přiřazuje AŽ PŘI SCHVÁLENÍ (viz
+      // lib/evidencniCislo.js pro plné zdůvodnění), a jen JEDNOU (appka
+      // nepřepisuje existující číslo při dalších úpravách už schváleného
+      // dokladu).
+      if (
+        doklad.Stav !== 'Schváleno' &&
+        aktualizovany.Stav === 'Schváleno' &&
+        !aktualizovany.Evidencni_cislo
+      ) {
+        const firma = ziskejFirmuDokladu(aktualizovany);
+        const rok = String(aktualizovany.DUZP || aktualizovany.Datum_dokladu || '').slice(0, 4) ||
+          String(new Date().getFullYear());
+        aktualizovany.Evidencni_cislo = dalsiEvidencniCislo(rows, 'FP', firma, rok, ziskejFirmuDokladu);
+      }
+
       await updateRow(
         sheets,
         process.env.SPREADSHEET_ID,
@@ -141,7 +163,7 @@ exports.handler = async (event) => {
         aktualizovany
       );
 
-      return json(200, { ok: true });
+      return json(200, { ok: true, doklad: aktualizovany });
     } catch (e) {
       return json(500, { error: e.message });
     }

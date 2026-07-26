@@ -40,10 +40,34 @@ const { najdiHistorickouShodu } = require('../../lib/dokladyHistorie');
 const { navrhniShodu, parsujCastkuZListu } = require('../../lib/bankHelpers');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { DOKLADY_POLOZKY_HEADERS } = require('../../lib/dokladyPolozkySchema');
-const { nahradPolozky } = require('../../lib/polozkyHelpers');
+const { nahradPolozky, zkontrolujSoucetPolozek } = require('../../lib/polozkyHelpers');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
+const { vytezCisloUctu, jeCisloUctuPlatne } = require('../../lib/qrPlatba');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
+
+// v4.34 (Jan: "špatně vytěžuje čísla účtu a ceny u položek") - appka tu
+// dvě samostatná zjištění z AI extrakce (`extrakce`) spojí do jedné funkce,
+// ať appka nemá stejnou logiku duplikovanou pro hlavní doklad i pro každý
+// "další doklad" z multi-scanu (viz níž): appka (1) vyčistí syrový výstup
+// AI pro číslo účtu dodavatele (odstraní popisky/mezery, viz
+// lib/qrPlatba.js), (2) ověří jeho kontrolní součet jako pomocný signál
+// nejistoty, a (3) porovná součet vytěžených položek se základem daně
+// dokladu (lib/polozkyHelpers.js) - obojí appka NEBLOKUJE, jen přidá
+// srozumitelnou poznámku k ruční kontrole.
+function ocistiUcetADoplnPoznamku(extrakce, zakladniPoznamka) {
+  const cisteCisloUctu = vytezCisloUctu(extrakce.cislo_uctu_dodavatele);
+  const poznamky = [];
+  if (zakladniPoznamka) poznamky.push(zakladniPoznamka);
+  if (cisteCisloUctu && !jeCisloUctuPlatne(cisteCisloUctu)) {
+    poznamky.push(
+      'Číslo účtu dodavatele nemusí být správně přečtené (kontrolní součet nesedí) - zkontrolujte prosím.'
+    );
+  }
+  const chybaPolozek = zkontrolujSoucetPolozek(extrakce.polozky, extrakce.castka, extrakce.dph);
+  if (chybaPolozek) poznamky.push(chybaPolozek);
+  return { cisteCisloUctu, poznamka: poznamky.join(' ') };
+}
 
 // Zkusí k právě dokončenému dokladu najít odpovídající "Nespárováno"
 // bankovní pohyb stejné firmy a navrhnout shodu (viz komentář výš, v3.19).
@@ -152,6 +176,14 @@ exports.handler = async (event) => {
       extrakce.ico_dodavatele
     );
 
+    const zakladniPoznamka =
+      extrakce.poznamka_ai ||
+      (historickaShoda
+        ? 'Firma/kategorie/středisko doplněny podle ' + historickaShoda.pocetShod +
+          ' dřívějšího potvrzeného dokladu od stejného dodavatele - zkontrolujte.'
+        : '');
+    const { cisteCisloUctu, poznamka } = ocistiUcetADoplnPoznamku(extrakce, zakladniPoznamka);
+
     const aktualizovany = Object.assign({}, doklad, {
       Typ: extrakce.typ || '',
       Dodavatel: extrakce.dodavatel || '',
@@ -180,14 +212,9 @@ exports.handler = async (event) => {
       // téhle buňky, žádné další místo v appce fallback neřeší.
       DUZP: extrakce.duzp || extrakce.datum_dokladu || '',
       Typ_dokladu: extrakce.typ_dokladu || 'Faktura',
-      Cislo_uctu_dodavatele: extrakce.cislo_uctu_dodavatele || '',
+      Cislo_uctu_dodavatele: cisteCisloUctu,
       Stav: duplicita ? 'Možná duplicita' : 'Ke kontrole',
-      Poznamka:
-        extrakce.poznamka_ai ||
-        (historickaShoda
-          ? 'Firma/kategorie/středisko doplněny podle ' + historickaShoda.pocetShod +
-            ' dřívějšího potvrzeného dokladu od stejného dodavatele - zkontrolujte.'
-          : ''),
+      Poznamka: poznamka,
     });
 
     await updateRow(sheets, process.env.SPREADSHEET_ID, 'Doklady', DOKLADY_HEADERS, doklad._row, aktualizovany);
@@ -234,6 +261,10 @@ exports.handler = async (event) => {
             ' dřívějšího potvrzeného dokladu od stejného dodavatele - zkontrolujte.'
         );
       }
+      const { cisteCisloUctu: cisteCisloUctuDalsi, poznamka: poznamkaDalsi } = ocistiUcetADoplnPoznamku(
+        dalsi,
+        poznamkaFragmenty.join(' ')
+      );
 
       const novyDoklad = {
         ID: crypto.randomUUID(),
@@ -263,9 +294,9 @@ exports.handler = async (event) => {
         Specificky_symbol: dalsi.specificky_symbol || '',
         DUZP: dalsi.duzp || dalsi.datum_dokladu || '',
         Typ_dokladu: dalsi.typ_dokladu || 'Faktura',
-        Cislo_uctu_dodavatele: dalsi.cislo_uctu_dodavatele || '',
+        Cislo_uctu_dodavatele: cisteCisloUctuDalsi,
         Stav: duplicitaDalsi ? 'Možná duplicita' : 'Ke kontrole',
-        Poznamka: poznamkaFragmenty.join(' '),
+        Poznamka: poznamkaDalsi,
         Nahral_uzivatel: aktualizovany.Nahral_uzivatel,
       };
 
