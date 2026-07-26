@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.33 – 2026-07-25';
+const APP_VERZE = 'v4.34 – 2026-07-26';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1135,6 +1135,10 @@ function vytvorRadekDoklad(d) {
     '<span class="doklad-sipka">▶</span>' +
     '<span class="stav-chip ' + stavTrida(d.Stav) + '">' + escapeHtml(d.Stav || '') + '</span>' +
     bankSparovaniBadge(d) +
+    // Evidencni_cislo (v4.34) - appka ho přiřazuje sama až při schválení
+    // (viz netlify/functions/doklady.js), takže tu chvíli být nemusí -
+    // appka odznak zobrazí, jen když už je vyplněný.
+    (d.Evidencni_cislo ? '<span class="evidencni-cislo-chip">' + escapeHtml(d.Evidencni_cislo) + '</span>' : '') +
     '<span class="dodavatel">' +
       escapeHtml(d.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (d.Dodavatel || '(bez dodavatele)')) +
     '</span>' +
@@ -1500,7 +1504,11 @@ function zobrazZpravuDoklady(text) {
 async function ulozZmenu(id, zmeny, tlacitko) {
   tlacitko.disabled = true;
   try {
-    await zavolejApi('/doklady', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
+    // v4.34: appka při schválení sama dopočítá Evidencni_cislo (viz
+    // netlify/functions/doklady.js) - appka proto do lokálního seznamu
+    // promítne i `data.doklad` (celý přepočtený řádek ze serveru), ne jen
+    // `zmeny`, ať se nové evidenční číslo ukáže hned, ne až po dalším GETu.
+    const data = await zavolejApi('/doklady', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
     // Optimistická aktualizace: promítneme změnu rovnou do lokálního seznamu
     // a překreslíme z něj, místo abychom hned volali nactiDoklady() (nový GET).
     // Google Sheets API má po zápisu krátké okno eventual-consistency, kdy by
@@ -1508,7 +1516,7 @@ async function ulozZmenu(id, zmeny, tlacitko) {
     // se schválený doklad po Schválit nepřesunul do sekce "Schválené".
     const idx = dokladySeznamAktualni.findIndex((d) => d.ID === id);
     if (idx !== -1) {
-      Object.assign(dokladySeznamAktualni[idx], zmeny);
+      Object.assign(dokladySeznamAktualni[idx], zmeny, data.doklad || {});
     }
     vykresliDoklady(dokladySeznamAktualni);
     zobrazZpravuDoklady(
@@ -2170,6 +2178,10 @@ function vytvorRadekVydanaFaktura(f) {
   hlava.innerHTML =
     '<span class="vf-sipka">▶</span>' +
     '<span class="stav-chip ' + vfStavChipTrida(f) + '">' + escapeHtml(vfStavText(f)) + '</span>' +
+    // Evidencni_cislo (v4.34) - appka ho přiřazuje sama hned, jak faktura
+    // přestane být placeholder/Možná duplicita (viz vydaneFaktury.js), takže
+    // tu chvíli být nemusí - odznak appka zobrazí, jen když už je vyplněný.
+    (f.Evidencni_cislo ? '<span class="evidencni-cislo-chip">' + escapeHtml(f.Evidencni_cislo) + '</span>' : '') +
     '<span class="nazev-vf">' +
       escapeHtml(f.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (f.Cislo_faktury || '(bez čísla)')) +
     '</span>' +
@@ -2855,11 +2867,19 @@ function vytvorRadekBanka(p) {
   const hlava = document.createElement('div');
   hlava.className = 'banka-radek-hlava';
   const castkaTrida = parsujCastkuZListu(p.Castka) > 0 ? 'prijem' : 'vydaj';
+  // v4.34 (Jan: "aby bylo vidět kde chybí vyplnění") - appka u spárovaného
+  // pohybu (Doklad_ID vyplněné) ukáže odznak "chybí středisko/předkontace"
+  // rovnou ve sbaleném řádku (appka je dopočítá na backendu, viz
+  // netlify/functions/banka.js), ať to jde poznat bez rozkliknutí každého
+  // pohybu zvlášť - podrobnosti appka pořád zobrazí až po rozkliknutí (viz
+  // vytvorDetailBanka).
+  const chybiZarazeni = p.Doklad_ID && (!p.Doklad_Stredisko || !p.Doklad_Predkontace);
   hlava.innerHTML =
     '<span class="banka-sipka">▶</span>' +
     '<span>' + escapeHtml(p.Datum || '') + '</span>' +
     '<span>' + escapeHtml(p.Protistrana || p.Typ_pohybu || '') + '</span>' +
     bankaStavBadge(p.Stav_parovani) +
+    (chybiZarazeni ? '<span class="chip-chybi-zarazeni">chybí zařazení</span>' : '') +
     '<span class="castka ' + castkaTrida + '">' + formatCastkaSMenou(p.Castka, menaPohybuBanka(p)) + '</span>';
 
   const detail = document.createElement('div');
@@ -2923,12 +2943,28 @@ function vytvorDetailBanka(p) {
   dokladBox.style.marginTop = '10px';
   const propojenyDoklad = p.Doklad_ID ? bankaDokladPodleId(p.Doklad_ID) : null;
   if (propojenyDoklad) {
+    // v4.34 (Jan: "pokud bylo přidáno středisko nebo předkontace, tak ji
+    // tam uvést, aby bylo vidět kde chybí vyplnění") - appka tu ukáže
+    // Středisko a Předkontace kód přiřazeného dokladu (appka je dopočítá na
+    // backendu, viz netlify/functions/banka.js) - appka chybějící hodnotu
+    // zvýrazní (třída "chybi"), ať je na první pohled vidět, kde ještě
+    // zbývá zařazení doplnit, bez nutnosti otvírat doklad zvlášť v záložce
+    // Přijaté faktury.
     dokladBox.innerHTML =
       '<strong>Přiřazený doklad:</strong> ' + escapeHtml(propojenyDoklad.Dodavatel || '(bez dodavatele)') +
       ', ' + escapeHtml(String(parsujCastkuZListu(propojenyDoklad.Castka))) + ' ' + escapeHtml(propojenyDoklad.Mena || '') +
       (propojenyDoklad.Zdrojovy_soubor_URL
         ? ' – <a href="' + escapeAttr(propojenyDoklad.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít scan</a>'
         : '') +
+      '<div class="popis">Středisko: ' +
+        (p.Doklad_Stredisko
+          ? escapeHtml(p.Doklad_Stredisko)
+          : '<span class="chybi-vyplneni">chybí vyplnění</span>') +
+        ' · Předkontace: ' +
+        (p.Doklad_Predkontace
+          ? escapeHtml(p.Doklad_Predkontace)
+          : '<span class="chybi-vyplneni">chybí vyplnění</span>') +
+      '</div>' +
       (propojenyDoklad.Poznamka
         ? '<div class="popis">Poznámka z vytěžení: ' + escapeHtml(propojenyDoklad.Poznamka) + '</div>'
         : '');

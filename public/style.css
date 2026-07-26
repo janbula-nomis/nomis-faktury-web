@@ -348,6 +348,16 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 .stav-zpracovava { background: #eaf0ff; color: var(--barva-primarni); }
 .stav-neaktivni { background: #dde1e8; color: var(--barva-text-tlumena); }
 
+/* Evidencni_cislo (v4.34) - odznak evidenčního čísla dokladu/faktury
+   (např. "FP 001-2026"), appka ho zobrazuje jen když už je přiřazené
+   (viz lib/evidencniCislo.js). */
+.evidencni-cislo-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #eef1f6; color: var(--barva-text-tlumena); font-variant-numeric: tabular-nums; }
+
+/* Středisko/Předkontace u spárovaného bankovního pohybu (v4.34) - appka
+   chybějící zařazení zvýrazní, ať je vidět, kde ho ještě doplnit. */
+.chybi-vyplneni { color: var(--barva-varovani); font-weight: 600; }
+.chip-chybi-zarazeni { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #fff4de; color: var(--barva-varovani); }
+
 /* Přepínač sekcí (od v3.7) - Doklady: Ke schválení / Schválené. Jde o
    výběr JEDNOHO ze dvou pohledů na stejná data (ne dvě nezávislá
    tlačítka), proto vzhled segmentovaného přepínače, ne obyčejná tlačítka
