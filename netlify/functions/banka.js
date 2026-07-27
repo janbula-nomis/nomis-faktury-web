@@ -173,9 +173,10 @@ exports.handler = async (event) => {
       // odpověď (appka nic tímhle needituje/neukládá do listu Bankovni_pohyby
       // samotného), stejná konvence jako `Stav_parovani_bankou` v doklady.js.
       try {
-        const [{ rows: dokladyVsechny }, { rows: predkontaceVsechny }] = await Promise.all([
+        const [{ rows: dokladyVsechny }, { rows: predkontaceVsechny }, { rows: fakturyVsechny }] = await Promise.all([
           readSheetObjects(sheets, spreadsheetId, 'Doklady'),
           readSheetObjects(sheets, spreadsheetId, 'Predkontace').catch(() => ({ rows: [] })),
+          readSheetObjects(sheets, spreadsheetId, 'Vydane_faktury').catch(() => ({ rows: [] })),
         ]);
         const dokladyPodleId = {};
         dokladyVsechny.forEach((d) => { dokladyPodleId[d.ID] = d; });
@@ -183,8 +184,22 @@ exports.handler = async (event) => {
         predkontaceVsechny.forEach((p) => {
           if (p.Firma && p.Kategorie) predkontaceMapa[p.Firma + '|' + p.Kategorie] = p.Kod || '';
         });
+        const fakturyPodleId = {};
+        fakturyVsechny.forEach((f) => { fakturyPodleId[f.ID] = f; });
 
         proFirmu.forEach((p) => {
+          // (v4.35) Jan chtěl u řádku bankovního pohybu vidět rovnou
+          // evidenční číslo SPÁROVANÉHO dokladu/faktury (na začátku
+          // sloupců, viz app.js `vytvorRadekBanka`) - appka ho tu jen
+          // dopočítá stejnou konvencí jako Doklad_Stredisko/Doklad_Predkontace
+          // výš (ephemerní pole appky pro odpověď, appka nic needituje/
+          // neukládá do listu Bankovni_pohyby samotného).
+          if (p.Doklad_ID && dokladyPodleId[p.Doklad_ID]) {
+            p.Sparovany_evidencni_cislo = dokladyPodleId[p.Doklad_ID].Evidencni_cislo || '';
+          } else if (p.Vydana_faktura_ID && fakturyPodleId[p.Vydana_faktura_ID]) {
+            p.Sparovany_evidencni_cislo = fakturyPodleId[p.Vydana_faktura_ID].Evidencni_cislo || '';
+          }
+
           if (!p.Doklad_ID) return;
           const doklad = dokladyPodleId[p.Doklad_ID];
           if (!doklad) return;
@@ -193,8 +208,9 @@ exports.handler = async (event) => {
           p.Doklad_Predkontace = predkontaceMapa[firmaDokladu + '|' + (doklad.Kategorie || '')] || '';
         });
       } catch (e) {
-        // List Doklady appka má vždycky, ale appka radši i tak nenechá
-        // tenhle doplněk shodit celý výpis, kdyby cokoli selhalo.
+        // Listy Doklady/Vydane_faktury appka má vždycky, ale appka radši
+        // i tak nenechá tenhle doplněk shodit celý výpis, kdyby cokoli
+        // selhalo.
       }
 
       return json(200, { pohyby: proFirmu });

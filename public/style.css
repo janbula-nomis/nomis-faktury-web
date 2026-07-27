@@ -350,13 +350,25 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 
 /* Evidencni_cislo (v4.34) - odznak evidenčního čísla dokladu/faktury
    (např. "FP 001-2026"), appka ho zobrazuje jen když už je přiřazené
-   (viz lib/evidencniCislo.js). */
+   (viz lib/evidencniCislo.js). Appka ho od v4.35 nezobrazuje jako
+   samostatný "chip" uprostřed sbaleného řádku (viz .evidencni-cislo-chip
+   níže, appka ho ponechala jen kvůli zpětné kompatibilitě, kdyby ho
+   používal ještě jinde), ale jako VLASTNÍ pevný sloupec mřížky hned za
+   šipkou (Jan: "na začátek dej přidělené číslo") - viz .cislo-evid. */
 .evidencni-cislo-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #eef1f6; color: var(--barva-text-tlumena); font-variant-numeric: tabular-nums; }
+
+/* (v4.35) Sloupec evidenčního čísla u Dokladů/Vydaných faktur/Bankovních
+   výpisů - appka ho vždycky vykresluje (i prázdný, jako pomlčku), ať
+   zůstane pevný počet sloupců pro zarovnání do grid mřížky (viz Jan:
+   "zarovnej data do sloupců"). U Bankovních výpisů appka ukazuje číslo
+   SPÁROVANÉHO dokladu/faktury (appka pohybu samotnému číslo nepřiřazuje). */
+.cislo-evid { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 11.5px; color: var(--barva-text-tlumena); font-variant-numeric: tabular-nums; }
+.cislo-evid.cislo-evid-prazdne { color: #c3c8d1; }
 
 /* Středisko/Předkontace u spárovaného bankovního pohybu (v4.34) - appka
    chybějící zařazení zvýrazní, ať je vidět, kde ho ještě doplnit. */
 .chybi-vyplneni { color: var(--barva-varovani); font-weight: 600; }
-.chip-chybi-zarazeni { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #fff4de; color: var(--barva-varovani); }
+.chip-chybi-zarazeni { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #fff4de; color: var(--barva-varovani); white-space: nowrap; }
 
 /* Přepínač sekcí (od v3.7) - Doklady: Ke schválení / Schválené. Jde o
    výběr JEDNOHO ze dvou pohledů na stejná data (ne dvě nezávislá
@@ -371,14 +383,34 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
    výš, .banka-radek) - dřív appka měla Doklady jako širokou tabulku
    s 11 sloupci, která se na užším okně/tabletu (nad breakpoint 480px pro
    mobilní karty) musela vodorovně posouvat. Sbaleně appka teď ukazuje jen
-   Stav/Dodavatel/Datum/Částka (vejde se na jakoukoli šířku bez
-   posuvníku), rozkliknutím řádku se otevře zbytek polí k úpravě. */
-.doklad-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; overflow: hidden; font-size: 13px; }
-.doklad-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
+   Číslo/Stav/Banka/Dodavatel/Datum/Částka (rozkliknutím řádku se otevře
+   zbytek polí k úpravě).
+   (v4.35) Jan po nahlášení nezarovnaných sloupců ("zarovnej data do
+   sloupců") appku přepnul z flexboxu na PEVNOU CSS grid mřížku - stejný
+   princip, jaký appka už dřív zavedla u Smluv/Vydaných faktur/Kniha jízd
+   (viz komentáře tam) - flexbox nechával šířku každého políčka (hlavně
+   stavového a párovacího odznaku) měnit se podle délky textu, takže
+   dodavatel/datum/částka nebyly zarovnané pod sebou. */
+.doklad-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
+.doklad-radek-hlava, .doklad-radek-hlavicka {
+  display: grid;
+  grid-template-columns: 16px 92px 62px 92px minmax(140px, 1fr) 90px 110px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.doklad-radek-hlava { padding: 8px 10px; cursor: pointer; }
+.doklad-radek-hlava > span, .doklad-radek-hlavicka > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.doklad-radek-hlavicka { padding: 0 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
 .doklad-radek-hlava:hover { filter: brightness(0.97); }
 .doklad-radek-hlava .dodavatel { font-weight: 600; }
-.doklad-radek-hlava .castka { font-weight: 600; margin-left: auto; text-align: right; white-space: nowrap; }
-.doklad-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
+.doklad-radek-hlava .castka { font-weight: 600; text-align: right; white-space: nowrap; }
+/* (v4.35) Stejný princip sdíleného vodorovného scrollu jako u Smlouvy/
+   Vydaných faktur výše - viz komentář tam (.vf-tabulka-obal). */
+.doklad-tabulka-obal { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
+.doklad-tabulka-obal::-webkit-scrollbar { height: 8px; }
+.doklad-tabulka-obal::-webkit-scrollbar-thumb { background: var(--barva-hranice); border-radius: 4px; }
+.doklad-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
 .doklad-radek.rozbaleno .doklad-radek-detail { display: block; }
 .doklad-radek.rozbaleno .doklad-sipka { transform: rotate(90deg); }
 .doklad-sipka { display: inline-block; transition: transform 0.15s; }
@@ -466,12 +498,21 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 .vf-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
 /* (v4.3) Stejný přechod na CSS grid s pevnými sloupci jako u Smlouvy výše -
    Jan: "vydané faktury a registr smluv zarovnej do tabulky, aby to bylo
-   zarovnané pod sebou". Sloupce: šipka / stav / číslo faktury / zákazník /
-   firma / částka - stejné pořadí musí mít `.vf-radek-hlavicka` a JS
-   `vytvorRadekVydanaFaktura`. */
+   zarovnané pod sebou". Sloupce: šipka / evidenční číslo / stav / číslo
+   faktury / zákazník / firma / částka - stejné pořadí musí mít
+   `.vf-radek-hlavicka` a JS `vytvorRadekVydanaFaktura`.
+   (v4.35, Jan: "na začátek dej přidělené číslo... platí pro vydané i
+   přijaté faktury") - appka evidenční číslo přidala jako VLASTNÍ sloupec
+   hned za šipku (dřív appka evidenční číslo vkládala jako druhý,
+   PODMÍNĚNÝ prvek (jen když bylo vyplněné) BEZ vlastního sloupce v
+   `grid-template-columns` - to appce reálně rozjíždělo zarovnání zbytku
+   řádku pokaždé, když se evidenční číslo objevilo/nebylo, přesně ten
+   problém, který appka měla tímhle přechodem na grid vyřešit). Appka teď
+   sloupec vykresluje VŽDY (i jako pomlčku), stejně jako appka od v4.35
+   dělá u Dokladů/Bankovních výpisů. */
 .vf-radek-hlava, .vf-radek-hlavicka {
   display: grid;
-  grid-template-columns: 16px 110px 110px minmax(120px, 1fr) 150px 100px;
+  grid-template-columns: 16px 92px 62px 110px minmax(120px, 1fr) 130px 100px;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -604,19 +645,33 @@ input[type="file"] { margin-top: 8px; }
   }
   .smlouva-radek-hlava > span:nth-child(6), .smlouva-radek-hlavicka > span:nth-child(6) { display: none; }
 
+  /* (v4.35) VF má teď 7 sloupců (přibylo evidenční číslo) - appka na
+     mobilu schovává Firmu (nth-child(6), dřív to bylo nth-child(5) u
+     starší 6sloupcové mřížky). */
   .vf-radek-hlava, .vf-radek-hlavicka {
-    grid-template-columns: 14px 60px 80px minmax(90px, 1fr) 80px;
+    grid-template-columns: 14px 55px 50px minmax(90px, 1fr) 75px 80px;
   }
-  .vf-radek-hlava > span:nth-child(5), .vf-radek-hlavicka > span:nth-child(5) { display: none; }
+  .vf-radek-hlava > span:nth-child(6), .vf-radek-hlavicka > span:nth-child(6) { display: none; }
 
   .kj-radek-hlava, .kj-radek-hlavicka {
     grid-template-columns: 14px 74px minmax(90px, 1fr) minmax(90px, 1fr) 70px;
   }
   .kj-radek-hlava > span:nth-child(6), .kj-radek-hlavicka > span:nth-child(6) { display: none; }
 
-  /* Doklady/Bankovní výpisy (flex, ne grid) appka nechá dál zalamovat
-     (flex-wrap už mají), jen appka odsazení/velikost trochu utáhne. */
-  .doklad-radek-hlava, .banka-radek-hlava { padding: 8px; gap: 6px; }
+  /* (v4.35) Doklady appka na mobilu schovává Datum (nth-child(6)) -
+     zbytek (číslo/stav/banka/dodavatel/částka) je důležitější. */
+  .doklad-radek-hlava, .doklad-radek-hlavicka {
+    grid-template-columns: 14px 62px 48px 66px minmax(90px, 1fr) 80px;
+  }
+  .doklad-radek-hlava > span:nth-child(6), .doklad-radek-hlavicka > span:nth-child(6) { display: none; }
+
+  /* (v4.35) Bankovní výpisy appka na mobilu schovává evidenční číslo
+     spárovaného dokladu/faktury (nth-child(2)) - appka ho pořád ukáže
+     po rozkliknutí řádku (detail appka nijak nemění). */
+  .banka-radek-hlava, .banka-radek-hlavicka {
+    grid-template-columns: 14px 74px minmax(90px, 1fr) 84px 90px;
+  }
+  .banka-radek-hlava > span:nth-child(2), .banka-radek-hlavicka > span:nth-child(2) { display: none; }
 }
 
 @media (max-width: 480px) {
@@ -637,11 +692,25 @@ input[type="file"] { margin-top: 8px; }
   .smlouva-radek-hlava, .smlouva-radek-hlavicka { grid-template-columns: 28px 70px minmax(80px, 1fr) minmax(80px, 1fr); }
   .smlouva-radek-hlava > span:nth-child(5), .smlouva-radek-hlavicka > span:nth-child(5) { display: none; }
 
-  .vf-radek-hlava, .vf-radek-hlavicka { grid-template-columns: 14px 60px minmax(80px, 1fr) 70px; }
-  .vf-radek-hlava > span:nth-child(3), .vf-radek-hlavicka > span:nth-child(3) { display: none; }
+  /* (v4.35) VF na opravdu úzkém mobilu appka schová ještě evidenční číslo
+     (nth-child(2)) a číslo faktury (nth-child(4)) - nechá jen šipku,
+     zkrácený stav, zákazníka a částku (Firma je schovaná už od 640px). */
+  .vf-radek-hlava, .vf-radek-hlavicka { grid-template-columns: 14px 55px minmax(80px, 1fr) 70px; }
+  .vf-radek-hlava > span:nth-child(2), .vf-radek-hlavicka > span:nth-child(2) { display: none; }
+  .vf-radek-hlava > span:nth-child(4), .vf-radek-hlavicka > span:nth-child(4) { display: none; }
 
   .kj-radek-hlava, .kj-radek-hlavicka { grid-template-columns: 14px 66px minmax(80px, 1fr) 70px; }
   .kj-radek-hlava > span:nth-child(4), .kj-radek-hlavicka > span:nth-child(4) { display: none; }
+
+  /* (v4.35) Doklady na opravdu úzkém mobilu appka schová ještě odznak
+     spárování s bankou (nth-child(4)) - Datum je schované už od 640px. */
+  .doklad-radek-hlava, .doklad-radek-hlavicka { grid-template-columns: 14px 55px 48px minmax(80px, 1fr) 70px; }
+  .doklad-radek-hlava > span:nth-child(4), .doklad-radek-hlavicka > span:nth-child(4) { display: none; }
+
+  /* (v4.35) Bankovní výpisy na opravdu úzkém mobilu appka schová ještě
+     Datum (nth-child(3)) - evidenční číslo je schované už od 640px. */
+  .banka-radek-hlava, .banka-radek-hlavicka { grid-template-columns: 14px minmax(80px, 1fr) 70px 70px; }
+  .banka-radek-hlava > span:nth-child(3), .banka-radek-hlavicka > span:nth-child(3) { display: none; }
 }
 
 .patka-verze { text-align: center; font-size: 11px; color: var(--barva-text-tlumena); padding: 14px 0 8px; }
@@ -649,13 +718,41 @@ input[type="file"] { margin-top: 8px; }
 .tlacitka-nahrani { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .tlacitka-nahrani button { margin-top: 0; flex: 1; min-width: 140px; }
 
-.banka-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; overflow: hidden; font-size: 13px; }
-.banka-radek-hlava { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; flex-wrap: wrap; }
+/* (v4.35) Jan po nahlášení nezarovnaných sloupců appku přepnul z flexboxu
+   na pevnou CSS grid mřížku - stejný princip jako appka v téže dávce
+   zavedla u Dokladů výše (viz komentář tam). Appka žádné vlastní evidenční
+   číslo bankovnímu pohybu nepřiřazuje (viz .cislo-evid výše) - první
+   sloupec za šipkou tak appka jen ukazuje, zbytek (Datum/Protistrana/
+   Stav/Částka) zůstává jako dřív. Appka odstranila `overflow: hidden`
+   (stejný důvod jako u Smlouvy/Vydaných faktur/Dokladů - jinak by
+   osekávalo obsah řádku dřív, než by se stihl scrollovat), zaoblení řeší
+   `border-radius` přímo na `.banka-radek-detail`. */
+.banka-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
+.banka-radek-hlava, .banka-radek-hlavicka {
+  display: grid;
+  grid-template-columns: 16px 92px 92px minmax(140px, 1fr) 100px 110px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.banka-radek-hlava { padding: 8px 10px; cursor: pointer; }
+.banka-radek-hlava > span, .banka-radek-hlavicka > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.banka-radek-hlavicka { padding: 0 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
+/* Stav appka drží v jedné buňce mřížky, ale UVNITŘ ní appka nechává
+   odznaky (stav párování + "chybí zařazení") volně zalomit na 2 řádky,
+   pokud se vedle sebe nevejdou - appka schválně nepřidává další sloupec do
+   celé mřížky jen kvůli druhému, řidčeji zobrazenému odznaku. */
+.banka-stav-bunka { display: flex; flex-wrap: wrap; gap: 4px; overflow: visible !important; white-space: normal !important; }
 .banka-radek-hlava:hover { filter: brightness(0.97); }
-.banka-radek-hlava .castka { font-weight: 600; margin-left: auto; text-align: right; white-space: nowrap; }
+.banka-radek-hlava .castka { font-weight: 600; text-align: right; white-space: nowrap; }
 .banka-radek-hlava .castka.prijem { color: var(--barva-uspech); }
 .banka-radek-hlava .castka.vydaj { color: var(--barva-text); }
-.banka-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; }
+/* (v4.35) Stejný princip sdíleného vodorovného scrollu jako u Smlouvy/
+   Vydaných faktur/Dokladů výše - viz komentář tam. */
+.banka-tabulka-obal { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
+.banka-tabulka-obal::-webkit-scrollbar { height: 8px; }
+.banka-tabulka-obal::-webkit-scrollbar-thumb { background: var(--barva-hranice); border-radius: 4px; }
+.banka-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
 .banka-radek.rozbaleno .banka-radek-detail { display: block; }
 .banka-radek.rozbaleno .banka-sipka { transform: rotate(90deg); }
 .banka-sipka { display: inline-block; transition: transform 0.15s; }

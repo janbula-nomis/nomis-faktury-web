@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.34 – 2026-07-26';
+const APP_VERZE = 'v4.35 – 2026-07-27';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -633,6 +633,21 @@ function stavTrida(stavText) {
   return 'stav-ke-kontrole';
 }
 
+// v4.35 (Jan: "zarovnej data do sloupců... schváleno nahraď zkratkou") -
+// appka přešla u sbalených řádků Dokladů/Vydaných faktur/Bankovních výpisů
+// z flexboxu na pevnou CSS grid mřížku (viz .doklad-radek-hlava níže), ať
+// se sloupce nerozjíždí podle délky textu. To ale vyžaduje krátké, pevně
+// dlouhé štítky - appka proto ve SBALENÉM řádku ukazuje zkrácený text
+// (plné znění appka nechává jako `title` atribut/tooltip při najetí
+// myší), zatímco rozkliknutý detail dál zobrazuje/edituje plné znění Stavu
+// beze změny.
+function dokladStavZkratka(stavText) {
+  if (stavText === 'Schváleno') return 'Schv.';
+  if (stavText === 'Možná duplicita') return 'Dupl.?';
+  if (stavText === 'Zpracovává se') return 'Zprac.';
+  return 'Kontrola';
+}
+
 // Badge u SCHVÁLENÉHO dokladu, jestli k němu appka našla/potvrdila
 // odpovídající bankovní pohyb (v3.16) - appka pole `Stav_parovani_bankou`
 // dopočítá na backendu při GET /doklady (viz netlify/functions/doklady.js),
@@ -644,18 +659,20 @@ function stavTrida(stavText) {
 // Znovupoužívá stejné CSS třídy jako badge u Bankovních výpisů
 // (badge-potvrzeno/navrzeno/chybi/bezdokladu), ať appka vizuálně nezavádí
 // další paletu barev jen pro tohle.
+// (v4.35) Viditelný text appka zkrátila kvůli přechodu na pevnou grid
+// mřížku - plné znění appka nechává v `title` atributu (tooltip).
 function bankSparovaniBadge(d) {
   if (d.Stav !== 'Schváleno') return '';
   if (String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO') {
-    return '<span class="badge-bezdokladu" title="Doklad je označený jako hrazený mimo účet - appka u něj protějšek v bance nehledá">Mimo účet</span>';
+    return '<span class="badge-bezdokladu" title="Doklad je označený jako hrazený mimo účet - appka u něj protějšek v bance nehledá (Mimo účet)">Mimo účet</span>';
   }
   if (d.Stav_parovani_bankou === 'Potvrzeno') {
-    return '<span class="badge-potvrzeno" title="Appka našla a účetní potvrdila odpovídající bankovní pohyb">Spárováno s bankou</span>';
+    return '<span class="badge-potvrzeno" title="Appka našla a účetní potvrdila odpovídající bankovní pohyb (Spárováno s bankou)">Spárováno</span>';
   }
   if (d.Stav_parovani_bankou === 'Navrženo') {
-    return '<span class="badge-navrzeno" title="Appka navrhla odpovídající bankovní pohyb, čeká na potvrzení v záložce Bankovní výpisy">Navrženo spárování</span>';
+    return '<span class="badge-navrzeno" title="Appka navrhla odpovídající bankovní pohyb, čeká na potvrzení v záložce Bankovní výpisy (Navrženo spárování)">Návrh</span>';
   }
-  return '<span class="badge-chybi" title="K tomuhle dokladu appka zatím nenašla odpovídající bankovní pohyb v Bankovních výpisech">Nespárováno s bankou</span>';
+  return '<span class="badge-chybi" title="K tomuhle dokladu appka zatím nenašla odpovídající bankovní pohyb v Bankovních výpisech (Nespárováno s bankou)">Nespár.</span>';
 }
 
 let firmyProVyberDokladu = [];
@@ -1133,12 +1150,18 @@ function vytvorRadekDoklad(d) {
   hlava.className = 'doklad-radek-hlava';
   hlava.innerHTML =
     '<span class="doklad-sipka">▶</span>' +
-    '<span class="stav-chip ' + stavTrida(d.Stav) + '">' + escapeHtml(d.Stav || '') + '</span>' +
-    bankSparovaniBadge(d) +
     // Evidencni_cislo (v4.34) - appka ho přiřazuje sama až při schválení
     // (viz netlify/functions/doklady.js), takže tu chvíli být nemusí -
-    // appka odznak zobrazí, jen když už je vyplněný.
-    (d.Evidencni_cislo ? '<span class="evidencni-cislo-chip">' + escapeHtml(d.Evidencni_cislo) + '</span>' : '') +
+    // appka ukazuje pomlčku, dokud číslo není přiřazené. (v4.35) Appka
+    // sloupec vykresluje VŽDY (ne jen když je Evidencni_cislo vyplněné),
+    // ať zůstane pevný počet sloupců pro zarovnání do mřížky - a appka ho
+    // dala jako úplně první viditelný sloupec (Jan: "na začátek dej
+    // přidělené číslo").
+    '<span class="cislo-evid' + (d.Evidencni_cislo ? '' : ' cislo-evid-prazdne') + '">' +
+      escapeHtml(d.Evidencni_cislo || '–') + '</span>' +
+    '<span class="stav-chip ' + stavTrida(d.Stav) + '" title="' + escapeHtml(d.Stav || '') + '">' +
+      escapeHtml(dokladStavZkratka(d.Stav)) + '</span>' +
+    (bankSparovaniBadge(d) || '<span></span>') +
     '<span class="dodavatel">' +
       escapeHtml(d.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (d.Dodavatel || '(bez dodavatele)')) +
     '</span>' +
@@ -2134,6 +2157,20 @@ function vfStavText(f) {
   return 'Neuhrazeno';
 }
 
+// v4.35 (Jan: "zarovnej data do sloupců... schváleno nahraď zkratkou -
+// platí pro vydané i přijaté faktury") - viz dokladStavZkratka výše, stejný
+// princip: appka zkrácený text ukazuje jen ve sbaleném řádku (kvůli
+// zarovnání do pevné grid mřížky), plné znění appka nechává v `title`
+// atributu a beze změny i v rozklikntém detailu.
+function vfStavZkratka(f) {
+  if (f.Stav === 'Zpracovává se') return 'Zprac.';
+  if (f.Stav === 'Uhrazeno') return 'Uhraz.';
+  if (f.Stav === 'Částečně uhrazeno') return 'Částeč.';
+  if (f.Stav === 'Možná duplicita') return 'Dupl.?';
+  if (vfJePoSplatnosti(f)) return 'Po splat.';
+  return 'Neuhr.';
+}
+
 function vykresliVydaneFaktury() {
   const kontejner = document.getElementById('vf-seznam');
   const souhrn = document.getElementById('vf-souhrn');
@@ -2177,11 +2214,16 @@ function vytvorRadekVydanaFaktura(f) {
   hlava.className = 'vf-radek-hlava';
   hlava.innerHTML =
     '<span class="vf-sipka">▶</span>' +
-    '<span class="stav-chip ' + vfStavChipTrida(f) + '">' + escapeHtml(vfStavText(f)) + '</span>' +
     // Evidencni_cislo (v4.34) - appka ho přiřazuje sama hned, jak faktura
     // přestane být placeholder/Možná duplicita (viz vydaneFaktury.js), takže
-    // tu chvíli být nemusí - odznak appka zobrazí, jen když už je vyplněný.
-    (f.Evidencni_cislo ? '<span class="evidencni-cislo-chip">' + escapeHtml(f.Evidencni_cislo) + '</span>' : '') +
+    // tu chvíli být nemusí - appka ukazuje pomlčku, dokud číslo není
+    // přiřazené. (v4.35, Jan: "na začátek dej přidělené číslo") - appka
+    // sloupec dala jako úplně první viditelný (hned za šipkou) a appka ho
+    // vykresluje VŽDY, ať zůstane pevný počet sloupců pro zarovnání.
+    '<span class="cislo-evid' + (f.Evidencni_cislo ? '' : ' cislo-evid-prazdne') + '">' +
+      escapeHtml(f.Evidencni_cislo || '–') + '</span>' +
+    '<span class="stav-chip ' + vfStavChipTrida(f) + '" title="' + escapeHtml(vfStavText(f)) + '">' +
+      escapeHtml(vfStavZkratka(f)) + '</span>' +
     '<span class="nazev-vf">' +
       escapeHtml(f.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (f.Cislo_faktury || '(bez čísla)')) +
     '</span>' +
@@ -2728,28 +2770,34 @@ function bankaDokladPodleId(id) {
   return bankaDokladySeznam.find((d) => d.ID === id);
 }
 
+// (v4.35) Viditelný text appka zkrátila kvůli přechodu na pevnou grid
+// mřížku (viz .banka-radek-hlava níže) - plné znění appka nechává v
+// `title` atributu (tooltip při najetí myší). Appka schválně u
+// "Navrženo/Spárováno (smlouva/faktura/nájem)" vynechává upřesnění v
+// závorce ze zkráceného textu - to zůstává vidět v `title` a v rozkliknutém
+// detailu pohybu.
 function bankaStavBadge(stav) {
-  if (stav === 'Potvrzeno') return '<span class="badge-potvrzeno">Potvrzeno</span>';
-  if (stav === 'Navrženo') return '<span class="badge-navrzeno">Navrženo</span>';
-  if (stav === 'Bez dokladu') return '<span class="badge-bezdokladu">Bez dokladu</span>';
+  if (stav === 'Potvrzeno') return '<span class="badge-potvrzeno" title="Potvrzeno">Potvrz.</span>';
+  if (stav === 'Navrženo') return '<span class="badge-navrzeno" title="Navrženo">Návrh</span>';
+  if (stav === 'Bez dokladu') return '<span class="badge-bezdokladu" title="Bez dokladu">Bez dokl.</span>';
   // Od v3.19 - trvalé příkazy (Smlouvy) a příjmy se středisko/účtem mají
   // VLASTNÍ barvu/badge, odlišnou od výdajových stavů výš (viz backlog).
-  if (stav === 'Trvalý příkaz') return '<span class="badge-trvalyprikaz">Trvalý příkaz</span>';
-  if (stav === 'Navrženo - trvalý příkaz') return '<span class="badge-navrzeno">Navrženo (smlouva)</span>';
-  if (stav === 'Příjem přiřazen') return '<span class="badge-prijemprirazen">Příjem přiřazen</span>';
+  if (stav === 'Trvalý příkaz') return '<span class="badge-trvalyprikaz" title="Trvalý příkaz">Trvalý</span>';
+  if (stav === 'Navrženo - trvalý příkaz') return '<span class="badge-navrzeno" title="Navrženo (trvalý příkaz)">Návrh</span>';
+  if (stav === 'Příjem přiřazen') return '<span class="badge-prijemprirazen" title="Příjem přiřazen">Příjem</span>';
   // Od v3.22 - párování příjmů s Vydanými fakturami (viz claude/nomis-
   // faktury-backlog.md, položka 5B).
-  if (stav === 'Navrženo - vydaná faktura') return '<span class="badge-navrzeno">Navrženo (faktura)</span>';
-  if (stav === 'Spárováno - vydaná faktura') return '<span class="badge-prijemprirazen">Spárováno s fakturou</span>';
+  if (stav === 'Navrženo - vydaná faktura') return '<span class="badge-navrzeno" title="Navrženo (vydaná faktura)">Návrh</span>';
+  if (stav === 'Spárováno - vydaná faktura') return '<span class="badge-prijemprirazen" title="Spárováno s vydanou fakturou">Spárováno</span>';
   // Od v4.19 - párování PŘÍJMŮ přímo s nájemní Smlouvou (viz claude/nomis-
   // faktury-backlog.md, Jan: "příjmy z nájmu přiřadit k bankovním vypisům").
-  if (stav === 'Navrženo - nájemní smlouva') return '<span class="badge-navrzeno">Navrženo (nájem)</span>';
-  if (stav === 'Spárováno - nájemní smlouva') return '<span class="badge-prijemprirazen">Spárováno s nájmem</span>';
+  if (stav === 'Navrženo - nájemní smlouva') return '<span class="badge-navrzeno" title="Navrženo (nájemní smlouva)">Návrh</span>';
+  if (stav === 'Spárováno - nájemní smlouva') return '<span class="badge-prijemprirazen" title="Spárováno s nájemní smlouvou">Spárováno</span>';
   // Od v4.6 - ruční přiřazení odchozí platby k dani (viz claude/nomis-
   // faktury-backlog.md, položka 9), stejná barva/logika jako Trvalý příkaz
   // (appka ho NEPOVAŽUJE za chybějící doklad).
-  if (stav === 'Daňová platba') return '<span class="badge-trvalyprikaz">Daňová platba</span>';
-  return '<span class="badge-chybi">Chybí doklad</span>';
+  if (stav === 'Daňová platba') return '<span class="badge-trvalyprikaz" title="Daňová platba">Daňová</span>';
+  return '<span class="badge-chybi" title="Chybí doklad">Chybí</span>';
 }
 
 // Pořadí důležitosti stavů při řazení výpisu (viz vykresliBankovniPohyby) -
@@ -2876,10 +2924,26 @@ function vytvorRadekBanka(p) {
   const chybiZarazeni = p.Doklad_ID && (!p.Doklad_Stredisko || !p.Doklad_Predkontace);
   hlava.innerHTML =
     '<span class="banka-sipka">▶</span>' +
+    // v4.35 (Jan: "na začátek dej přidělené číslo... podobně udělat také
+    // bankovní vypisy") - appka bankovnímu pohybu samotnému žádné vlastní
+    // evidenční číslo nepřiřazuje (to má jen spárovaný doklad/vydaná
+    // faktura, viz lib/evidencniCislo.js) - appka proto ukáže evidenční
+    // číslo SPÁROVANÉHO záznamu (appka ho dopočítá na backendu jako
+    // `Sparovany_evidencni_cislo`, viz netlify/functions/banka.js).
+    // Nespárovaný pohyb (nebo spárovaný doklad, který ještě není schválený
+    // a číslo tedy ještě nemá) appka ukáže s pomlčkou.
+    '<span class="cislo-evid' + (p.Sparovany_evidencni_cislo ? '' : ' cislo-evid-prazdne') + '">' +
+      escapeHtml(p.Sparovany_evidencni_cislo || '–') + '</span>' +
     '<span>' + escapeHtml(p.Datum || '') + '</span>' +
-    '<span>' + escapeHtml(p.Protistrana || p.Typ_pohybu || '') + '</span>' +
-    bankaStavBadge(p.Stav_parovani) +
-    (chybiZarazeni ? '<span class="chip-chybi-zarazeni">chybí zařazení</span>' : '') +
+    '<span class="dodavatel">' + escapeHtml(p.Protistrana || p.Typ_pohybu || '') + '</span>' +
+    // Stav appka drží v jedné buňce mřížky (appka schválně nepřidává další
+    // sloupec jen kvůli odznaku "chybí zařazení") - když se obě appka
+    // nevejdou vedle sebe, zalomí se uvnitř téhle buňky na 2 řádky, ne
+    // napříč celou mřížkou.
+    '<span class="banka-stav-bunka">' +
+      bankaStavBadge(p.Stav_parovani) +
+      (chybiZarazeni ? '<span class="chip-chybi-zarazeni">chybí zařazení</span>' : '') +
+    '</span>' +
     '<span class="castka ' + castkaTrida + '">' + formatCastkaSMenou(p.Castka, menaPohybuBanka(p)) + '</span>';
 
   const detail = document.createElement('div');

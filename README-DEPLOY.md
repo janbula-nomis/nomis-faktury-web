@@ -3645,6 +3645,104 @@ regrese.
 
 `APP_VERZE` appka zvýšila na `v4.34 – 2026-07-26`.
 
+## 76. Zarovnání sbalených řádků do pevných sloupců + evidenční číslo na začátku + zkrácené štítky stavů (v4.35)
+
+Jan poslal dva screenshoty seznamu "Přijaté faktury" s viditelně
+nezarovnanými sloupci a napsal: "zarovnej data do sloupců, a na začátek
+dej přidělené číslo, schváleno nahrad zkratkou - napiš mi jestli rozumiš /
+platí pro vydané i přijaté faktury, podobně udělat také bankovní vypisy,
+dej mi grafické návrhy".
+
+Appka nejdřív zjistila skutečnou příčinu nezarovnání: Doklady a Bankovní
+výpisy používaly flexbox (`display: flex; flex-wrap: wrap`), kde šířka
+buňky závisí na délce textu, takže dodavatel/datum/částka začínaly na
+jiné vodorovné pozici v každém řádku. Vydané faktury už sice grid
+používaly, ale evidenční číslo (zavedené v4.34) appka do řádku vkládala
+jen PODMÍNĚNĚ (jen když `Evidencni_cislo` existovalo) jako navíc grid
+prvek bez úpravy `grid-template-columns` - to je skutečná regrese, kterou
+appka touhle verzí opravuje.
+
+U tří návrhových otázek appka měla na výběr z více rozumných variant
+(odkud brát číslo u řádku bankovního pohybu, kolik štítků zkracovat,
+zkratka textem nebo ikonou) - appka se zeptala přes výběr možností a Jan
+ve všech třech případech potvrdil doporučenou variantu: zobrazit číslo
+SPÁROVANÉHO dokladu/faktury (ne vlastní číslování pohybů), zkrátit
+všechny podobně dlouhé štítky (ne jen "Schváleno"), a to krátkým textem
+(např. "Schv.") místo ikon.
+
+Appka pak podle Janova výslovného požadavku ("dej mi grafické návrhy")
+připravila interaktivní HTML náhled porovnávající "Dnes (appka)" a
+"Návrh" u Dokladů a Bankovních výpisů - když se Janovi náhled nedařilo
+otevřít, appka místo/vedle toho poslala dva statické PNG screenshoty
+(textový a ikonkový režim). Jan pak napsal "ano, udělej to" a odsouhlasil
+tak textovou variantu ke skutečné implementaci.
+
+### Co appka změnila
+
+**Princip "každý sloupec appka vždy vykreslí, jen se mění obsah"** - appka
+zavedla jako trvalé pravidlo pro všechny tři skládací seznamy (Doklady,
+Vydané faktury, Bankovní výpisy): sbalený řádek má pevný počet `<span>`
+prvků ve stejném pořadí v každém řádku i v hlavičce, sloupec se nikdy
+nevynechává (jen zobrazí placeholder "–", pokud je hodnota prázdná) - přesně
+tohle appka porušila u Vydaných faktur v4.34 a teď to opravuje jako obecnou
+konvenci i pro Doklady a Bankovní výpisy.
+
+- **Doklady a Bankovní výpisy převedeny z flexboxu na CSS grid**
+  (`public/style.css`, třídy `.doklad-radek-hlava`/`.doklad-radek-hlavicka`
+  a `.banka-radek-hlava`/`.banka-radek-hlavicka`) se sdílenou pevnou
+  `grid-template-columns` mezi statickou hlavičkou (`public/index.html`) a
+  JS-generovanými řádky (`public/app.js`) - stejný vzor, jaký appka od
+  v4.3/v4.4 používá u Smluv/Vydaných faktur/Knihy jízd.
+- **Evidenční číslo appka teď zobrazuje jako VŽDY přítomný první sloupec**
+  za šipkou (nová třída `.cislo-evid`, monospace, tabulkové číslice) u
+  Dokladů i Vydaných faktur - u Vydaných faktur appka zároveň opravila
+  regresi z v4.34 (podmíněné vkládání bez úpravy mřížky).
+- **U bankovního pohybu appka jako první sloupec zobrazuje evidenční
+  číslo SPÁROVANÉHO dokladu/faktury** (Janem potvrzená varianta) - appka
+  ho dopočítá ephemerně na backendu, appka nic needituje/neukládá do
+  listu Bankovni_pohyby (viz níže).
+- **Zkrácené štítky s tooltipem** - appka zkrátila všechny podobně dlouhé
+  stav/párování štítky na krátký text (např. "Schváleno" → "Schv.",
+  "Spárováno s bankou" → "Spárováno", "Navrženo spárování" → "Návrh" atd.)
+  a plný původní text appka zachovala v HTML atributu `title` (nativní
+  tooltip po najetí myší) i v rozkliknutém detailu řádku - appka nic
+  neztrácí, jen appka zkracuje zobrazení ve sbaleném řádku. Nové funkce:
+  `dokladStavZkratka()`, `vfStavZkratka()`, přepracované
+  `bankSparovaniBadge()` a `bankaStavBadge()` (vše `public/app.js`).
+- **Nový backendový výpočet `Sparovany_evidencni_cislo`**
+  (`netlify/functions/banka.js`, GET) - appka u spárovaného pohybu (podle
+  `Doklad_ID`, nebo pokud appka nemá, tak podle `Vydana_faktura_ID`)
+  dohledá evidenční číslo spárovaného dokladu/faktury a připojí ho k
+  odpovědi - stejná ephemerní konvence jako `Doklad_Stredisko`/
+  `Doklad_Predkontace` z v4.34 (appka nic needituje/neukládá, žádný nový
+  sloupec do Sheets appka nepřidává, `/api/setup` appka znovu spouštět
+  nemusí).
+- **Vodorovné scrollování appka sladila u všech tří seznamů** - appka
+  odstranila `overflow: hidden` z `.doklad-radek`/`.banka-radek` (jinak by
+  osekávalo obsah řádku dřív, než by se stihl scrollovat) a zaoblení rohů
+  appka teď řeší přes `border-radius` přímo na `.doklad-radek-detail`/
+  `.banka-radek-detail`, obalené nové `.doklad-tabulka-obal`/
+  `.banka-tabulka-obal` wrappery appka přidala po vzoru existujícího
+  `.vf-tabulka-obal`.
+- **Mobilní zalomení appka přepočítala** - u obou nových breakpointů
+  (`@media max-width: 640px` a `480px`) appka na užších obrazovkách schová
+  postupně nejméně důležité sloupce (Datum u Dokladů, evidenční číslo u
+  Bankovních výpisů, Firmu u Vydaných faktur atd.) a `grid-template-columns`
+  appka na každém breakpointu přepočítala tak, aby počet sloupců mřížky
+  odpovídal počtu VIDITELNÝCH sloupců (appka skryté sloupce úplně
+  vyřazuje z grid flow přes `display: none`, ne jen vizuálně schovává).
+
+### Ověřeno
+
+Appka přidala nový testovací soubor
+(`test_banka_sparovany_evidencni_cislo.js`, ověřuje dopočet
+`Sparovany_evidencni_cislo` podle spárovaného dokladu i podle vydané
+faktury, appka nic nevymýšlí u chybějícího evidenčního čísla, appka nic
+nedopočítává u nespárovaného pohybu) a celá regresní sada appky (77
+testů) prošla bez regrese.
+
+`APP_VERZE` appka zvýšila na `v4.35 – 2026-07-27`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
