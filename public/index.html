@@ -336,6 +336,23 @@
 
       <div id="nemovitosti-nacitani" class="nacitani">Načítám…</div>
       <div id="nemovitosti-seznam"></div>
+
+      <!-- Kontrola úhrady nájmu (od v4.37, Jan: "lze kontrolovat uhrazení
+           nájmu") - appka porovná očekávanou platbu aktivních nájemních
+           smluv napříč jednotkami s tím, co appka za zvolený měsíc
+           skutečně napárovala z banky, viz netlify/functions/
+           nemovitosti-platby-prehled.js. Appka platbu zařazuje do měsíce
+           podle data, kdy skutečně přišla na účet (zjednodušení, appka ho
+           v kódu funkce dokumentuje). -->
+      <details class="panel-skladaci">
+        <summary>Kontrola úhrady nájmu</summary>
+        <p class="popis">Appka porovná očekávanou platbu (čistý nájem + záloha na služby) u každé aktivní
+          nájemní smlouvy s tím, co bylo ve zvoleném měsíci napárováno z banky jako "Trvalý příkaz".</p>
+        <label for="nem-platby-mesic">Měsíc</label>
+        <input type="month" id="nem-platby-mesic" />
+        <button id="tlacitko-nem-platby-nacist">Zobrazit</button>
+        <div id="nem-platby-vysledek"></div>
+      </details>
     </div>
 
     <!-- VYDANÉ FAKTURY -->

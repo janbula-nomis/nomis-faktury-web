@@ -42,6 +42,7 @@ const { NEMOVITOSTI_JEDNOTKY_HEADERS } = require('../../lib/nemovitostiJednotkyS
 const {
   KLICE_HEADERS, MERIDLA_HEADERS, MERIDLA_ODECTY_HEADERS, REVIZE_HEADERS,
 } = require('../../lib/nemovitostiDetailySchema');
+const { NEMOVITOSTI_VYUCTOVANI_HEADERS } = require('../../lib/nemovitostiVyuctovaniSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
 
@@ -171,6 +172,14 @@ const LISTY = [
     // Revize (elektro/plyn/komín/hasicí přístroje/výtah) s platností do.
     nazev: 'Revize',
     hlavicky: REVIZE_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Uložená vyúčtování (od v4.37) - trvalý záznam výsledku, viz
+    // lib/nemovitostiVyuctovaniSchema.js a
+    // netlify/functions/nemovitosti-vyuctovani-ulozene.js.
+    nazev: 'Nemovitosti_Vyuctovani',
+    hlavicky: NEMOVITOSTI_VYUCTOVANI_HEADERS,
     ukazka: [],
   },
   { nazev: 'Log', hlavicky: ['Cas', 'Uzivatel', 'Akce', 'Doklad_ID', 'Detail'], ukazka: [] },

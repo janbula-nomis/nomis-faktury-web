@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.36 – 2026-07-28';
+const APP_VERZE = 'v4.37 – 2026-07-28';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -5061,6 +5061,50 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
   wrap.appendChild(labelCastka);
   wrap.appendChild(vstupCastka);
 
+  // Rozpad na Sluzby_castka/Vlastni_naklad_castka (od v4.37) - appka ho
+  // nabízí u smluv JINÝCH než "Nájem", typicky SVJ předpis/pojistka
+  // navázaná na konkrétní nemovitost (Stredisko). Appka Vlastni_naklad_castka
+  // NIKDY nepromítá do vyúčtování služeb nájemníkovi (viz nemovitosti-
+  // vyuctovani.js) - do vyúčtování appka počítá jen Sluzby_castka.
+  // Zobrazuje/skrývá se podle zvoleného Typu, appka pole do zmeny pošle jen
+  // tehdy, když appka split režim opravdu používá (viz ziskejZmeny níž) -
+  // ať appka nesahá na Ocekavana_castka u smluv, které split vůbec nepoužívají.
+  const wrapSplit = document.createElement('div');
+  wrapSplit.style.border = '1px dashed var(--barva-hranice, #ccc)';
+  wrapSplit.style.borderRadius = '6px';
+  wrapSplit.style.padding = '8px';
+  wrapSplit.style.margin = '4px 0 8px';
+  const popisSplit = document.createElement('p');
+  popisSplit.className = 'popis';
+  popisSplit.style.margin = '0 0 6px';
+  popisSplit.textContent = 'Appka umí pravidelnou platbu (SVJ předpis, pojistka apod.) rozdělit na část '
+    + 'zúčtovatelnou nájemníkovi (služby) a vlastní náklad pronajímatele (fond oprav apod.), který appka do '
+    + 'vyúčtování nájemníkovi nikdy nepromítá. Necháte-li obě pole prázdná, appka Očekávanou částku výš '
+    + 'ponechá jako ručně zadanou.';
+  wrapSplit.appendChild(popisSplit);
+  const labelSluzby = document.createElement('label');
+  labelSluzby.textContent = 'Z toho služby (zúčtovatelné nájemníkovi)';
+  const vstupSluzbyCastka = document.createElement('input');
+  vstupSluzbyCastka.type = 'number';
+  vstupSluzbyCastka.step = '0.01';
+  vstupSluzbyCastka.value = s.Sluzby_castka !== undefined && s.Sluzby_castka !== '' ? parsujCastkuZListu(s.Sluzby_castka) : '';
+  wrapSplit.appendChild(labelSluzby);
+  wrapSplit.appendChild(vstupSluzbyCastka);
+  const labelVlastniNaklad = document.createElement('label');
+  labelVlastniNaklad.textContent = 'Z toho vlastní náklad (appka NEpromítá do vyúčtování)';
+  const vstupVlastniNaklad = document.createElement('input');
+  vstupVlastniNaklad.type = 'number';
+  vstupVlastniNaklad.step = '0.01';
+  vstupVlastniNaklad.value = s.Vlastni_naklad_castka !== undefined && s.Vlastni_naklad_castka !== '' ? parsujCastkuZListu(s.Vlastni_naklad_castka) : '';
+  wrapSplit.appendChild(labelVlastniNaklad);
+  wrapSplit.appendChild(vstupVlastniNaklad);
+  wrap.appendChild(wrapSplit);
+  const aktualizujViditelnostSplit = () => {
+    wrapSplit.style.display = vstupTyp.value.trim() === 'Nájem' ? 'none' : '';
+  };
+  aktualizujViditelnostSplit();
+  vstupTyp.addEventListener('change', aktualizujViditelnostSplit);
+
   const labelMena = document.createElement('label');
   labelMena.textContent = 'Měna';
   const vstupMena = document.createElement('input');
@@ -5106,7 +5150,7 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
   wrap.appendChild(labelAktivni);
 
   function ziskejZmeny() {
-    return {
+    const zmeny = {
       Nazev: vstupNazev.value.trim(),
       Druha_strana: vstupDruhaStrana.value.trim(),
       Firma: vstupFirma.value.trim(),
@@ -5120,6 +5164,19 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
       Poznamka: vstupPoznamka.value.trim(),
       Aktivni: vstupAktivni.checked ? 'ANO' : 'NE',
     };
+    // Appka pošle Sluzby_castka/Vlastni_naklad_castka jen tehdy, když split
+    // režim opravdu používá (aspoň jedno z polí appka má vyplněné, ať už
+    // původně, nebo je uživatel právě teď vyplnil) - appka tak nesahá na
+    // Ocekavana_castka u smluv (např. leasing auta), které split vůbec
+    // nepoužívají a mají ho jen ručně zadaný.
+    const noveSluzby = vstupSluzbyCastka.value.trim();
+    const noveVlastni = vstupVlastniNaklad.value.trim();
+    const puvodneMeloSplit = String(s.Sluzby_castka || '').trim() !== '' || String(s.Vlastni_naklad_castka || '').trim() !== '';
+    if (noveSluzby !== '' || noveVlastni !== '' || puvodneMeloSplit) {
+      zmeny.Sluzby_castka = noveSluzby;
+      zmeny.Vlastni_naklad_castka = noveVlastni;
+    }
+    return zmeny;
   }
 
   const akce = document.createElement('div');
@@ -5398,9 +5455,58 @@ async function nactiNemovitosti() {
     vyplnVyberFirem('nova-nem-firma', nemovitostiFirmySeznam);
     vykresliVyberStrediskaProJednotku();
     vykresliNemovitosti();
+
+    const vstupMesic = document.getElementById('nem-platby-mesic');
+    if (vstupMesic && !vstupMesic.value) vstupMesic.value = new Date().toISOString().slice(0, 7);
   } catch (e) {
     nacitani.textContent = 'Nepodařilo se načíst nemovitosti: ' + e.message;
   }
+}
+
+// Appka platby-přehled počítá NAPŘÍČ jednotkami (na rozdíl od vyúčtování,
+// které appka počítá vždy jen za jednu konkrétní jednotku) - proto je to
+// samostatná sekce nad seznamem jednotek, ne součást karty jedné jednotky.
+async function nactiKontrolaUhradyNajmu() {
+  const mesic = document.getElementById('nem-platby-mesic').value;
+  const vysledekEl = document.getElementById('nem-platby-vysledek');
+  if (!mesic) { vysledekEl.innerHTML = '<div class="zprava chyba">Vyberte měsíc.</div>'; return; }
+
+  vysledekEl.innerHTML = '<div class="nacitani">Načítám…</div>';
+  try {
+    const data = await zavolejApi('/nemovitosti-platby-prehled?mesic=' + encodeURIComponent(mesic), { method: 'GET' });
+    vykresliKontrolaUhradyNajmu(vysledekEl, data.radky || []);
+  } catch (e) {
+    vysledekEl.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function vykresliKontrolaUhradyNajmu(el, radky) {
+  if (!radky.length) {
+    el.innerHTML = '<p class="popis">Appka nenašla žádnou aktivní nájemní smlouvu, ke které máte přístup.</p>';
+    return;
+  }
+
+  const tabulka = document.createElement('table');
+  tabulka.innerHTML = '<thead><tr><th>Středisko</th><th>Nájemník</th><th>Očekáváno</th><th>Uhrazeno</th><th>Stav</th></tr></thead>';
+  const telo = document.createElement('tbody');
+
+  radky.forEach((r) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td data-label="Středisko"></td><td data-label="Nájemník"></td><td data-label="Očekáváno"></td>'
+      + '<td data-label="Uhrazeno"></td><td data-label="Stav"></td>';
+    tr.children[0].textContent = r.stredisko || '';
+    tr.children[1].textContent = r.druhaStrana || '';
+    tr.children[2].textContent = formatCastkaSMenou(r.ocekavano, r.mena || 'CZK');
+    tr.children[3].textContent = formatCastkaSMenou(r.uhrazeno, r.mena || 'CZK');
+    let trida = 'badge-chybi';
+    if (r.stav === 'Zaplaceno') trida = 'badge-potvrzeno';
+    else if (r.stav === 'Částečně') trida = 'badge-navrzeno';
+    tr.children[4].innerHTML = '<span class="' + trida + '">' + escapeHtml(r.stav) + '</span>';
+    telo.appendChild(tr);
+  });
+  tabulka.appendChild(telo);
+  el.innerHTML = '';
+  el.appendChild(tabulka);
 }
 
 // Appka do nabídky nabízí jen střediska typu "Nemovitost", která ještě
@@ -6071,12 +6177,20 @@ function vykresliSekciVyuctovani(el, j) {
   const vysledekEl = document.createElement('div');
   el.appendChild(vysledekEl);
 
+  // Appka si pamatuje poslední spočítaný výsledek + zvolené období, ať ho
+  // tlačítko "Uložit vyúčtování" uloží PŘESNĚ tak, jak appka na obrazovce
+  // právě ukázala (appka ho znovu NEPŘEPOČÍTÁVÁ - viz netlify/functions/
+  // nemovitosti-vyuctovani-ulozene.js).
+  let posledniVysledek = null;
+
   const btnSpocitat = document.createElement('button');
   btnSpocitat.textContent = 'Spočítat vyúčtování';
   btnSpocitat.style.marginTop = '8px';
   btnSpocitat.onclick = async () => {
     if (!vstupOd.value || !vstupDo.value) { alert('Zadejte období (od/do).'); return; }
     btnSpocitat.disabled = true;
+    btnUlozit.disabled = true;
+    posledniVysledek = null;
     vysledekEl.innerHTML = '<div class="nacitani">Počítám…</div>';
     try {
       let cesta = '/nemovitosti-vyuctovani?smlouva_id=' + encodeURIComponent(smlouva.ID)
@@ -6084,6 +6198,8 @@ function vykresliSekciVyuctovani(el, j) {
       if (checkKauce.checked) cesta += '&pocitatKauci=1&skody=' + encodeURIComponent(vstupSkody.value.trim() || '0');
       const vysledek = await zavolejApi(cesta, { method: 'GET' });
       vysledekEl.innerHTML = vykresliVysledekVyuctovani(vysledek, smlouva.Mena);
+      posledniVysledek = { vysledek, obdobiOd: vstupOd.value, obdobiDo: vstupDo.value };
+      btnUlozit.disabled = false;
     } catch (e) {
       vysledekEl.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
     } finally {
@@ -6091,12 +6207,139 @@ function vykresliSekciVyuctovani(el, j) {
     }
   };
   el.appendChild(btnSpocitat);
+
+  const btnUlozit = document.createElement('button');
+  btnUlozit.className = 'sekundarni';
+  btnUlozit.style.marginTop = '8px';
+  btnUlozit.style.marginLeft = '8px';
+  btnUlozit.textContent = 'Uložit vyúčtování';
+  btnUlozit.disabled = true;
+  btnUlozit.title = 'Appka nejdřív musí vyúčtování spočítat - uloží se přesně ta spočítaná částka, kterou appka právě ukázala';
+  btnUlozit.onclick = async () => {
+    if (!posledniVysledek) return;
+    btnUlozit.disabled = true;
+    try {
+      const v = posledniVysledek.vysledek;
+      const telo = {
+        Smlouva_ID: smlouva.ID,
+        Obdobi_Od: posledniVysledek.obdobiOd,
+        Obdobi_Do: posledniVysledek.obdobiDo,
+        Naklady_Sluzby: v.nakladySluzby,
+        Naklady_Vlastni: v.nakladyVlastni,
+        Zaloha_Na_Sluzby: v.zalohaNaSluzby,
+        Pocet_Zaplacenych_Zaloh: v.pocetZaplacenychZaloh,
+        Zalohy_Prijate: v.zalohyPrijate,
+        Rozdil: v.rozdil,
+      };
+      if (v.kauce) {
+        telo.Kauce_Castka = v.kauce.castka;
+        telo.Kauce_Skody = v.kauce.skody;
+        telo.Kauce_Nedoplatek = v.kauce.nedoplatek;
+        telo.Kauce_K_Vraceni = v.kauce.kVraceni;
+      }
+      await zavolejApi('/nemovitosti-vyuctovani-ulozene', { method: 'POST', body: JSON.stringify(telo) });
+      await nactiHistoriiVyuctovani();
+    } catch (e) {
+      alert('Nepodařilo se uložit vyúčtování: ' + e.message);
+    } finally {
+      btnUlozit.disabled = false;
+    }
+  };
+  el.appendChild(btnUlozit);
+
+  const historieEl = document.createElement('div');
+  historieEl.style.marginTop = '14px';
+  el.appendChild(historieEl);
+
+  async function nactiHistoriiVyuctovani() {
+    historieEl.innerHTML = '<div class="nacitani">Načítám historii…</div>';
+    try {
+      const data = await zavolejApi('/nemovitosti-vyuctovani-ulozene?smlouva_id=' + encodeURIComponent(smlouva.ID), { method: 'GET' });
+      vykresliHistoriiVyuctovani(historieEl, data.vyuctovani || [], smlouva.Mena, nactiHistoriiVyuctovani);
+    } catch (e) {
+      historieEl.innerHTML = '<div class="zprava chyba">Historii uložených vyúčtování se nepodařilo načíst: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+  nactiHistoriiVyuctovani();
+}
+
+const MOZNOSTI_STAV_VYUCTOVANI_DALSI = {
+  'Spočítáno': 'Odesláno nájemníkovi',
+  'Odesláno nájemníkovi': 'Vypořádáno',
+};
+
+function vykresliHistoriiVyuctovani(el, seznam, mena, obnov) {
+  el.innerHTML = '<h5>Uložená vyúčtování</h5>';
+  if (!seznam.length) {
+    const info = document.createElement('p');
+    info.className = 'popis';
+    info.textContent = 'Appka zatím nemá uložené žádné vyúčtování téhle smlouvy.';
+    el.appendChild(info);
+    return;
+  }
+
+  const tabulka = document.createElement('table');
+  tabulka.innerHTML = '<thead><tr><th>Období</th><th>Rozdíl</th><th>Stav</th><th>Akce</th></tr></thead>';
+  const telo = document.createElement('tbody');
+
+  seznam.forEach((z) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td data-label="Období"></td><td data-label="Rozdíl"></td><td data-label="Stav"></td><td data-label="Akce"></td>';
+    const rozdilCislo = parseFloat(z.Rozdil) || 0;
+    tr.children[0].textContent = (z.Obdobi_Od || '') + ' – ' + (z.Obdobi_Do || '');
+    tr.children[1].textContent = formatCastkaSMenou(Math.abs(rozdilCislo), mena) + (rozdilCislo >= 0 ? ' (přeplatek)' : ' (nedoplatek)');
+    tr.children[2].textContent = z.Stav;
+
+    const dalsiStav = MOZNOSTI_STAV_VYUCTOVANI_DALSI[z.Stav];
+    if (dalsiStav) {
+      const btnDalsi = document.createElement('button');
+      btnDalsi.className = 'maly sekundarni';
+      btnDalsi.textContent = '→ ' + dalsiStav;
+      btnDalsi.onclick = async () => {
+        btnDalsi.disabled = true;
+        try {
+          await zavolejApi('/nemovitosti-vyuctovani-ulozene', {
+            method: 'PATCH',
+            body: JSON.stringify({ id: z.ID, zmeny: { Stav: dalsiStav } }),
+          });
+          await obnov();
+        } catch (e) {
+          alert('Nepodařilo se změnit stav vyúčtování: ' + e.message);
+          btnDalsi.disabled = false;
+        }
+      };
+      tr.children[3].appendChild(btnDalsi);
+    }
+    if (z.Stav === 'Spočítáno') {
+      const btnSmazat = document.createElement('button');
+      btnSmazat.className = 'maly sekundarni';
+      btnSmazat.style.marginLeft = '6px';
+      btnSmazat.textContent = 'Smazat';
+      btnSmazat.onclick = async () => {
+        if (!confirm('Smazat tenhle spočítaný záznam vyúčtování? Jakmile je odeslané nájemníkovi, appka smazání dál nedovolí.')) return;
+        btnSmazat.disabled = true;
+        try {
+          await zavolejApi('/nemovitosti-vyuctovani-ulozene?id=' + encodeURIComponent(z.ID), { method: 'DELETE' });
+          await obnov();
+        } catch (e) {
+          alert('Nepodařilo se smazat vyúčtování: ' + e.message);
+          btnSmazat.disabled = false;
+        }
+      };
+      tr.children[3].appendChild(btnSmazat);
+    }
+
+    telo.appendChild(tr);
+  });
+  tabulka.appendChild(telo);
+  el.appendChild(tabulka);
 }
 
 function vykresliVysledekVyuctovani(v, mena) {
   const rozdilPopisek = v.rozdil >= 0 ? 'Přeplatek (appka vrátí nájemníkovi)' : 'Nedoplatek (appka doúčtuje)';
   let html = '<div class="vyuctovani-vysledek"><dl>'
-    + '<dt>Skutečné náklady</dt><dd>' + escapeHtml(formatCastkaSMenou(v.naklady, mena)) + '</dd>'
+    + '<dt>Náklady - služby (zúčtovatelné proti záloze)</dt><dd>' + escapeHtml(formatCastkaSMenou(v.nakladySluzby, mena)) + '</dd>'
+    + '<dt>Náklady - vlastní (appka NEpromítá do vyúčtování nájemníkovi)</dt><dd>' + escapeHtml(formatCastkaSMenou(v.nakladyVlastni, mena)) + '</dd>'
     + '<dt>Zaplacené zálohy</dt><dd>' + escapeHtml(formatCastkaSMenou(v.zalohyPrijate, mena)) + ' (' + v.pocetZaplacenychZaloh + '×)</dd>'
     + '<dt>' + rozdilPopisek + '</dt><dd>' + escapeHtml(formatCastkaSMenou(Math.abs(v.rozdil), mena)) + '</dd>';
   if (v.kauce) {
@@ -6576,6 +6819,7 @@ document.getElementById('sm-sekce-aktivni').addEventListener('click', () => prep
 document.getElementById('sm-sekce-neaktivni').addEventListener('click', () => prepniSmlouvySekci('neaktivni'));
 document.getElementById('tlacitko-pridat-jizdu').addEventListener('click', pridatJizdu);
 document.getElementById('tlacitko-pridat-jednotku').addEventListener('click', pridatJednotku);
+document.getElementById('tlacitko-nem-platby-nacist').addEventListener('click', nactiKontrolaUhradyNajmu);
 document.getElementById('tlacitko-import-jizd').addEventListener('click', importovatKnihaJizdCsv);
 document.getElementById('kj-sekce-jizdy').addEventListener('click', () => prepniKnihaJizdSekci('jizdy'));
 document.getElementById('kj-sekce-souhrn').addEventListener('click', () => prepniKnihaJizdSekci('souhrn'));

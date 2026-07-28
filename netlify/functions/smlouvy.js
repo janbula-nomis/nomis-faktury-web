@@ -47,9 +47,13 @@ function maPristupKFirme(uzivatel, firma) {
 // `Ocekavana_castka` dál appka počítá/ukládá jako jejich součet, ať
 // stávající spárování bankovních plateb podle přesné částky
 // (lib/bankHelpers.js) zůstane beze změny - appka jen navíc ví, jak se
-// ta částka skládá.
-function vypocitejOcekavanouCastku(cistyNajem, zalohaNaSluzby) {
-  return String((parseFloat(cistyNajem) || 0) + (parseFloat(zalohaNaSluzby) || 0));
+// ta částka skládá. Od v4.37 appka STEJNOU funkci používá i u nákladové
+// smlouvy (Typ != 'Nájem', typicky SVJ/pojistka) pro součet
+// Sluzby_castka + Vlastni_naklad_castka - jde o stejný princip (appka
+// zná rozpad, ale párování bankovní platby pořád jede podle jednoho
+// součtu), proto appka funkci přejmenovala na obecnější název.
+function soucetDvouCastek(a, b) {
+  return String((parseFloat(a) || 0) + (parseFloat(b) || 0));
 }
 
 exports.handler = async (event) => {
@@ -130,13 +134,23 @@ exports.handler = async (event) => {
       const typSmlouvy = String(telo.Typ || '').trim();
       const cistyNajem = String(telo.Cisty_najem || '').trim();
       const zalohaNaSluzby = String(telo.Zaloha_na_sluzby || '').trim();
-      // U nájmu appka počítá Ocekavana_castka ze split polí, pokud je
-      // appka dostala (viz vypocitejOcekavanouCastku výš) - jinak appka
-      // bere Ocekavana_castka tak, jak appka dostala (starší chování,
-      // ostatní typy smlouvy split pole vůbec nemají).
-      const ocekavanaCastka = (typSmlouvy === 'Nájem' && (cistyNajem || zalohaNaSluzby))
-        ? vypocitejOcekavanouCastku(cistyNajem, zalohaNaSluzby)
-        : (telo.Ocekavana_castka !== undefined ? String(telo.Ocekavana_castka).trim() : '');
+      const sluzbyCastka = String(telo.Sluzby_castka || '').trim();
+      const vlastniNakladCastka = String(telo.Vlastni_naklad_castka || '').trim();
+      // U nájmu appka počítá Ocekavana_castka ze split polí čistý nájem/
+      // záloha, pokud je appka dostala. U jiného typu smlouvy (od v4.37,
+      // typicky SVJ/pojistka navázaná na nemovitost) appka stejně počítá
+      // součet Sluzby_castka/Vlastni_naklad_castka, pokud appka dostala
+      // aspoň jedno z nich - jinak appka bere Ocekavana_castka tak, jak
+      // appka dostala (starší chování, běžný "trvalý příkaz" nesouvisející
+      // s vyúčtováním nemovitosti split pole vůbec nepoužívá).
+      let ocekavanaCastka;
+      if (typSmlouvy === 'Nájem' && (cistyNajem || zalohaNaSluzby)) {
+        ocekavanaCastka = soucetDvouCastek(cistyNajem, zalohaNaSluzby);
+      } else if (typSmlouvy !== 'Nájem' && (sluzbyCastka || vlastniNakladCastka)) {
+        ocekavanaCastka = soucetDvouCastek(sluzbyCastka, vlastniNakladCastka);
+      } else {
+        ocekavanaCastka = telo.Ocekavana_castka !== undefined ? String(telo.Ocekavana_castka).trim() : '';
+      }
 
       const smlouva = {
         ID: crypto.randomUUID(),
@@ -162,6 +176,8 @@ exports.handler = async (event) => {
         Kauce_datum_prijeti: String(telo.Kauce_datum_prijeti || '').trim(),
         Kauce_stav: String(telo.Kauce_stav || '').trim(),
         Kauce_poznamka: String(telo.Kauce_poznamka || '').trim(),
+        Sluzby_castka: sluzbyCastka,
+        Vlastni_naklad_castka: vlastniNakladCastka,
       };
       await appendRow(sheets, spreadsheetId, 'Smlouvy', SMLOUVY_HEADERS, smlouva);
 
@@ -178,14 +194,19 @@ exports.handler = async (event) => {
       if (!maPristupKFirme(uzivatel, smlouva.Firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
 
       const aktualizovana = Object.assign({}, smlouva, zmeny || {});
-      // v4.36 - appka přepočítá Ocekavana_castka jen tehdy, když PATCH
-      // skutečně mění jedno ze split polí (Cisty_najem/Zaloha_na_sluzby) u
-      // nájemní smlouvy - jinak appka Ocekavana_castka nechává beze změny
-      // (např. PATCH, který mění jen Poznamku, na částku nesahá).
+      // v4.36/v4.37 - appka přepočítá Ocekavana_castka jen tehdy, když
+      // PATCH skutečně mění jedno ze split polí u DANÉHO typu smlouvy -
+      // jinak appka Ocekavana_castka nechává beze změny (např. PATCH, který
+      // mění jen Poznamku, na částku nesahá).
       if (aktualizovana.Typ === 'Nájem'
         && ((zmeny || {}).Cisty_najem !== undefined || (zmeny || {}).Zaloha_na_sluzby !== undefined)) {
-        aktualizovana.Ocekavana_castka = vypocitejOcekavanouCastku(
+        aktualizovana.Ocekavana_castka = soucetDvouCastek(
           aktualizovana.Cisty_najem, aktualizovana.Zaloha_na_sluzby
+        );
+      } else if (aktualizovana.Typ !== 'Nájem'
+        && ((zmeny || {}).Sluzby_castka !== undefined || (zmeny || {}).Vlastni_naklad_castka !== undefined)) {
+        aktualizovana.Ocekavana_castka = soucetDvouCastek(
+          aktualizovana.Sluzby_castka, aktualizovana.Vlastni_naklad_castka
         );
       }
       await updateRow(sheets, spreadsheetId, 'Smlouvy', SMLOUVY_HEADERS, smlouva._row, aktualizovana);

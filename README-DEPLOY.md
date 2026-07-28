@@ -3857,6 +3857,118 @@ prošla bez regrese.
 
 `APP_VERZE` appka zvýšila na `v4.36 – 2026-07-28`.
 
+## 78. Napárování účetních dat do vyúčtování + kontrola úhrady nájmu, dodrženo zákona č. 67/2013 Sb. (v4.37)
+
+Jan otevřel diskusi ("zatím jen diskuse, jak bude možné párovat nájemní
+smlouvy jako výnosy, náklady, vyúčtování domu apod ve vazbě na
+nemovitost"), appka mu dala rozbor stávající architektury + tři
+identifikované mezery. Jan pak zadal konkrétní požadavek ("všechny
+informace o tom co potřebuji k evidenci nákladů a vynosů mám již v
+účetních datech, tak je logické to napárovat do vyúčtování... dej návrh
+jak to udelat nejlépe, pořádně to promysli") a appka vrátila detailní
+návrh. Jan implementaci schválil beze změn ("udělej to at to davá smysl i
+splnuje zákonné povinosti") a appka rozhodla dvě otevřené otázky z návrhu
+sama, s důrazem na soulad se zákonem.
+
+### 1) Vyúčtování appka nově dělí náklady na "služby" a "vlastní náklad"
+
+Appka zjistila, že dosavadní GET přepočet (`nemovitosti-vyuctovani.js`,
+v4.36) počítal "skutečné náklady" jako součet VŠECH Dokladů střediska bez
+ohledu na Kategorii - to je v rozporu se zákonem č. 67/2013 Sb. o
+službách spojených s užíváním bytu, který appce dovoluje zúčtovat
+nájemníkovi proti záloze jen skutečné SLUŽBY (energie, úklid apod.), ne
+vlastní náklady pronajímatele (opravy, pojištění, daň z nemovitosti, fond
+oprav SVJ).
+
+- **Nový `lib/vyuctovaniKategorie.js`** - `KATEGORIE_SLUZBY` (appkou
+  navržený výchozí seznam: "Energie (elektřina, plyn, voda)", "Služby") +
+  `jeKategorieSluzba()`. Appka tenhle mapping navrhla jako VÝCHOZÍ - Jan ho
+  může kdykoli upravit, appka to nezakrývá v komentáři souboru.
+- **`nemovitosti-vyuctovani.js` přepočítán** - appka teď počítá
+  `nakladySluzby`/`nakladyVlastni` odděleně (podle `Doklad.Kategorie`,
+  Dobropis appka odečítá stejně jako dřív), `rozdil` (a tedy i nedoplatek
+  z kauce) appka počítá JEN z `nakladySluzby` - `nakladyVlastni` appka do
+  vyúčtování nájemníkovi nikdy nepromítá.
+- **SVJ předpis/pojistka appce dřív chyběly ve výpočtu úplně** (nemají
+  vlastní Doklad, appka je platí jako "trvalý příkaz" bez faktury) - appka
+  místo nové paralelní struktury ZNOVUPOUŽILA existující mechanismus
+  "trvalých příkazů" (Smlouvy, `Typ !== 'Nájem'`, stejné Středisko), jen
+  appka takové smlouvě přidala nová pole:
+  - **Rozšíření `Smlouvy`** (`lib/smlouvySchema.js`,
+    `netlify/functions/smlouvy.js`) o `Sluzby_castka`/
+    `Vlastni_naklad_castka` - appka je používá jen u smluv `Typ !== 'Nájem'`
+    (Nájem má vlastní pár `Cisty_najem`/`Zaloha_na_sluzby` z v4.36,
+    appka je nemíchá). `Ocekavana_castka` appka dopočítá jako jejich součet
+    stejnou logikou jako u Nájmu (`soucetDvouCastek`, dřívější
+    `vypocitejOcekavanouCastku` appka přejmenovala, appka se stejným
+    chováním) - appka na jejich přesný součet spoléhá i párování bankovní
+    platby podle částky, takže appka na Ocekavana_castka nesahá, dokud
+    appka opravdu split pole nemění.
+  - Appka do výpočtu vyúčtování přičte matchnuté ("Trvalý příkaz", v
+    období) platby takových smluv, rozdělené přesně podle jejich
+    `Sluzby_castka`/`Vlastni_naklad_castka`.
+  - Auta/leasing a další stávající "trvalé příkazy", které tahle pole
+    nikdy nevyplňují, appka nechala BEZE ZMĚNY (prázdná pole appka
+    bezpečně ignoruje).
+
+### 2) Vyúčtování appka teď umí i TRVALE ULOŽIT (dřív jen živý přepočet)
+
+Jan chtěl umět "roční vyuctování" evidovat, ne jen počítat na požádání -
+appka dřívější GET přepočet nechala beze změny (pořád appka nic
+neukládá), ale přidala k němu samostatný CRUD nad trvalým záznamem.
+
+- **Nový list `Nemovitosti_Vyuctovani`** (`lib/nemovitostiVyuctovaniSchema.js`,
+  `netlify/functions/nemovitosti-vyuctovani-ulozene.js`) - appka uloží
+  přesně to číslo, které appka klientovi předtím vrátila přes živý GET
+  přepočet (appka POST NEPŘEPOČÍTÁVÁ ze zdrojových dat znovu), se stavovým
+  polem `Stav`: **Spočítáno → Odesláno nájemníkovi → Vypořádáno**.
+- Appka kvůli auditní stopě PATCH omezila jen na `Stav`/`Poznamka` (appka
+  spočítané částky považuje za neměnný historický záznam) a DELETE
+  dovolí jen dokud je `Stav === 'Spočítáno'` (appka ho ještě neposlala) -
+  jakmile appka/Jan označí "Odesláno nájemníkovi", appka smazání odmítne
+  (409).
+- **Frontend** (`public/app.js`, sekce Vyúčtování u jednotky) - appka
+  přidala tlačítko "Uložit vyúčtování" (appka uloží PŘESNĚ ten výsledek,
+  který appka právě spočítala a ukázala, žádný nový přepočet) a historii
+  uložených vyúčtování s tlačítkem na posun stavu a smazáním jen u
+  "Spočítáno" záznamů. Zobrazení appka rozšířila o rozpad
+  služby/vlastní náklad místo dřívějšího jednoho čísla.
+
+### 3) Kontrola úhrady nájmu (nová měsíční sekce)
+
+Jan: "zaplacené zálohy SVJ a uhrady od nájemníka, zároven lze kontrolovat
+uhrazení nájmu". Appka přidala nový GET-only přehled napříč jednotkami.
+
+- **Nový `netlify/functions/nemovitosti-platby-prehled.js`** -
+  `GET ?firma=X&mesic=RRRR-MM` porovná očekávanou platbu (čistý nájem +
+  záloha) KAŽDÉ aktivní nájemní smlouvy s tím, co appka za daný měsíc
+  napárovala z banky jako "Trvalý příkaz", vrátí stav Zaplaceno/Částečně/
+  Nezaplaceno. appka nic neukládá, appka jen počítá na požádání.
+  - **Appka záměrně zjednodušila** (appka to netají, viz komentář v
+    souboru) - appka platbu zařazuje do měsíce podle DATA PŘÍCHODU na
+    účet, ne podle věcné příslušnosti (nájem se v praxi platí dopředu,
+    splatnost bývá do 25. dne PŘEDCHOZÍHO měsíce). Appka to appce/Janovi
+    umí dopočítat přesněji později, kdyby to byl problém.
+- **Frontend** - nová rozbalovací sekce "Kontrola úhrady nájmu" v záložce
+  Nemovitosti (appka na rozdíl od Vyúčtování/Smlouvy tuhle sekci vykresluje
+  NAD seznamem jednotek, protože appka počítá NAPŘÍČ jednotkami, ne pro
+  jednu konkrétní) - měsíc appka defaultně předvyplní aktuálním měsícem.
+
+**Nutný krok po nasazení**: appka potřebuje znovu spustit `/api/setup`
+(viz krok 6 níže) - vytvoří nový list `Nemovitosti_Vyuctovani` a doplní
+nové sloupce `Sluzby_castka`/`Vlastni_naklad_castka` do `Smlouvy`.
+
+### Ověřeno
+
+Appka přidala tři nové testovací soubory
+(`test_smlouvy_sluzby_vlastni_naklad.js`,
+`test_nemovitosti_vyuctovani_ulozene.js`,
+`test_nemovitosti_platby_prehled.js`), přepsala `test_nemovitosti_vyuctovani.js`
+na nový rozpad služby/vlastní náklad, a celá regresní sada appky
+(85 testů) prošla bez regrese.
+
+`APP_VERZE` appka zvýšila na `v4.37 – 2026-07-28`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
