@@ -3743,6 +3743,120 @@ testů) prošla bez regrese.
 
 `APP_VERZE` appka zvýšila na `v4.35 – 2026-07-27`.
 
+## 77. Editovatelné číselníky (RZ/číslo účtu) + výchozí Dashboard po přihlášení + modul Nemovitosti (v4.36)
+
+Tři samostatné, na sobě nezávislé požadavky odeslané postupně v jedné
+konverzaci - appka je sloučila do jednoho vydání.
+
+### 1) Číselníky Auta/Účty - editace klíčového pole
+
+Jan: "dopln do ciselníků možnost jednotlivé řádky editovat, např. u aut
+nelze přidat SPZ apod. (správně RZ)". Appka zjistila, že u Aut appka
+sloupec RZ (appka ho přejmenovala z dřívějšího "SPZ" - Jan: "správně RZ")
+vždycky vykreslovala jako obyčejný text, ne editovatelné pole (na rozdíl
+od Modelu/Firmy/Řidiče) - backend PATCH už editaci uměl, appce chyběl jen
+formulář. U Účtů appka zjistila stejnou mezeru u čísla účtu.
+
+- **Auta**: appka RZ zpřístupnila jako editovatelné pole u existujícího
+  auta (`public/app.js`, `vykresliAuta`), popisek appka přejmenovala ze
+  "SPZ" na "RZ" (`public/index.html`).
+- **Účty**: appka číslo účtu zpřístupnila jako editovatelné pole u
+  existujícího účtu (backend `netlify/functions/ucty.js` editaci uměl už
+  dřív).
+- Appka na backendu (`netlify/functions/auta.js`, `netlify/functions/
+  ucty.js`) přidala kontrolu, aby přejmenováním nevznikly dva řádky se
+  stejnou hodnotou (409 s jasnou hláškou).
+- **Firmy a Střediska appka záměrně nezměnila** - jejich název appka
+  aktivně používá jako klíč na dalších místech (Doklady/Smlouvy/Bankovní
+  pohyby/Uživatelé), takže by přejmenování mohlo "rozjet vazby" (viz
+  komentáře v `netlify/functions/firmy.js`/`strediska.js`). U Aut/Účtů
+  appka tohle riziko nenašla (RZ appka nikde jako živý klíč nepoužívá -
+  `Doklady.SPZ_auta` appka od v3.8 nezapisuje, viz komentář v
+  `public/app.js`; `Bankovni_pohyby.Cislo_uctu_vlastni` appka plní přímo z
+  bankovního výpisu, ne odvozením podle Účtů).
+
+### 2) Výchozí obrazovka po přihlášení - Dashboard
+
+Jan: "výchozí zobrazení po přihlášení udelej Dashboard, Nahrát doklady
+zobrazíš po kliknutí na ikonu". Appka dřív vždy po přihlášení otevřela
+záložku "Nahrát doklady" (`prepniZalozku('nahrat')` v `zobrazApp()`).
+
+- Appka teď po přihlášení otevře **Dashboard** pro roli admin/účetní -
+  běžná role má Dashboard zamčený (`nastavZamekZalozky('nav-dashboard',
+  ...)`), appka jí proto místo toho otevře **Přijaté faktury** (jediná
+  hlavní pracovní záložka bez zámku pro tuhle roli).
+- **"Nahrát doklady" appka nechala na stejném místě** (Jan: "ikonu nechat
+  tak jak je") - appka mu jen odebrala viditelný text a nechala jen ikonu
+  ⬆ (`title`/`aria-label` pro přístupnost), `public/style.css` appka
+  upravila padding/velikost, ať vypadá jako ikonové tlačítko.
+
+### 3) Modul Nemovitosti (backlog položka 19)
+
+Jan chtěl appku k evidenci nájemních smluv/kaucí/klíčů/měřidel/revizí
+integrovanou do existující (dřív prázdné) záložky Nemovitosti, provázanou
+s účetními hodnotami pro roční/koncové vyúčtování. Appka nejdřív
+prohledala web a navrhla desetibodový datový model (`claude/
+nomis-faktury-backlog.md`, položka 19), pak se zeptala na tři otevřené
+otázky (rozsah rozúčtování, granularita záloh, viditelnost pro role) -
+Jan ve všech třech potvrdil doporučenou variantu.
+
+**Appka NEZAVÁDÍ konkurenční entitu nahrazující středisko** - historicky
+appka mezi v4.19-v4.22 zkoušela samostatnou entitu Nemovitosti a Jan to
+v4.23 vrátil zpět ("nemovitost je zase jen středisko", viz `lib/
+smlouvySchema.js`). "Jednotka" je teď jen DOPLŇKOVÝ, bohatší záznam
+navázaný na existující středisko podle jeho názvu - veškerá účetní logika
+(Doklady/Smlouvy/Bankovní pohyby/Dashboard) zůstává navázaná na Středisko
+beze změny.
+
+- **Nový list `Nemovitosti_Jednotky`** (`lib/nemovitostiJednotkySchema.js`,
+  `netlify/functions/nemovitosti-jednotky.js`) - Firma, Stredisko (klíč,
+  needituje se), Adresa, Katastrální území, Číslo LV, Plocha, Dispozice,
+  Podlaží, Poznámka. Appka nedovolí dvě jednotky na stejné středisko.
+  Přístup jen admin/účetní (rozhodnuto AskUserQuestion), scoped podle
+  Firmy stejně jako Smlouvy.
+- **Nové listy `Klice`/`Meridla`/`Meridla_Odecty`/`Revize`**
+  (`lib/nemovitostiDetailySchema.js`) - obsluhované JEDNOU konsolidovanou
+  funkcí `netlify/functions/nemovitosti-detaily.js` (parametr `entita`),
+  ne čtyřmi skoro identickými funkcemi. Přístup appka odvozuje přes
+  Nemovitosti_Jednotky (Stredisko → Firma), u Měřidla_Odečtů o úroveň
+  hlouběji (Meridlo_ID → Meridlo.Stredisko → Jednotka.Firma) - Strediska
+  samo o sobě pole Firma nemá.
+- **Rozšíření `Smlouvy`** (`lib/smlouvySchema.js`,
+  `netlify/functions/smlouvy.js`) o `Cisty_najem`/`Zaloha_na_sluzby` (appka
+  je jen u `Typ === 'Nájem'` používá) a `Kauce_castka`/
+  `Kauce_datum_prijeti`/`Kauce_stav`/`Kauce_poznamka`. `Ocekavana_castka`
+  appka dál počítá/ukládá jako SOUČET split polí (kdykoli se jedno z nich
+  mění) - stávající párování bankovních plateb podle přesné částky
+  (`lib/bankHelpers.js`) appka nechala beze změny.
+- **Nový GET `netlify/functions/nemovitosti-vyuctovani.js`** - appka na
+  požádání (appka nic neukládá) spočítá za zvolené období: skutečné
+  náklady (součet Dokladů podle střediska, appka záměrně NEFILTRUJE podle
+  Kategorie - "1 jednotka = 1 vyúčtování", poměrové rozpočítávání appka
+  zatím neimplementuje), přijaté zálohy (počet napárovaných trvalých
+  příkazů × Zaloha_na_sluzby), rozdíl (přeplatek/nedoplatek), a volitelně
+  vrácení kauce (kauce - nedoplatek - ručně zadané škody appka nikam
+  neukládá, jen je bere jako vstup výpočtu).
+- **Frontend** (`public/index.html`, `public/app.js`, `public/style.css`) -
+  appka zvolila rozbalovací karty (`<details>`/`<summary>`, stejný vzor
+  jako admin panely v Nastavení), ne novou grid-zarovnávací CSS jako u
+  Dokladů/Smluv/Bankovních výpisů - jednotek je málo, ale každá má bohatý
+  vnořený obsah. Klíče/Měřidla/Revize appka načítá LAZY (až při prvním
+  rozbalení karty).
+
+**Nutný krok po nasazení**: appka potřebuje znovu spustit `/api/setup` (viz
+krok 6 níže) - vytvoří nové listy `Nemovitosti_Jednotky`/`Klice`/
+`Meridla`/`Meridla_Odecty`/`Revize` a doplní nové sloupce do `Smlouvy`.
+
+### Ověřeno
+
+Appka přidala pět nových testovacích souborů
+(`test_auta_ucty_editace_klice.js`, `test_smlouvy_kauce_rozpad_najmu.js`,
+`test_nemovitosti_jednotky.js`, `test_nemovitosti_detaily.js`,
+`test_nemovitosti_vyuctovani.js`) a celá regresní sada appky (82 testů)
+prošla bez regrese.
+
+`APP_VERZE` appka zvýšila na `v4.36 – 2026-07-28`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

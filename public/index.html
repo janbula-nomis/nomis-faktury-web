@@ -77,12 +77,17 @@
          záložek (nav.zalozky), na vlastní řádek hned nad ní, přirozené
          (ne roztažené) šířky - viz styl .radek-nahrat-cta/.tlacitko-
          nahrat-cta v public/style.css. -->
+    <!-- (v4.36) Jan: výchozí obrazovka po přihlášení má být Dashboard,
+         "Nahrát doklady" appka schová za ikonu (jen šipka, bez textu) -
+         appka nechává tlačítko na STEJNÉM místě/stejné třídě jako dřív
+         (Jan: "ikonu nechat tak jak je"), jen mu ubírá viditelný text a
+         přidává title/aria-label pro přístupnost. -->
     <div class="radek-nahrat-cta">
-      <button data-zalozka="nahrat" class="aktivni tlacitko-nahrat-cta">⬆ Nahrát doklady</button>
+      <button data-zalozka="nahrat" class="tlacitko-nahrat-cta" title="Nahrát doklady" aria-label="Nahrát doklady">⬆</button>
     </div>
 
     <nav class="zalozky">
-      <button data-zalozka="dashboard" id="nav-dashboard">Dashboard</button>
+      <button data-zalozka="dashboard" id="nav-dashboard" class="aktivni">Dashboard</button>
       <button data-zalozka="doklady">Přijaté faktury</button>
       <button data-zalozka="vydane-faktury">Vydané faktury</button>
       <button data-zalozka="prehled" id="nav-prehled">Daňový přehled</button>
@@ -95,7 +100,7 @@
     </nav>
 
     <!-- NAHRÁT -->
-    <div id="zalozka-nahrat" class="karta">
+    <div id="zalozka-nahrat" class="karta skryto">
       <h2>Nahrát nový doklad</h2>
       <p class="popis">Vyfoťte nebo vyberte fakturu/účtenku. Fotky se před odesláním automaticky zmenší.</p>
       <div class="tlacitka-nahrani">
@@ -110,7 +115,7 @@
     </div>
 
     <!-- DASHBOARD (od v3.22) -->
-    <div id="zalozka-dashboard" class="karta skryto">
+    <div id="zalozka-dashboard" class="karta">
       <h2>Dashboard</h2>
       <p class="popis">Všechny firmy vedle sebe - příjmy, výdaje a rozdíl za posledních 12 měsíců (klouzavé
         okno) podle střediska, plus provozní upozornění, která čekají na vyřízení.</p>
@@ -271,16 +276,66 @@
          (evidence nemovitostí + přehled placeno/nezaplaceno podle napojené
          nájemní Smlouvy). Jan (2026-07-23) tenhle přístup zpětně vyhodnotil
          jako nesystémový ("nemovitost je zase jen středisko") - appka se
-         v4.23 vrátila k jednoduššímu modelu: Středisko zůstává JEDINÝM
-         číselníkem pro kategorizaci (appka ho ostatně už dřív nabízela i
-         jako hodnotu "Nemovitosti", viz MOZNOSTI_STREDISKA v public/app.js)
-         a nájemní příjem appka řeší čistě přes spárování s nájemní Smlouvou
-         v záložce Bankovní výpisy + automatické převzetí Smlouva.Stredisko
-         na bankovní pohyb při potvrzení. Záložka se tak vrací do stejného
-         prázdného placeholderu, jako měla ve v4.16. -->
+         v4.23 vrátila k jednoduššímu modelu, kde je Středisko JEDINÝM
+         číselníkem pro účetní kategorizaci (Doklady/Smlouvy/Bankovní
+         pohyby/Dashboard).
+
+         Od v4.36 (backlog položka 19, brainstorm + odpovědi na otevřené
+         otázky 2026-07-27, viz claude/nomis-faktury-backlog.md) appka
+         tenhle princip NEMĚNÍ - "Jednotka" tady není konkurenční entita
+         nahrazující středisko, je to jen DOPLŇKOVÝ bohatší záznam navázaný
+         na existující středisko (typu "Nemovitost") podle jeho názvu, viz
+         netlify/functions/nemovitosti-jednotky.js. Appka zvolila jednoduchý
+         rozbalovací seznam karet (<details>/<summary>, stejný vzor jako
+         admin panely v Nastavení - Firmy/Auta/Účty/Střediska), ne novou
+         grid-zarovnávací CSS jako u Dokladů/Smluv/Bankovních výpisů -
+         jednotek je málo, ale každá má bohatý vnořený obsah (klíče,
+         měřidla, revize, kauce, vyúčtování), na rozdíl od mnoha tenkých
+         řádků u ostatních záložek. -->
     <div id="zalozka-nemovitosti" class="karta skryto">
       <h2>Nemovitosti</h2>
-      <p class="popis">Tahle záložka se připravuje...</p>
+      <p class="popis">Jednotky (byty/nebytové prostory) navázané na středisko typu "Nemovitost" - u každé appka
+        eviduje základní údaje, nájemní smlouvu s rozpadem na čistý nájem/zálohu na služby a kauci, klíče, měřidla
+        s odečty, revize, a umí spočítat roční/koncové vyúčtování. Přístup jen pro roli admin/účetní.</p>
+
+      <details class="panel-skladaci">
+        <summary>Přidat jednotku</summary>
+        <label for="nova-nem-firma">Firma</label>
+        <select id="nova-nem-firma"></select>
+        <label for="nova-nem-stredisko">Středisko (jen typu "Nemovitost", bez už založené jednotky)</label>
+        <select id="nova-nem-stredisko"></select>
+        <label for="nova-nem-adresa">Adresa</label>
+        <input type="text" id="nova-nem-adresa" />
+        <div class="mriz-2">
+          <div>
+            <label for="nova-nem-katastr">Katastrální území</label>
+            <input type="text" id="nova-nem-katastr" />
+          </div>
+          <div>
+            <label for="nova-nem-lv">Číslo LV</label>
+            <input type="text" id="nova-nem-lv" />
+          </div>
+          <div>
+            <label for="nova-nem-plocha">Plocha (m²)</label>
+            <input type="text" id="nova-nem-plocha" />
+          </div>
+          <div>
+            <label for="nova-nem-dispozice">Dispozice</label>
+            <input type="text" id="nova-nem-dispozice" placeholder="např. 2+kk" />
+          </div>
+          <div>
+            <label for="nova-nem-podlazi">Podlaží</label>
+            <input type="text" id="nova-nem-podlazi" />
+          </div>
+        </div>
+        <label for="nova-nem-poznamka">Poznámka</label>
+        <input type="text" id="nova-nem-poznamka" />
+        <button id="tlacitko-pridat-jednotku">Přidat jednotku</button>
+        <div id="nemovitosti-nova-zprava"></div>
+      </details>
+
+      <div id="nemovitosti-nacitani" class="nacitani">Načítám…</div>
+      <div id="nemovitosti-seznam"></div>
     </div>
 
     <!-- VYDANÉ FAKTURY -->
@@ -603,7 +658,9 @@
 
         <h3 style="margin-top:24px">Existující firmy</h3>
         <p class="popis">Název firmy se z appky nedá měnit (používá se jinde jako identifikátor) – jen ostatní pole.
-          Bankovní účet appka používá k varování, pokud by se v záložce Bankovní výpisy nahrál výpis k jiné firmě.</p>
+          Bankovní účet appka používá k varování, pokud by se v záložce Bankovní výpisy nahrál výpis k jiné firmě.
+          Ostatní číselníky (Auta, Účty) mají editovatelné i své hlavní pole (RZ, číslo účtu) – u nich se appka
+          nikde jinde neopírá o navázání podle starého textu, viz komentáře v netlify/functions/auta.js a ucty.js.</p>
         <div id="firmy-nacitani" class="nacitani">Načítám…</div>
         <div style="overflow-x:auto">
         <table id="tabulka-firmy">
@@ -616,7 +673,7 @@
       <details class="panel-skladaci">
         <summary>Auta</summary>
         <h3>Přidat auto</h3>
-        <label for="nove-a-spz">SPZ</label>
+        <label for="nove-a-spz">RZ (registrační značka)</label>
         <input type="text" id="nove-a-spz" placeholder="např. 1AB 2345" />
         <label for="nove-a-model">Model</label>
         <input type="text" id="nove-a-model" />
@@ -631,7 +688,7 @@
         <div id="auta-nacitani" class="nacitani">Načítám…</div>
         <div style="overflow-x:auto">
         <table id="tabulka-auta">
-          <thead><tr><th>SPZ</th><th>Model</th><th>Firma</th><th>Řidič</th><th>Akce</th></tr></thead>
+          <thead><tr><th>RZ</th><th>Model</th><th>Firma</th><th>Řidič</th><th>Akce</th></tr></thead>
           <tbody id="tabulka-auta-telo"></tbody>
         </table>
         </div>

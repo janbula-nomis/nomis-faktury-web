@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.35 – 2026-07-27';
+const APP_VERZE = 'v4.36 – 2026-07-28';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -261,6 +261,9 @@ function vynulujCacheAppky() {
   firmyProVyberKnihaJizd = [];
   knihaJizdSekce = 'jizdy';
   knihaJizdSouhrnData = null;
+  nemovitostiJednotkySeznam = [];
+  nemovitostiSmlouvySeznam = [];
+  nemovitostiFirmySeznam = [];
 }
 
 // ---------- PŘEPÍNÁNÍ POHLEDŮ ----------
@@ -351,7 +354,14 @@ function zobrazApp() {
   // přepínač ukazuje VŠEM rolím stejně (viz odpovídající zrušení v
   // netlify/functions/doklady.js, smiVidetDoklad).
 
-  prepniZalozku('nahrat');
+  // Jan (2026-07-28, v4.36): výchozí obrazovka po přihlášení má být
+  // Dashboard (dřív appka vždycky naskočila na "Nahrát doklady", který
+  // appka teď schovává za samotnou ikonu ⬆, viz index.html). Dashboard
+  // je ale zamčený pro běžnou roli (nastavZamekZalozky('nav-dashboard', ...)
+  // výš) - běžnému uživateli by appka defaultně ukázala zamčenou/prázdnou
+  // záložku, proto mu appka místo toho naskočí na Přijaté faktury (jediná
+  // hlavní pracovní záložka bez zámku pro tuhle roli).
+  prepniZalozku(jeUcetniNeboAdmin ? 'dashboard' : 'doklady');
   spustIdleSledovani();
 }
 
@@ -439,6 +449,7 @@ function prepniZalozku(nazev) {
   if (nazev === 'prehled') nactiPrehled();
   if (nazev === 'vydane-faktury') inicializujZalozkuVydaneFaktury();
   if (nazev === 'kniha-jizd') nactiKnihaJizd();
+  if (nazev === 'nemovitosti') nactiNemovitosti();
   if (nazev === 'banka') inicializujZalozkuBanka();
   if (nazev === 'smlouvy') nactiSmlouvy();
   if (nazev === 'export') inicializujZalozkuExport();
@@ -4141,13 +4152,23 @@ function vykresliAuta(auta, firmyDostupne) {
   auta.forEach((a) => {
     const tr = document.createElement('tr');
     tr.innerHTML =
-      '<td data-label="SPZ"></td>' +
+      '<td data-label="RZ"></td>' +
       '<td data-label="Model"></td>' +
       '<td data-label="Firma"></td>' +
       '<td data-label="Řidič"></td>' +
       '<td data-label="Akce"></td>';
 
-    tr.children[0].textContent = a.SPZ || '';
+    // Od v4.36 jde RZ (dřív "SPZ") editovat i u existujícího auta - appka
+    // tenhle údaj (na rozdíl od Firmy.Nazev/Strediska.Nazev) nikde jinde
+    // aktivně nepoužívá jako klíč pro spárování (Doklady.SPZ_auta appka
+    // nezapisuje od v3.8, viz komentář u moznostiAuta výš), takže tu není
+    // riziko "rozjetí vazeb" - jen appka na backendu (auta.js) hlídá, aby
+    // nevznikly dvě auta se stejnou RZ.
+    const vstupSpz = document.createElement('input');
+    vstupSpz.type = 'text';
+    vstupSpz.value = a.SPZ || '';
+    vstupSpz.style.fontSize = '13px';
+    tr.children[0].appendChild(vstupSpz);
 
     const vstupModel = document.createElement('input');
     vstupModel.type = 'text';
@@ -4171,6 +4192,7 @@ function vykresliAuta(auta, firmyDostupne) {
     tlacitkoUlozit.className = 'maly sekundarni';
     tlacitkoUlozit.textContent = 'Uložit';
     tlacitkoUlozit.onclick = () => ulozAuto(a._row, {
+      SPZ: vstupSpz.value.trim(),
       Model: vstupModel.value.trim(),
       Firma: vyberFirma.value,
       Ridic: vstupRidic.value.trim(),
@@ -4198,7 +4220,7 @@ async function pridatAuto() {
 
   const spz = document.getElementById('nove-a-spz').value.trim();
   if (!spz) {
-    zprava.innerHTML = '<div class="zprava chyba">SPZ je povinná.</div>';
+    zprava.innerHTML = '<div class="zprava chyba">RZ je povinná.</div>';
     return;
   }
 
@@ -4281,7 +4303,15 @@ function vykresliUcty(ucty, firmyDostupne) {
     vyberFirma.value = u.Firma || '';
     tr.children[0].appendChild(vyberFirma);
 
-    tr.children[1].textContent = u.Cislo_uctu || '';
+    // Od v4.36 jde Číslo účtu editovat i u existujícího účtu (backend
+    // netlify/functions/ucty.js to už PATCH umožňoval, appka jen chyběla
+    // ve formuláři) - appka na backendu hlídá duplicitu stejně jako při
+    // založení nového účtu.
+    const vstupCisloUctu = document.createElement('input');
+    vstupCisloUctu.type = 'text';
+    vstupCisloUctu.value = u.Cislo_uctu || '';
+    vstupCisloUctu.style.fontSize = '13px';
+    tr.children[1].appendChild(vstupCisloUctu);
 
     const vstupMena = document.createElement('input');
     vstupMena.type = 'text';
@@ -4301,6 +4331,7 @@ function vykresliUcty(ucty, firmyDostupne) {
     tlacitkoUlozit.textContent = 'Uložit';
     tlacitkoUlozit.onclick = () => ulozUcet(u._row, {
       Firma: vyberFirma.value,
+      Cislo_uctu: vstupCisloUctu.value.trim(),
       Mena: vstupMena.value.trim(),
       Popis: vstupPopis.value.trim(),
     }, tlacitkoUlozit);
@@ -5314,15 +5345,769 @@ async function smazSmlouvu(id, nazev, tlacitko) {
 // "Nemovitosti", CRUD, přehled placeno/nezaplaceno podle napojené nájemní
 // Smlouvy) - Jan (2026-07-23) tenhle přístup zpětně vyhodnotil jako
 // nesystémový ("nemovitost je zase jen středisko") a appka se v4.23 vrátila
-// k jednoduššímu modelu: Středisko zůstává JEDINÝM číselníkem pro
+// k jednoduššímu modelu: Středisko zůstává JEDINÝM číselníkem pro účetní
 // kategorizaci (appka ho ostatně už dřív nabízela i jako hodnotu
 // "Nemovitosti", viz MOZNOSTI_STREDISKA výš) a nájemní příjem appka řeší
 // čistě přes spárování s nájemní Smlouvou (viz vytvorDetailBanka výš,
 // "Navrženo/Spárováno - nájemní smlouva") + automatické převzetí
-// Smlouva.Stredisko na bankovní pohyb při potvrzení. Appka tak už NEMÁ
-// vlastní list/CRUD Nemovitostí ani měsíční přehled zaplaceno/nezaplaceno -
-// záložka se vrátila do prázdného placeholderu (stejně jako ve v4.16, viz
-// public/index.html).
+// Smlouva.Stredisko na bankovní pohyb při potvrzení - to appka NEMĚNÍ.
+//
+// Od v4.36 (backlog položka 19, brainstorm + odpovědi na otevřené otázky
+// 2026-07-27, viz claude/nomis-faktury-backlog.md) appka do týhle záložky
+// přidává "Jednotku" - DOPLŇKOVÝ, bohatší záznam navázaný na existující
+// středisko (typu "Nemovitost") podle jeho názvu, viz
+// netlify/functions/nemovitosti-jednotky.js. U každé jednotky appka
+// zobrazí základní údaje, napojenou nájemní smlouvu (rozpad na čistý
+// nájem/zálohu na služby + kauci, viz lib/smlouvySchema.js), klíče,
+// měřidla s odečty, revize, a umí na požádání spočítat vyúčtování za
+// zvolené období (netlify/functions/nemovitosti-vyuctovani.js).
+//
+// Rozhodnuto (AskUserQuestion 2026-07-27): záložka zůstává zamčená pro
+// běžnou roli (viz nastavZamekZalozky('nav-nemovitosti', ...) výš) - jen
+// admin/účetní.
+
+let nemovitostiJednotkySeznam = [];
+let nemovitostiSmlouvySeznam = [];
+let nemovitostiFirmySeznam = [];
+
+// Duplikace stejných menších číselníků jako na backendu (appka nemá build
+// krok, viz stejná konvence u MOZNOSTI_TYP_SMLOUVY/MOZNOSTI_PERIODA_SMLOUVY
+// výš) - musí zůstat přesně synchronní s lib/smlouvySchema.js a
+// lib/nemovitostiDetailySchema.js.
+const MOZNOSTI_KAUCE_STAV = ['Nesjednána', 'Uhrazena - drží se', 'Vráceno celá', 'Vráceno částečně'];
+const MOZNOSTI_TYP_MERIDLA = ['Elektřina', 'Voda', 'Plyn', 'Teplo'];
+const MOZNOSTI_TYP_REVIZE = ['Elektro', 'Plyn', 'Komín', 'Hasicí přístroje', 'Výtah', 'Ostatní'];
+
+async function nactiNemovitosti() {
+  const nacitani = document.getElementById('nemovitosti-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  try {
+    const [dataJednotky, dataFirmy, dataStrediska, dataSmlouvy] = await Promise.all([
+      zavolejApi('/nemovitosti-jednotky', { method: 'GET' }),
+      zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+      zavolejApi('/strediska', { method: 'GET' }).catch(() => ({ strediska: [] })),
+      zavolejApi('/smlouvy', { method: 'GET' }).catch(() => ({ smlouvy: [] })),
+    ]);
+    nemovitostiJednotkySeznam = dataJednotky.jednotky || [];
+    nemovitostiFirmySeznam = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
+    strediskaSeznam = dataStrediska.strediska || [];
+    nemovitostiSmlouvySeznam = dataSmlouvy.smlouvy || [];
+    nacitani.classList.add('skryto');
+    vyplnVyberFirem('nova-nem-firma', nemovitostiFirmySeznam);
+    vykresliVyberStrediskaProJednotku();
+    vykresliNemovitosti();
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst nemovitosti: ' + e.message;
+  }
+}
+
+// Appka do nabídky nabízí jen střediska typu "Nemovitost", která ještě
+// nemají založenou jednotku (appka nedovolí dvě jednotky na stejné
+// středisko, viz netlify/functions/nemovitosti-jednotky.js).
+function vykresliVyberStrediskaProJednotku() {
+  const select = document.getElementById('nova-nem-stredisko');
+  const obsazena = new Set(nemovitostiJednotkySeznam.map((j) => j.Stredisko));
+  const volna = strediskaSeznam.filter((s) => s.Typ === 'Nemovitost' && s.Aktivni !== 'NE' && !obsazena.has(s.Nazev));
+  select.innerHTML = '<option value="">— vyberte středisko —</option>' +
+    volna.map((s) => '<option value="' + escapeAttr(s.Nazev) + '">' + escapeHtml(s.Nazev) + '</option>').join('');
+}
+
+async function pridatJednotku() {
+  const zprava = document.getElementById('nemovitosti-nova-zprava');
+  zprava.innerHTML = '';
+
+  const firma = document.getElementById('nova-nem-firma').value;
+  const stredisko = document.getElementById('nova-nem-stredisko').value;
+  if (!firma) { zprava.innerHTML = '<div class="zprava chyba">Vyberte firmu.</div>'; return; }
+  if (!stredisko) { zprava.innerHTML = '<div class="zprava chyba">Vyberte středisko.</div>'; return; }
+
+  try {
+    await zavolejApi('/nemovitosti-jednotky', {
+      method: 'POST',
+      body: JSON.stringify({
+        Firma: firma,
+        Stredisko: stredisko,
+        Adresa: document.getElementById('nova-nem-adresa').value.trim(),
+        Katastralni_uzemi: document.getElementById('nova-nem-katastr').value.trim(),
+        Cislo_LV: document.getElementById('nova-nem-lv').value.trim(),
+        Plocha_m2: document.getElementById('nova-nem-plocha').value.trim(),
+        Dispozice: document.getElementById('nova-nem-dispozice').value.trim(),
+        Podlazi: document.getElementById('nova-nem-podlazi').value.trim(),
+        Poznamka: document.getElementById('nova-nem-poznamka').value.trim(),
+      }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Jednotka přidána.</div>';
+    ['adresa', 'katastr', 'lv', 'plocha', 'dispozice', 'podlazi', 'poznamka'].forEach((s) => {
+      document.getElementById('nova-nem-' + s).value = '';
+    });
+    await nactiNemovitosti();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function vykresliNemovitosti() {
+  const kontejner = document.getElementById('nemovitosti-seznam');
+  kontejner.innerHTML = '';
+
+  if (nemovitostiJednotkySeznam.length === 0) {
+    kontejner.innerHTML = '<p class="popis">Zatím žádné jednotky. Přidejte první výš ("Přidat jednotku").</p>';
+    return;
+  }
+
+  nemovitostiJednotkySeznam.forEach((j) => {
+    kontejner.appendChild(vytvorKartuJednotky(j));
+  });
+}
+
+// Appka jednotku zobrazí jako rozbalovací kartu (viz komentář u
+// public/index.html#zalozka-nemovitosti pro zdůvodnění tohohle vzoru
+// oproti grid-zarovnávacím řádkům Dokladů/Smluv/Bankovních výpisů) - Klíče/
+// Měřidla/Revize appka načte lazy, až se karta poprvé rozbalí (`toggle`
+// událost), ať appka zbytečně nevolá 3+ API najednou pro každou jednotku
+// hned při otevření záložky.
+function vytvorKartuJednotky(j) {
+  const detail = document.createElement('details');
+  detail.className = 'karta-jednotka';
+
+  const summary = document.createElement('summary');
+  summary.textContent = j.Stredisko + (j.Adresa ? ' – ' + j.Adresa : '');
+  detail.appendChild(summary);
+
+  // -- Základní údaje --
+  const sekceZaklad = document.createElement('div');
+  sekceZaklad.className = 'sekce-jednotky';
+  sekceZaklad.innerHTML = '<h4>Základní údaje</h4>';
+
+  const poleZaklad = [
+    ['Katastralni_uzemi', 'Katastrální území'],
+    ['Cislo_LV', 'Číslo LV'],
+    ['Plocha_m2', 'Plocha (m²)'],
+    ['Dispozice', 'Dispozice'],
+    ['Podlazi', 'Podlaží'],
+  ];
+  const vstupy = {};
+  const labelAdresa = document.createElement('label');
+  labelAdresa.textContent = 'Adresa';
+  const vstupAdresa = document.createElement('input');
+  vstupAdresa.type = 'text';
+  vstupAdresa.value = j.Adresa || '';
+  vstupAdresa.style.fontSize = '13px';
+  vstupy.Adresa = vstupAdresa;
+  sekceZaklad.appendChild(labelAdresa);
+  sekceZaklad.appendChild(vstupAdresa);
+
+  const mrizZaklad = document.createElement('div');
+  mrizZaklad.className = 'mriz-2';
+  poleZaklad.forEach(([klic, popisek]) => {
+    const wrap = document.createElement('div');
+    const label = document.createElement('label');
+    label.textContent = popisek;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = j[klic] || '';
+    input.style.fontSize = '13px';
+    vstupy[klic] = input;
+    wrap.appendChild(label);
+    wrap.appendChild(input);
+    mrizZaklad.appendChild(wrap);
+  });
+  sekceZaklad.appendChild(mrizZaklad);
+
+  const labelPoznamka = document.createElement('label');
+  labelPoznamka.textContent = 'Poznámka';
+  const vstupPoznamka = document.createElement('input');
+  vstupPoznamka.type = 'text';
+  vstupPoznamka.value = j.Poznamka || '';
+  vstupPoznamka.style.fontSize = '13px';
+  vstupy.Poznamka = vstupPoznamka;
+  sekceZaklad.appendChild(labelPoznamka);
+  sekceZaklad.appendChild(vstupPoznamka);
+
+  const tlacitkoUlozitZaklad = document.createElement('button');
+  tlacitkoUlozitZaklad.className = 'maly sekundarni';
+  tlacitkoUlozitZaklad.textContent = 'Uložit údaje';
+  tlacitkoUlozitZaklad.style.marginTop = '8px';
+  tlacitkoUlozitZaklad.onclick = () => ulozJednotku(j.ID, {
+    Adresa: vstupy.Adresa.value.trim(),
+    Katastralni_uzemi: vstupy.Katastralni_uzemi.value.trim(),
+    Cislo_LV: vstupy.Cislo_LV.value.trim(),
+    Plocha_m2: vstupy.Plocha_m2.value.trim(),
+    Dispozice: vstupy.Dispozice.value.trim(),
+    Podlazi: vstupy.Podlazi.value.trim(),
+    Poznamka: vstupy.Poznamka.value.trim(),
+  }, tlacitkoUlozitZaklad);
+  sekceZaklad.appendChild(tlacitkoUlozitZaklad);
+
+  const tlacitkoSmazatJednotku = document.createElement('button');
+  tlacitkoSmazatJednotku.className = 'maly sekundarni';
+  tlacitkoSmazatJednotku.textContent = 'Smazat jednotku';
+  tlacitkoSmazatJednotku.style.marginLeft = '6px';
+  tlacitkoSmazatJednotku.style.marginTop = '8px';
+  tlacitkoSmazatJednotku.onclick = () => smazJednotku(j.ID, j.Stredisko, tlacitkoSmazatJednotku);
+  sekceZaklad.appendChild(tlacitkoSmazatJednotku);
+
+  detail.appendChild(sekceZaklad);
+
+  // -- Nájemní smlouva (rozpad nájmu + kauce) --
+  const sekceSmlouva = document.createElement('div');
+  sekceSmlouva.className = 'sekce-jednotky';
+  detail.appendChild(sekceSmlouva);
+  vykresliSekciSmlouva(sekceSmlouva, j);
+
+  // -- Klíče / Měřidla / Revize (lazy loaded) --
+  const sekceDetaily = document.createElement('div');
+  sekceDetaily.className = 'sekce-jednotky';
+  sekceDetaily.id = 'nem-detaily-' + j.ID;
+  sekceDetaily.innerHTML = '<p class="popis">Rozbalte kartu pro načtení klíčů/měřidel/revizí…</p>';
+  detail.appendChild(sekceDetaily);
+
+  let detailyNacteny = false;
+  detail.addEventListener('toggle', () => {
+    if (detail.open && !detailyNacteny) {
+      detailyNacteny = true;
+      nactiDetailyJednotky(sekceDetaily, j);
+    }
+  });
+
+  // -- Vyúčtování --
+  const sekceVyuctovani = document.createElement('div');
+  sekceVyuctovani.className = 'sekce-jednotky';
+  detail.appendChild(sekceVyuctovani);
+  vykresliSekciVyuctovani(sekceVyuctovani, j);
+
+  return detail;
+}
+
+async function ulozJednotku(id, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/nemovitosti-jednotky', { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
+    await nactiNemovitosti();
+  } catch (e) {
+    alert('Nepodařilo se uložit jednotku: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazJednotku(id, stredisko, tlacitko) {
+  if (!confirm('Opravdu smazat jednotku „' + stredisko + '“? Klíče/měřidla/revize appka NEMAŽE, jen zůstanou u '
+    + 'střediska bez jednotky (dokud se nezaloží nová jednotka pro tohle středisko).')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/nemovitosti-jednotky?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    await nactiNemovitosti();
+  } catch (e) {
+    alert('Nepodařilo se smazat jednotku: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+// Appka Firmu/kauci/rozpad nájmu edituje přes STÁVAJÍCÍ endpoint /smlouvy
+// (PATCH), ne přes nemovitosti-jednotky - smlouva je pořád vedená v
+// Registru smluv, appka tu jen appce dá pohodlnou zkratku k jejím
+// nejdůležitějším polím z kontextu konkrétní jednotky.
+function vykresliSekciSmlouva(el, j) {
+  el.innerHTML = '<h4>Nájemní smlouva a kauce</h4>';
+  const smlouva = nemovitostiSmlouvySeznam.find((s) => s.Stredisko === j.Stredisko && s.Typ === 'Nájem' && s.Aktivni !== 'NE');
+  if (!smlouva) {
+    const info = document.createElement('p');
+    info.className = 'popis';
+    info.textContent = 'Žádná aktivní nájemní smlouva pro tohle středisko - založte ji v záložce Registr smluv '
+      + '(Typ „Nájem“, Středisko „' + j.Stredisko + '“).';
+    el.appendChild(info);
+    return;
+  }
+
+  function pole(mriz, popisek, hodnota, typ) {
+    const wrap = document.createElement('div');
+    const label = document.createElement('label');
+    label.textContent = popisek;
+    const input = document.createElement('input');
+    input.type = typ || 'text';
+    input.value = hodnota || '';
+    input.style.fontSize = '13px';
+    wrap.appendChild(label);
+    wrap.appendChild(input);
+    mriz.appendChild(wrap);
+    return input;
+  }
+
+  const mriz = document.createElement('div');
+  mriz.className = 'mriz-2';
+  const vstupCistyNajem = pole(mriz, 'Čistý nájem', smlouva.Cisty_najem);
+  const vstupZaloha = pole(mriz, 'Záloha na služby', smlouva.Zaloha_na_sluzby);
+  const vstupKauceCastka = pole(mriz, 'Kauce – částka', smlouva.Kauce_castka);
+  const vstupKauceDatum = pole(mriz, 'Kauce – datum přijetí', smlouva.Kauce_datum_prijeti, 'date');
+
+  const wrapStav = document.createElement('div');
+  const labelStav = document.createElement('label');
+  labelStav.textContent = 'Kauce – stav';
+  const selectStav = document.createElement('select');
+  selectStav.innerHTML = MOZNOSTI_KAUCE_STAV.map((s) =>
+    '<option value="' + escapeAttr(s) + '"' + (s === smlouva.Kauce_stav ? ' selected' : '') + '>' + escapeHtml(s) + '</option>'
+  ).join('');
+  wrapStav.appendChild(labelStav);
+  wrapStav.appendChild(selectStav);
+  mriz.appendChild(wrapStav);
+
+  const vstupKaucePoznamka = pole(mriz, 'Kauce – poznámka', smlouva.Kauce_poznamka);
+  el.appendChild(mriz);
+
+  const info = document.createElement('p');
+  info.className = 'popis';
+  const aktualizujInfo = () => {
+    info.textContent = 'Appka celkovou očekávanou platbu počítá jako součet čistého nájmu a zálohy: ' +
+      formatCastkaSMenou(parsujCastkuZListu(vstupCistyNajem.value) + parsujCastkuZListu(vstupZaloha.value), smlouva.Mena);
+  };
+  aktualizujInfo();
+  vstupCistyNajem.addEventListener('input', aktualizujInfo);
+  vstupZaloha.addEventListener('input', aktualizujInfo);
+  el.appendChild(info);
+
+  const tlacitko = document.createElement('button');
+  tlacitko.className = 'maly sekundarni';
+  tlacitko.textContent = 'Uložit smlouvu';
+  tlacitko.onclick = async () => {
+    tlacitko.disabled = true;
+    try {
+      await zavolejApi('/smlouvy', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          id: smlouva.ID,
+          zmeny: {
+            Cisty_najem: vstupCistyNajem.value.trim(),
+            Zaloha_na_sluzby: vstupZaloha.value.trim(),
+            Kauce_castka: vstupKauceCastka.value.trim(),
+            Kauce_datum_prijeti: vstupKauceDatum.value,
+            Kauce_stav: selectStav.value,
+            Kauce_poznamka: vstupKaucePoznamka.value.trim(),
+          },
+        }),
+      });
+      await nactiNemovitosti();
+    } catch (e) {
+      alert('Nepodařilo se uložit smlouvu: ' + e.message);
+      tlacitko.disabled = false;
+    }
+  };
+  el.appendChild(tlacitko);
+}
+
+async function nactiDetailyJednotky(el, j) {
+  el.innerHTML = '<div class="nacitani">Načítám…</div>';
+  try {
+    const [dataKlice, dataMeridla, dataRevize] = await Promise.all([
+      zavolejApi('/nemovitosti-detaily?entita=klice&stredisko=' + encodeURIComponent(j.Stredisko), { method: 'GET' }),
+      zavolejApi('/nemovitosti-detaily?entita=meridla&stredisko=' + encodeURIComponent(j.Stredisko), { method: 'GET' }),
+      zavolejApi('/nemovitosti-detaily?entita=revize&stredisko=' + encodeURIComponent(j.Stredisko), { method: 'GET' }),
+    ]);
+    const meridla = dataMeridla.polozky || [];
+    let odecty = [];
+    if (meridla.length > 0) {
+      const vysledkyOdecty = await Promise.all(meridla.map((m) =>
+        zavolejApi('/nemovitosti-detaily?entita=meridla_odecty&meridlo_id=' + encodeURIComponent(m.ID), { method: 'GET' })
+          .catch(() => ({ polozky: [] }))
+      ));
+      odecty = vysledkyOdecty.reduce((vse, v) => vse.concat(v.polozky || []), []);
+    }
+
+    el.innerHTML = '';
+    vykresliSekciKlice(el, j, dataKlice.polozky || []);
+    vykresliSekciMeridla(el, j, meridla, odecty);
+    vykresliSekciRevize(el, j, dataRevize.polozky || []);
+  } catch (e) {
+    el.innerHTML = '<div class="zprava chyba">Nepodařilo se načíst detaily: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function obnovDetailySekce(j) {
+  const el = document.getElementById('nem-detaily-' + j.ID);
+  if (el) return nactiDetailyJednotky(el, j);
+  return Promise.resolve();
+}
+
+async function ulozDetailPolozku(entita, id, zmeny, tlacitko, j) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/nemovitosti-detaily?entita=' + entita, { method: 'PATCH', body: JSON.stringify({ id, zmeny }) });
+    await obnovDetailySekce(j);
+  } catch (e) {
+    alert('Nepodařilo se uložit: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazDetailPolozku(entita, id, j, tlacitko) {
+  if (!confirm('Opravdu smazat tenhle záznam?')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/nemovitosti-detaily?entita=' + entita + '&id=' + encodeURIComponent(id), { method: 'DELETE' });
+    await obnovDetailySekce(j);
+  } catch (e) {
+    alert('Nepodařilo se smazat: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+function vykresliSekciKlice(el, j, klice) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = '<h4>Klíče</h4>';
+
+  const tabulka = document.createElement('table');
+  tabulka.innerHTML = '<thead><tr><th>Typ</th><th>Počet celkem</th><th>Držitel</th><th>Vydáno</th>'
+    + '<th>Vráceno</th><th>Poznámka</th><th>Akce</th></tr></thead>';
+  const telo = document.createElement('tbody');
+
+  klice.forEach((k) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td data-label="Typ"></td><td data-label="Počet celkem"></td><td data-label="Držitel"></td>'
+      + '<td data-label="Vydáno"></td><td data-label="Vráceno"></td><td data-label="Poznámka"></td><td data-label="Akce"></td>';
+
+    const vTyp = document.createElement('input'); vTyp.type = 'text'; vTyp.value = k.Typ_klice || ''; vTyp.style.fontSize = '13px';
+    const vPocet = document.createElement('input'); vPocet.type = 'text'; vPocet.value = k.Pocet_celkem || ''; vPocet.style.fontSize = '13px'; vPocet.style.width = '60px';
+    const vDrzitel = document.createElement('input'); vDrzitel.type = 'text'; vDrzitel.value = k.Drzitel || ''; vDrzitel.style.fontSize = '13px';
+    const vVydano = document.createElement('input'); vVydano.type = 'date'; vVydano.value = k.Datum_vydani || ''; vVydano.style.fontSize = '13px';
+    const vVraceno = document.createElement('input'); vVraceno.type = 'date'; vVraceno.value = k.Datum_vraceni || ''; vVraceno.style.fontSize = '13px';
+    const vPoznamka = document.createElement('input'); vPoznamka.type = 'text'; vPoznamka.value = k.Poznamka || ''; vPoznamka.style.fontSize = '13px';
+    tr.children[0].appendChild(vTyp); tr.children[1].appendChild(vPocet); tr.children[2].appendChild(vDrzitel);
+    tr.children[3].appendChild(vVydano); tr.children[4].appendChild(vVraceno); tr.children[5].appendChild(vPoznamka);
+
+    const btnUlozit = document.createElement('button');
+    btnUlozit.className = 'maly sekundarni';
+    btnUlozit.textContent = 'Uložit';
+    btnUlozit.onclick = () => ulozDetailPolozku('klice', k.ID, {
+      Typ_klice: vTyp.value.trim(), Pocet_celkem: vPocet.value.trim(), Drzitel: vDrzitel.value.trim(),
+      Datum_vydani: vVydano.value, Datum_vraceni: vVraceno.value, Poznamka: vPoznamka.value.trim(),
+    }, btnUlozit, j);
+    tr.children[6].appendChild(btnUlozit);
+
+    const btnSmazat = document.createElement('button');
+    btnSmazat.className = 'maly sekundarni';
+    btnSmazat.style.marginLeft = '6px';
+    btnSmazat.textContent = 'Smazat';
+    btnSmazat.onclick = () => smazDetailPolozku('klice', k.ID, j, btnSmazat);
+    tr.children[6].appendChild(btnSmazat);
+
+    telo.appendChild(tr);
+  });
+  if (klice.length === 0) telo.innerHTML = '<tr><td colspan="7" class="nacitani">Zatím žádné klíče.</td></tr>';
+  tabulka.appendChild(telo);
+  wrap.appendChild(tabulka);
+
+  const pridatWrap = document.createElement('div');
+  pridatWrap.style.marginTop = '8px';
+  const nTyp = document.createElement('input'); nTyp.type = 'text'; nTyp.placeholder = 'Typ (Byt/Vchod/Sklep/…)'; nTyp.style.fontSize = '13px';
+  const nPocet = document.createElement('input'); nPocet.type = 'text'; nPocet.placeholder = 'Počet celkem'; nPocet.style.fontSize = '13px'; nPocet.style.width = '90px';
+  const nDrzitel = document.createElement('input'); nDrzitel.type = 'text'; nDrzitel.placeholder = 'Držitel'; nDrzitel.style.fontSize = '13px';
+  const btnPridat = document.createElement('button');
+  btnPridat.className = 'maly sekundarni';
+  btnPridat.textContent = 'Přidat klíč';
+  btnPridat.onclick = async () => {
+    if (!nTyp.value.trim()) { alert('Zadejte typ klíče.'); return; }
+    btnPridat.disabled = true;
+    try {
+      await zavolejApi('/nemovitosti-detaily?entita=klice', {
+        method: 'POST',
+        body: JSON.stringify({ Stredisko: j.Stredisko, Typ_klice: nTyp.value.trim(), Pocet_celkem: nPocet.value.trim(), Drzitel: nDrzitel.value.trim() }),
+      });
+      await obnovDetailySekce(j);
+    } catch (e) {
+      alert('Nepodařilo se přidat klíč: ' + e.message);
+      btnPridat.disabled = false;
+    }
+  };
+  pridatWrap.appendChild(nTyp); pridatWrap.appendChild(nPocet); pridatWrap.appendChild(nDrzitel); pridatWrap.appendChild(btnPridat);
+  wrap.appendChild(pridatWrap);
+
+  el.appendChild(wrap);
+}
+
+function vykresliSekciMeridla(el, j, meridla, odecty) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = '<h4>Měřidla</h4>';
+
+  meridla.forEach((m) => {
+    const box = document.createElement('div');
+    box.style.marginBottom = '10px';
+    box.style.paddingBottom = '10px';
+    box.style.borderBottom = '1px dashed var(--barva-hranice)';
+
+    const radek = document.createElement('div');
+    const vTyp = document.createElement('select');
+    vTyp.innerHTML = MOZNOSTI_TYP_MERIDLA.map((t) =>
+      '<option value="' + escapeAttr(t) + '"' + (t === m.Typ ? ' selected' : '') + '>' + escapeHtml(t) + '</option>'
+    ).join('');
+    const vVyrobni = document.createElement('input'); vVyrobni.type = 'text'; vVyrobni.value = m.Vyrobni_cislo || ''; vVyrobni.placeholder = 'Výrobní číslo'; vVyrobni.style.fontSize = '13px';
+    const vEan = document.createElement('input'); vEan.type = 'text'; vEan.value = m.EAN_EIC || ''; vEan.placeholder = 'EAN/EIC'; vEan.style.fontSize = '13px';
+    const btnUlozitMeridlo = document.createElement('button');
+    btnUlozitMeridlo.className = 'maly sekundarni';
+    btnUlozitMeridlo.textContent = 'Uložit';
+    btnUlozitMeridlo.onclick = () => ulozDetailPolozku('meridla', m.ID,
+      { Typ: vTyp.value, Vyrobni_cislo: vVyrobni.value.trim(), EAN_EIC: vEan.value.trim() }, btnUlozitMeridlo, j);
+    const btnSmazatMeridlo = document.createElement('button');
+    btnSmazatMeridlo.className = 'maly sekundarni';
+    btnSmazatMeridlo.style.marginLeft = '6px';
+    btnSmazatMeridlo.textContent = 'Smazat měřidlo';
+    btnSmazatMeridlo.onclick = () => smazDetailPolozku('meridla', m.ID, j, btnSmazatMeridlo);
+    radek.appendChild(vTyp); radek.appendChild(vVyrobni); radek.appendChild(vEan);
+    radek.appendChild(btnUlozitMeridlo); radek.appendChild(btnSmazatMeridlo);
+    box.appendChild(radek);
+
+    const odectyTohoto = odecty.filter((o) => o.Meridlo_ID === m.ID).sort((a, b) => (a.Datum || '').localeCompare(b.Datum || ''));
+    const tabOdecty = document.createElement('table');
+    tabOdecty.style.marginTop = '6px';
+    tabOdecty.innerHTML = '<thead><tr><th>Datum odečtu</th><th>Stav</th><th>Poznámka</th><th>Akce</th></tr></thead>';
+    const teloOdecty = document.createElement('tbody');
+    odectyTohoto.forEach((o) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td data-label="Datum"></td><td data-label="Stav"></td><td data-label="Poznámka"></td><td data-label="Akce"></td>';
+      const vDatum = document.createElement('input'); vDatum.type = 'date'; vDatum.value = o.Datum || ''; vDatum.style.fontSize = '13px';
+      const vStav = document.createElement('input'); vStav.type = 'text'; vStav.value = o.Stav || ''; vStav.style.fontSize = '13px'; vStav.style.width = '90px';
+      const vPozn = document.createElement('input'); vPozn.type = 'text'; vPozn.value = o.Poznamka || ''; vPozn.style.fontSize = '13px';
+      tr.children[0].appendChild(vDatum); tr.children[1].appendChild(vStav); tr.children[2].appendChild(vPozn);
+      const btnU = document.createElement('button'); btnU.className = 'maly sekundarni'; btnU.textContent = 'Uložit';
+      btnU.onclick = () => ulozDetailPolozku('meridla_odecty', o.ID,
+        { Datum: vDatum.value, Stav: vStav.value.trim(), Poznamka: vPozn.value.trim() }, btnU, j);
+      const btnS = document.createElement('button'); btnS.className = 'maly sekundarni'; btnS.style.marginLeft = '6px'; btnS.textContent = 'Smazat';
+      btnS.onclick = () => smazDetailPolozku('meridla_odecty', o.ID, j, btnS);
+      tr.children[3].appendChild(btnU); tr.children[3].appendChild(btnS);
+      teloOdecty.appendChild(tr);
+    });
+    if (odectyTohoto.length === 0) teloOdecty.innerHTML = '<tr><td colspan="4" class="nacitani">Zatím žádné odečty.</td></tr>';
+    tabOdecty.appendChild(teloOdecty);
+    box.appendChild(tabOdecty);
+
+    const pridatOdecetWrap = document.createElement('div');
+    pridatOdecetWrap.style.marginTop = '4px';
+    const nDatum = document.createElement('input'); nDatum.type = 'date'; nDatum.style.fontSize = '13px';
+    const nStav = document.createElement('input'); nStav.type = 'text'; nStav.placeholder = 'Stav'; nStav.style.fontSize = '13px'; nStav.style.width = '90px';
+    const btnPridatOdecet = document.createElement('button');
+    btnPridatOdecet.className = 'maly sekundarni';
+    btnPridatOdecet.textContent = 'Přidat odečet';
+    btnPridatOdecet.onclick = async () => {
+      if (!nDatum.value || !nStav.value.trim()) { alert('Zadejte datum a stav odečtu.'); return; }
+      btnPridatOdecet.disabled = true;
+      try {
+        await zavolejApi('/nemovitosti-detaily?entita=meridla_odecty', {
+          method: 'POST',
+          body: JSON.stringify({ Meridlo_ID: m.ID, Datum: nDatum.value, Stav: nStav.value.trim() }),
+        });
+        await obnovDetailySekce(j);
+      } catch (e) {
+        alert('Nepodařilo se přidat odečet: ' + e.message);
+        btnPridatOdecet.disabled = false;
+      }
+    };
+    pridatOdecetWrap.appendChild(nDatum); pridatOdecetWrap.appendChild(nStav); pridatOdecetWrap.appendChild(btnPridatOdecet);
+    box.appendChild(pridatOdecetWrap);
+
+    wrap.appendChild(box);
+  });
+
+  if (meridla.length === 0) {
+    const prazdne = document.createElement('p');
+    prazdne.className = 'popis';
+    prazdne.textContent = 'Zatím žádná měřidla.';
+    wrap.appendChild(prazdne);
+  }
+
+  const pridatMeridloWrap = document.createElement('div');
+  pridatMeridloWrap.style.marginTop = '8px';
+  const nTyp = document.createElement('select');
+  nTyp.innerHTML = MOZNOSTI_TYP_MERIDLA.map((t) => '<option value="' + escapeAttr(t) + '">' + escapeHtml(t) + '</option>').join('');
+  const nVyrobni = document.createElement('input'); nVyrobni.type = 'text'; nVyrobni.placeholder = 'Výrobní číslo'; nVyrobni.style.fontSize = '13px';
+  const nEan = document.createElement('input'); nEan.type = 'text'; nEan.placeholder = 'EAN/EIC'; nEan.style.fontSize = '13px';
+  const btnPridatMeridlo = document.createElement('button');
+  btnPridatMeridlo.className = 'maly sekundarni';
+  btnPridatMeridlo.textContent = 'Přidat měřidlo';
+  btnPridatMeridlo.onclick = async () => {
+    btnPridatMeridlo.disabled = true;
+    try {
+      await zavolejApi('/nemovitosti-detaily?entita=meridla', {
+        method: 'POST',
+        body: JSON.stringify({ Stredisko: j.Stredisko, Typ: nTyp.value, Vyrobni_cislo: nVyrobni.value.trim(), EAN_EIC: nEan.value.trim() }),
+      });
+      await obnovDetailySekce(j);
+    } catch (e) {
+      alert('Nepodařilo se přidat měřidlo: ' + e.message);
+      btnPridatMeridlo.disabled = false;
+    }
+  };
+  pridatMeridloWrap.appendChild(nTyp); pridatMeridloWrap.appendChild(nVyrobni); pridatMeridloWrap.appendChild(nEan); pridatMeridloWrap.appendChild(btnPridatMeridlo);
+  wrap.appendChild(pridatMeridloWrap);
+
+  el.appendChild(wrap);
+}
+
+function vykresliSekciRevize(el, j, revize) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = '<h4>Revize</h4>';
+
+  const tabulka = document.createElement('table');
+  tabulka.innerHTML = '<thead><tr><th>Typ revize</th><th>Datum revize</th><th>Platnost do</th><th>Poznámka</th><th>Akce</th></tr></thead>';
+  const telo = document.createElement('tbody');
+
+  revize.forEach((r) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td data-label="Typ"></td><td data-label="Datum revize"></td><td data-label="Platnost do"></td>'
+      + '<td data-label="Poznámka"></td><td data-label="Akce"></td>';
+    const vTyp = document.createElement('select');
+    vTyp.innerHTML = MOZNOSTI_TYP_REVIZE.map((t) =>
+      '<option value="' + escapeAttr(t) + '"' + (t === r.Typ_revize ? ' selected' : '') + '>' + escapeHtml(t) + '</option>'
+    ).join('');
+    const vDatum = document.createElement('input'); vDatum.type = 'date'; vDatum.value = r.Datum_revize || ''; vDatum.style.fontSize = '13px';
+    const vPlatnost = document.createElement('input'); vPlatnost.type = 'date'; vPlatnost.value = r.Platnost_do || ''; vPlatnost.style.fontSize = '13px';
+    const vPozn = document.createElement('input'); vPozn.type = 'text'; vPozn.value = r.Poznamka || ''; vPozn.style.fontSize = '13px';
+    tr.children[0].appendChild(vTyp); tr.children[1].appendChild(vDatum); tr.children[2].appendChild(vPlatnost); tr.children[3].appendChild(vPozn);
+
+    const btnU = document.createElement('button'); btnU.className = 'maly sekundarni'; btnU.textContent = 'Uložit';
+    btnU.onclick = () => ulozDetailPolozku('revize', r.ID,
+      { Typ_revize: vTyp.value, Datum_revize: vDatum.value, Platnost_do: vPlatnost.value, Poznamka: vPozn.value.trim() }, btnU, j);
+    const btnS = document.createElement('button'); btnS.className = 'maly sekundarni'; btnS.style.marginLeft = '6px'; btnS.textContent = 'Smazat';
+    btnS.onclick = () => smazDetailPolozku('revize', r.ID, j, btnS);
+    tr.children[4].appendChild(btnU); tr.children[4].appendChild(btnS);
+
+    telo.appendChild(tr);
+  });
+  if (revize.length === 0) telo.innerHTML = '<tr><td colspan="5" class="nacitani">Zatím žádné revize.</td></tr>';
+  tabulka.appendChild(telo);
+  wrap.appendChild(tabulka);
+
+  // Appka jednoduše upozorní na prošlou platnost (appka zatím NEPLÁNUJE
+  // proaktivní notifikace, viz nápad se scheduled tasky v backlogu - zatím
+  // jen pasivní upozornění v UI).
+  const dnes = new Date().toISOString().slice(0, 10);
+  const prosleRevize = revize.filter((r) => r.Platnost_do && r.Platnost_do < dnes);
+  if (prosleRevize.length > 0) {
+    const varovani = document.createElement('div');
+    varovani.className = 'zprava chyba';
+    varovani.style.marginTop = '6px';
+    varovani.textContent = 'Appka eviduje ' + prosleRevize.length + ' revizi/revize s prošlou platností.';
+    wrap.appendChild(varovani);
+  }
+
+  const pridatWrap = document.createElement('div');
+  pridatWrap.style.marginTop = '8px';
+  const nTyp = document.createElement('select');
+  nTyp.innerHTML = MOZNOSTI_TYP_REVIZE.map((t) => '<option value="' + escapeAttr(t) + '">' + escapeHtml(t) + '</option>').join('');
+  const nDatum = document.createElement('input'); nDatum.type = 'date'; nDatum.style.fontSize = '13px';
+  const nPlatnost = document.createElement('input'); nPlatnost.type = 'date'; nPlatnost.style.fontSize = '13px';
+  const btnPridat = document.createElement('button');
+  btnPridat.className = 'maly sekundarni';
+  btnPridat.textContent = 'Přidat revizi';
+  btnPridat.onclick = async () => {
+    btnPridat.disabled = true;
+    try {
+      await zavolejApi('/nemovitosti-detaily?entita=revize', {
+        method: 'POST',
+        body: JSON.stringify({ Stredisko: j.Stredisko, Typ_revize: nTyp.value, Datum_revize: nDatum.value, Platnost_do: nPlatnost.value }),
+      });
+      await obnovDetailySekce(j);
+    } catch (e) {
+      alert('Nepodařilo se přidat revizi: ' + e.message);
+      btnPridat.disabled = false;
+    }
+  };
+  pridatWrap.appendChild(nTyp); pridatWrap.appendChild(nDatum); pridatWrap.appendChild(nPlatnost); pridatWrap.appendChild(btnPridat);
+  wrap.appendChild(pridatWrap);
+
+  el.appendChild(wrap);
+}
+
+// Appka ZATÍM počítá vyúčtování jen na úrovni JEDNÉ jednotky (rozhodnuto
+// AskUserQuestion 2026-07-27 - "1 jednotka = 1 vyúčtování", poměrové
+// rozpočítávání appka zatím NEIMPLEMENTUJE), viz netlify/functions/
+// nemovitosti-vyuctovani.js pro plný výpočet.
+function vykresliSekciVyuctovani(el, j) {
+  el.innerHTML = '<h4>Vyúčtování</h4>';
+  const smlouva = nemovitostiSmlouvySeznam.find((s) => s.Stredisko === j.Stredisko && s.Typ === 'Nájem' && s.Aktivni !== 'NE');
+  if (!smlouva) {
+    const info = document.createElement('p');
+    info.className = 'popis';
+    info.textContent = 'Vyúčtování appka spočítá, až bude mít aktivní nájemní smlouvu pro tohle středisko.';
+    el.appendChild(info);
+    return;
+  }
+
+  const mriz = document.createElement('div');
+  mriz.className = 'mriz-2';
+  const wrapOd = document.createElement('div');
+  wrapOd.innerHTML = '<label>Od</label>';
+  const vstupOd = document.createElement('input');
+  vstupOd.type = 'date';
+  wrapOd.appendChild(vstupOd);
+  const wrapDo = document.createElement('div');
+  wrapDo.innerHTML = '<label>Do</label>';
+  const vstupDo = document.createElement('input');
+  vstupDo.type = 'date';
+  wrapDo.appendChild(vstupDo);
+  mriz.appendChild(wrapOd);
+  mriz.appendChild(wrapDo);
+  el.appendChild(mriz);
+
+  const wrapKauce = document.createElement('div');
+  wrapKauce.style.marginTop = '6px';
+  const idCheckKauce = 'nem-vyuct-kauce-' + j.ID;
+  const checkKauce = document.createElement('input');
+  checkKauce.type = 'checkbox';
+  checkKauce.id = idCheckKauce;
+  const labelKauce = document.createElement('label');
+  labelKauce.htmlFor = idCheckKauce;
+  labelKauce.textContent = ' Počítat i vrácení kauce (škody appka bere jen jako vstup pro tenhle výpočet, nikam je neukládá)';
+  const vstupSkody = document.createElement('input');
+  vstupSkody.type = 'text';
+  vstupSkody.placeholder = 'Škody (Kč)';
+  vstupSkody.style.fontSize = '13px';
+  vstupSkody.style.width = '90px';
+  vstupSkody.style.marginLeft = '8px';
+  wrapKauce.appendChild(checkKauce);
+  wrapKauce.appendChild(labelKauce);
+  wrapKauce.appendChild(vstupSkody);
+  el.appendChild(wrapKauce);
+
+  const vysledekEl = document.createElement('div');
+  el.appendChild(vysledekEl);
+
+  const btnSpocitat = document.createElement('button');
+  btnSpocitat.textContent = 'Spočítat vyúčtování';
+  btnSpocitat.style.marginTop = '8px';
+  btnSpocitat.onclick = async () => {
+    if (!vstupOd.value || !vstupDo.value) { alert('Zadejte období (od/do).'); return; }
+    btnSpocitat.disabled = true;
+    vysledekEl.innerHTML = '<div class="nacitani">Počítám…</div>';
+    try {
+      let cesta = '/nemovitosti-vyuctovani?smlouva_id=' + encodeURIComponent(smlouva.ID)
+        + '&od=' + encodeURIComponent(vstupOd.value) + '&do=' + encodeURIComponent(vstupDo.value);
+      if (checkKauce.checked) cesta += '&pocitatKauci=1&skody=' + encodeURIComponent(vstupSkody.value.trim() || '0');
+      const vysledek = await zavolejApi(cesta, { method: 'GET' });
+      vysledekEl.innerHTML = vykresliVysledekVyuctovani(vysledek, smlouva.Mena);
+    } catch (e) {
+      vysledekEl.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+    } finally {
+      btnSpocitat.disabled = false;
+    }
+  };
+  el.appendChild(btnSpocitat);
+}
+
+function vykresliVysledekVyuctovani(v, mena) {
+  const rozdilPopisek = v.rozdil >= 0 ? 'Přeplatek (appka vrátí nájemníkovi)' : 'Nedoplatek (appka doúčtuje)';
+  let html = '<div class="vyuctovani-vysledek"><dl>'
+    + '<dt>Skutečné náklady</dt><dd>' + escapeHtml(formatCastkaSMenou(v.naklady, mena)) + '</dd>'
+    + '<dt>Zaplacené zálohy</dt><dd>' + escapeHtml(formatCastkaSMenou(v.zalohyPrijate, mena)) + ' (' + v.pocetZaplacenychZaloh + '×)</dd>'
+    + '<dt>' + rozdilPopisek + '</dt><dd>' + escapeHtml(formatCastkaSMenou(Math.abs(v.rozdil), mena)) + '</dd>';
+  if (v.kauce) {
+    html += '<dt>Kauce</dt><dd>' + escapeHtml(formatCastkaSMenou(v.kauce.castka, mena)) + '</dd>'
+      + '<dt>– z toho na nedoplatek</dt><dd>' + escapeHtml(formatCastkaSMenou(v.kauce.nedoplatek, mena)) + '</dd>'
+      + '<dt>– škody</dt><dd>' + escapeHtml(formatCastkaSMenou(v.kauce.skody, mena)) + '</dd>'
+      + '<dt>Appka vrátí kauci</dt><dd>' + escapeHtml(formatCastkaSMenou(v.kauce.kVraceni, mena)) + '</dd>';
+  }
+  html += '</dl></div>';
+  return html;
+}
 
 // ---------- KNIHA JÍZD (backlog, položka 16) ----------
 
@@ -5790,6 +6575,7 @@ document.getElementById('sm-tlacitko-nahrat').addEventListener('click', nahratSm
 document.getElementById('sm-sekce-aktivni').addEventListener('click', () => prepniSmlouvySekci('aktivni'));
 document.getElementById('sm-sekce-neaktivni').addEventListener('click', () => prepniSmlouvySekci('neaktivni'));
 document.getElementById('tlacitko-pridat-jizdu').addEventListener('click', pridatJizdu);
+document.getElementById('tlacitko-pridat-jednotku').addEventListener('click', pridatJednotku);
 document.getElementById('tlacitko-import-jizd').addEventListener('click', importovatKnihaJizdCsv);
 document.getElementById('kj-sekce-jizdy').addEventListener('click', () => prepniKnihaJizdSekci('jizdy'));
 document.getElementById('kj-sekce-souhrn').addEventListener('click', () => prepniKnihaJizdSekci('souhrn'));

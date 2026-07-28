@@ -147,14 +147,21 @@ nav.zalozky button.zamcena-zalozka:hover { background: var(--barva-karta); }
    samo o sobě neplatí - appka mu proto definuje kompletní vzhled
    samostatně, ne jen odchylky). */
 .radek-nahrat-cta { margin-bottom: 10px; }
+/* (v4.36) tlačítko zůstává na stejném místě/stejné třídě jako dřív (Jan:
+   "ikonu nechat tak jak je") - appka mu jen ubrala viditelný text ("Nahrát
+   doklady" -> jen ⬆, viz index.html), proto appka místo asymetrického
+   textového paddingu dává souměrný "ikonkový" padding a o něco větší glyph. */
 .tlacitko-nahrat-cta {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--barva-chyba);
   color: #fff;
   border: 1px solid var(--barva-chyba);
-  font-size: 14px;
+  font-size: 20px;
   font-weight: 600;
-  padding: 10px 22px;
+  line-height: 1;
+  padding: 10px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   width: auto;
@@ -825,6 +832,52 @@ input[type="file"] { margin-top: 8px; }
 .panel-skladaci summary::before { content: '▶'; display: inline-block; margin-right: 8px; font-size: 11px; transition: transform 0.15s; }
 .panel-skladaci[open] summary::before { transform: rotate(90deg); }
 .panel-skladaci h3 { font-size: 13px; margin: 14px 0 8px; }
+
+/* Jednoduchá mřížka pro krátká pole vedle sebe (od v4.36, "Přidat
+   jednotku" v záložce Nemovitosti) - stejný princip jako .mriz-dashboard-
+   firmy, jen bez karet. */
+.mriz-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+@media (max-width: 480px) { .mriz-2 { grid-template-columns: 1fr; } }
+
+/* (v4.36) Jednotka (záložka Nemovitosti) - karta se stejným vzhledem jako
+   .panel-skladaci, ale appka jí dává vlastní třídu, ať CSS pravidla pro
+   Nastavení (.panel-skladaci h3 velikost apod.) nezasahují nechtěně i sem -
+   uvnitř totiž appka vykresluje bohatší strukturu (sekce Smlouva/Klíče/
+   Měřidla/Revize/Vyúčtování), ne jen formulář. */
+.karta-jednotka {
+  border: 1px solid var(--barva-hranice);
+  border-radius: var(--radius-sm);
+  padding: 0 14px 14px;
+  margin-bottom: 12px;
+}
+.karta-jednotka summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-weight: 600;
+  font-size: 14px;
+  list-style: none;
+}
+.karta-jednotka summary::-webkit-details-marker { display: none; }
+.karta-jednotka summary::before { content: '▶'; display: inline-block; margin-right: 8px; font-size: 11px; transition: transform 0.15s; }
+.karta-jednotka[open] summary::before { transform: rotate(90deg); }
+.karta-jednotka .sekce-jednotky {
+  border-top: 1px solid var(--barva-hranice);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.karta-jednotka .sekce-jednotky h4 { font-size: 13px; margin: 0 0 8px; }
+.karta-jednotka table { font-size: 13px; }
+.vyuctovani-vysledek {
+  background: var(--barva-pozadi);
+  border: 1px solid var(--barva-hranice);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.vyuctovani-vysledek dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; }
+.vyuctovani-vysledek dt { color: var(--barva-text-tlumena); }
+.vyuctovani-vysledek dd { margin: 0; text-align: right; font-weight: 600; }
 
 /* ---------- TMAVÝ REŽIM ---------- */
 :root[data-motiv="tmavy"] {
