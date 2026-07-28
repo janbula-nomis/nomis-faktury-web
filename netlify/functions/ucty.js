@@ -78,6 +78,16 @@ exports.handler = async (event) => {
       const soucasny = rows.find((u) => u._row === row);
       if (!soucasny) return json(404, { error: 'Účet nenalezen.' });
 
+      // Od v4.36 appka umožňuje i editaci čísla účtu u existujícího účtu -
+      // appka hlídá, aby přejmenováním nevznikly dva účty se stejným
+      // číslem (stejná kontrola jako při zakládání nového účtu výš).
+      if (zmeny.Cislo_uctu !== undefined) {
+        if (!zmeny.Cislo_uctu) return json(400, { error: 'Číslo účtu je povinné.' });
+        if (rows.some((u) => u._row !== row && u.Cislo_uctu === zmeny.Cislo_uctu)) {
+          return json(409, { error: 'Účet s tímto číslem už v seznamu existuje.' });
+        }
+      }
+
       const aktualizovany = Object.assign({}, soucasny, zmeny);
       await updateRow(sheets, spreadsheetId, 'Ucty', UCTY_HEADERS, row, aktualizovany);
 

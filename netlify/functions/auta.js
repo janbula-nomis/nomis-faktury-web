@@ -70,6 +70,16 @@ exports.handler = async (event) => {
       const soucasny = rows.find((a) => a._row === row);
       if (!soucasny) return json(404, { error: 'Auto nenalezeno.' });
 
+      // Od v4.36 appka umožňuje i editaci RZ (SPZ) u existujícího auta -
+      // appka hlídá, aby přejmenováním nevznikly dvě auta se stejnou RZ
+      // (stejná kontrola jako při zakládání nového auta výš).
+      if (zmeny.SPZ !== undefined) {
+        if (!zmeny.SPZ) return json(400, { error: 'RZ je povinná.' });
+        if (rows.some((a) => a._row !== row && a.SPZ === zmeny.SPZ)) {
+          return json(409, { error: 'Auto s touto RZ už existuje.' });
+        }
+      }
+
       const aktualizovany = Object.assign({}, soucasny, zmeny);
       await updateRow(sheets, spreadsheetId, 'Auta', AUTA_HEADERS, row, aktualizovany);
 

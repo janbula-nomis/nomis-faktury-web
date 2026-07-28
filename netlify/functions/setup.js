@@ -2,7 +2,8 @@
  * netlify/functions/setup.js
  * Administrátorská funkce: vytvoří (pokud chybí) listy Firmy, Auta, Ucty,
  * Strediska, Doklady, Bankovni_pohyby, Vydane_faktury, Doklady_Polozky
- * (od v4.27), Vydane_Faktury_Polozky (od v4.27), Log a Uzivatele
+ * (od v4.27), Vydane_Faktury_Polozky (od v4.27), Nemovitosti_Jednotky,
+ * Klice, Meridla, Meridla_Odecty, Revize (od v4.36), Log a Uzivatele
  * s hlavičkami a ukázkovými daty.
  * Bezpečně chráněná SETUP_SECRET, aby ji nemohl spustit kdokoliv, kdo
  * uhodne URL. Je bezpečné funkci spustit opakovaně i po aktualizaci appky -
@@ -37,6 +38,10 @@ const { STREDISKA_HEADERS } = require('../../lib/strediskaSchema');
 const { PREDKONTACE_HEADERS } = require('../../lib/predkontaceSchema');
 const { DOKLADY_POLOZKY_HEADERS } = require('../../lib/dokladyPolozkySchema');
 const { VYDANE_FAKTURY_POLOZKY_HEADERS } = require('../../lib/vydaneFakturyPolozkySchema');
+const { NEMOVITOSTI_JEDNOTKY_HEADERS } = require('../../lib/nemovitostiJednotkySchema');
+const {
+  KLICE_HEADERS, MERIDLA_HEADERS, MERIDLA_ODECTY_HEADERS, REVIZE_HEADERS,
+} = require('../../lib/nemovitostiDetailySchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
 
@@ -133,6 +138,39 @@ const LISTY = [
     // nebo budoucí import CSV), viz lib/knihaJizdSchema.js.
     nazev: 'Kniha_jizd',
     hlavicky: KNIHA_JIZD_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Modul Nemovitosti (od v4.36, backlog položka 19) - Jednotka je
+    // DOPLŇKOVÝ záznam navázaný na existující středisko (viz komentář v
+    // lib/nemovitostiJednotkySchema.js), účetní logika zůstává navázaná na
+    // Stredisko beze změny.
+    nazev: 'Nemovitosti_Jednotky',
+    hlavicky: NEMOVITOSTI_JEDNOTKY_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Klíče (key control) - viz lib/nemovitostiDetailySchema.js.
+    nazev: 'Klice',
+    hlavicky: KLICE_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Měřidla (elektroměr/vodoměr/plynoměr) - odečty appka drží odděleně
+    // (viz Meridla_Odecty níž), stejný princip jako Smlouvy/Smlouvy_Prilohy.
+    nazev: 'Meridla',
+    hlavicky: MERIDLA_HEADERS,
+    ukazka: [],
+  },
+  {
+    nazev: 'Meridla_Odecty',
+    hlavicky: MERIDLA_ODECTY_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Revize (elektro/plyn/komín/hasicí přístroje/výtah) s platností do.
+    nazev: 'Revize',
+    hlavicky: REVIZE_HEADERS,
     ukazka: [],
   },
   { nazev: 'Log', hlavicky: ['Cas', 'Uzivatel', 'Akce', 'Doklad_ID', 'Detail'], ukazka: [] },

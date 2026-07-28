@@ -42,6 +42,16 @@ function maPristupKFirme(uzivatel, firma) {
   return uzivatel.role === 'admin' || (uzivatel.firmy || []).includes(firma);
 }
 
+// v4.36 - u nájemní smlouvy appka rozděluje čistý nájem a zálohu na
+// služby (viz komentář u SMLOUVY_HEADERS v lib/smlouvySchema.js), ale
+// `Ocekavana_castka` dál appka počítá/ukládá jako jejich součet, ať
+// stávající spárování bankovních plateb podle přesné částky
+// (lib/bankHelpers.js) zůstane beze změny - appka jen navíc ví, jak se
+// ta částka skládá.
+function vypocitejOcekavanouCastku(cistyNajem, zalohaNaSluzby) {
+  return String((parseFloat(cistyNajem) || 0) + (parseFloat(zalohaNaSluzby) || 0));
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return json(200, {});
 
@@ -117,6 +127,17 @@ exports.handler = async (event) => {
       // vlastního pořadí uživatele (v4.14), ne doprostřed.
       const poradi = dalsiPoradiSmlouvy(existujiciSmlouvy);
 
+      const typSmlouvy = String(telo.Typ || '').trim();
+      const cistyNajem = String(telo.Cisty_najem || '').trim();
+      const zalohaNaSluzby = String(telo.Zaloha_na_sluzby || '').trim();
+      // U nájmu appka počítá Ocekavana_castka ze split polí, pokud je
+      // appka dostala (viz vypocitejOcekavanouCastku výš) - jinak appka
+      // bere Ocekavana_castka tak, jak appka dostala (starší chování,
+      // ostatní typy smlouvy split pole vůbec nemají).
+      const ocekavanaCastka = (typSmlouvy === 'Nájem' && (cistyNajem || zalohaNaSluzby))
+        ? vypocitejOcekavanouCastku(cistyNajem, zalohaNaSluzby)
+        : (telo.Ocekavana_castka !== undefined ? String(telo.Ocekavana_castka).trim() : '');
+
       const smlouva = {
         ID: crypto.randomUUID(),
         Cislo_smlouvy: cisloSmlouvy,
@@ -124,9 +145,9 @@ exports.handler = async (event) => {
         Nazev: nazev,
         Druha_strana: String(telo.Druha_strana || '').trim(),
         Stredisko: String(telo.Stredisko || '').trim(),
-        Typ: String(telo.Typ || '').trim(),
+        Typ: typSmlouvy,
         Perioda: String(telo.Perioda || '').trim(),
-        Ocekavana_castka: telo.Ocekavana_castka !== undefined ? String(telo.Ocekavana_castka).trim() : '',
+        Ocekavana_castka: ocekavanaCastka,
         Mena: String(telo.Mena || 'CZK').trim() || 'CZK',
         Platnost_od: String(telo.Platnost_od || '').trim(),
         Platnost_do: String(telo.Platnost_do || '').trim(),
@@ -135,6 +156,12 @@ exports.handler = async (event) => {
         Poznamka: String(telo.Poznamka || '').trim(),
         Aktivni: String(telo.Aktivni || 'ANO').trim() || 'ANO',
         Poradi: String(poradi),
+        Cisty_najem: cistyNajem,
+        Zaloha_na_sluzby: zalohaNaSluzby,
+        Kauce_castka: String(telo.Kauce_castka || '').trim(),
+        Kauce_datum_prijeti: String(telo.Kauce_datum_prijeti || '').trim(),
+        Kauce_stav: String(telo.Kauce_stav || '').trim(),
+        Kauce_poznamka: String(telo.Kauce_poznamka || '').trim(),
       };
       await appendRow(sheets, spreadsheetId, 'Smlouvy', SMLOUVY_HEADERS, smlouva);
 
@@ -151,6 +178,16 @@ exports.handler = async (event) => {
       if (!maPristupKFirme(uzivatel, smlouva.Firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
 
       const aktualizovana = Object.assign({}, smlouva, zmeny || {});
+      // v4.36 - appka přepočítá Ocekavana_castka jen tehdy, když PATCH
+      // skutečně mění jedno ze split polí (Cisty_najem/Zaloha_na_sluzby) u
+      // nájemní smlouvy - jinak appka Ocekavana_castka nechává beze změny
+      // (např. PATCH, který mění jen Poznamku, na částku nesahá).
+      if (aktualizovana.Typ === 'Nájem'
+        && ((zmeny || {}).Cisty_najem !== undefined || (zmeny || {}).Zaloha_na_sluzby !== undefined)) {
+        aktualizovana.Ocekavana_castka = vypocitejOcekavanouCastku(
+          aktualizovana.Cisty_najem, aktualizovana.Zaloha_na_sluzby
+        );
+      }
       await updateRow(sheets, spreadsheetId, 'Smlouvy', SMLOUVY_HEADERS, smlouva._row, aktualizovana);
 
       return json(200, { ok: true });
