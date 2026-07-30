@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.37 – 2026-07-28';
+const APP_VERZE = 'v4.38 – 2026-07-30';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1227,7 +1227,7 @@ function vytvorDetailDoklad(d) {
     if (d.Zdrojovy_soubor_URL) {
       const souborDiv = document.createElement('div');
       souborDiv.style.marginTop = '12px';
-      souborDiv.innerHTML = 'Soubor: <a href="' + escapeAttr(d.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>';
+      souborDiv.innerHTML = odkazOtevritSken(d.Zdrojovy_soubor_URL);
       wrap.appendChild(souborDiv);
     }
 
@@ -1420,7 +1420,7 @@ function vytvorDetailDoklad(d) {
   if (d.Zdrojovy_soubor_URL) {
     const souborDiv = document.createElement('div');
     souborDiv.style.marginTop = '12px';
-    souborDiv.innerHTML = 'Soubor: <a href="' + escapeAttr(d.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>';
+    souborDiv.innerHTML = odkazOtevritSken(d.Zdrojovy_soubor_URL);
     wrap.appendChild(souborDiv);
   }
 
@@ -1490,18 +1490,6 @@ function vytvorDetailDoklad(d) {
     akce.appendChild(tlacitkoSchvalit);
   }
 
-  // QR Platba (v4.32, viz lib/qrPlatba.js) - appka tlačítko ukáže jen u
-  // SCHVÁLENÉHO dokladu (appka nechce nabízet platbu k dokladu, který ještě
-  // čeká na kontrolu) a jen adminovi/účetní (příprava platby, stejné
-  // omezení jako export-money-s3.js/netlify/functions/qr-platba.js).
-  if (d.Stav === 'Schváleno' && jeUcetniNeboAdminDoklad) {
-    const tlacitkoQr = document.createElement('button');
-    tlacitkoQr.className = 'maly sekundarni';
-    tlacitkoQr.textContent = 'QR Platba';
-    tlacitkoQr.onclick = () => zobrazQrPlatbu(d.ID, tlacitkoQr);
-    akce.appendChild(tlacitkoQr);
-  }
-
   // Jan (2026-07-19, v4.11): "Smazat" appka běžnému uživateli ukáže jen u
   // dokladu, který sám nahrál (Nahral_uzivatel) - admin/účetní mažou beze
   // změny cokoli v rámci svých firem (viz netlify/functions/doklady.js,
@@ -1515,6 +1503,22 @@ function vytvorDetailDoklad(d) {
   }
 
   wrap.appendChild(akce);
+
+  // QR Platba (v4.32, viz lib/qrPlatba.js) - appka QR ukáže jen u
+  // SCHVÁLENÉHO dokladu (appka nechce nabízet platbu k dokladu, který ještě
+  // čeká na kontrolu) a jen adminovi/účetní (příprava platby, stejné
+  // omezení jako export-money-s3.js/netlify/functions/qr-platba.js).
+  // Jan (2026-07-30, v4.38): dřív appka QR schovávala za tlačítko "QR
+  // Platba" + modální okno přes celou appku (klik → fetch → overlay) -
+  // appka teď QR připraví a zobrazí ROVNOU v detailu, bez klikání
+  // (viz nactiQrPlatbuInline() níž), ve zmenšené velikosti (~2/3 dřívějších
+  // 260px, viz šířka obrázku tam).
+  if (d.Stav === 'Schváleno' && jeUcetniNeboAdminDoklad) {
+    const qrKontejner = document.createElement('div');
+    qrKontejner.className = 'qr-inline';
+    wrap.appendChild(qrKontejner);
+    nactiQrPlatbuInline(d.ID, qrKontejner);
+  }
 
   return wrap;
 }
@@ -1578,37 +1582,48 @@ async function smazDoklad(id, dodavatel, tlacitko) {
 
 // QR Platba (v4.32, viz lib/qrPlatba.js/netlify/functions/qr-platba.js) -
 // appka zavolá backend, který sestaví SPAYD text a QR kód (appka žádnou
-// generaci QR appka needělá ve frontendu, appka posílá hotový PNG data
-// URL) a zobrazí je v overlay #qr-platba-modal (stejný vizuální vzor jako
-// #varovani-odhlaseni). Appka tu nic sama neposílá/neplatí - jde jen o
-// zobrazení k naskenování v bankovní appce uživatele.
-async function zobrazQrPlatbu(id, tlacitko) {
-  tlacitko.disabled = true;
+// generaci QR appka needělá ve frontendu, appka posílá hotový PNG data URL).
+// Jan (2026-07-30, v4.38): appka do v4.37 QR schovávala za tlačítko "QR
+// Platba" + modální okno přes celou appku (klik → fetch → overlay) - appka
+// teď QR načte a zobrazí ROVNOU v detailu schváleného dokladu, hned při
+// rozbalení (appka funkci volá z vytvorDetailDoklad() výš, žádné tlačítko/
+// modál appka už nemá), ve zmenšené velikosti (173px, cca 2/3 dřívějších
+// 260px). Appka tu nic sama neposílá/neplatí - jde jen o zobrazení k
+// naskenování v bankovní appce uživatele.
+async function nactiQrPlatbuInline(id, kontejner) {
+  kontejner.classList.add('qr-inline-nacita');
+  kontejner.textContent = 'Připravuji QR Platbu…';
   try {
     const data = await zavolejApi('/qr-platba?id=' + encodeURIComponent(id));
-    const obsah = document.getElementById('qr-platba-obsah');
-    obsah.innerHTML = '';
+    kontejner.classList.remove('qr-inline-nacita');
+    kontejner.innerHTML = '';
 
     const obrazek = document.createElement('img');
+    obrazek.className = 'qr-inline-obrazek';
     obrazek.src = data.qrObrazek;
     obrazek.alt = 'QR Platba';
-    obrazek.style.width = '100%';
-    obrazek.style.maxWidth = '260px';
-    obrazek.style.display = 'block';
-    obrazek.style.margin = '0 auto 12px';
-    obsah.appendChild(obrazek);
+    obrazek.width = 173;
+    obrazek.height = 173;
+    kontejner.appendChild(obrazek);
 
-    const info = document.createElement('p');
-    info.style.fontSize = '12px';
-    info.style.wordBreak = 'break-all';
-    info.textContent = data.spayd;
-    obsah.appendChild(info);
-
-    document.getElementById('qr-platba-modal').classList.remove('skryto');
+    const popis = document.createElement('div');
+    const popisek = document.createElement('p');
+    popisek.className = 'qr-inline-popisek';
+    popisek.innerHTML =
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+        'stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/>' +
+        '<rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>' +
+      'QR Platba';
+    const napoveda = document.createElement('p');
+    napoveda.className = 'qr-inline-napoveda';
+    napoveda.textContent = 'Naskenujte v bankovní appce - QR se připravil automaticky ke schválenému dokladu.';
+    popis.appendChild(popisek);
+    popis.appendChild(napoveda);
+    kontejner.appendChild(popis);
   } catch (e) {
-    alert('Nepodařilo se připravit QR Platbu: ' + e.message);
-  } finally {
-    tlacitko.disabled = false;
+    kontejner.classList.remove('qr-inline-nacita');
+    kontejner.classList.add('qr-inline-chyba');
+    kontejner.textContent = 'Nepodařilo se připravit QR Platbu: ' + e.message;
   }
 }
 
@@ -2433,7 +2448,7 @@ function vytvorDetailVydanaFaktura(f) {
   if (f.Zdrojovy_soubor_URL) {
     const souborDiv = document.createElement('div');
     souborDiv.style.marginTop = '12px';
-    souborDiv.innerHTML = 'Soubor: <a href="' + escapeAttr(f.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>';
+    souborDiv.innerHTML = odkazOtevritSken(f.Zdrojovy_soubor_URL);
     wrap.appendChild(souborDiv);
   }
 
@@ -3029,7 +3044,7 @@ function vytvorDetailBanka(p) {
       '<strong>Přiřazený doklad:</strong> ' + escapeHtml(propojenyDoklad.Dodavatel || '(bez dodavatele)') +
       ', ' + escapeHtml(String(parsujCastkuZListu(propojenyDoklad.Castka))) + ' ' + escapeHtml(propojenyDoklad.Mena || '') +
       (propojenyDoklad.Zdrojovy_soubor_URL
-        ? ' – <a href="' + escapeAttr(propojenyDoklad.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít scan</a>'
+        ? ' – ' + odkazOtevritSken(propojenyDoklad.Zdrojovy_soubor_URL)
         : '') +
       '<div class="popis">Středisko: ' +
         (p.Doklad_Stredisko
@@ -4936,7 +4951,7 @@ function vytvorPrilohySekce(s, prilohyTeto) {
   if (s.Zdrojovy_soubor_URL) {
     const legacy = document.createElement('div');
     legacy.className = 'popis';
-    legacy.innerHTML = 'Starší odkaz na soubor: <a href="' + escapeAttr(s.Zdrojovy_soubor_URL) + '" target="_blank" rel="noopener">otevřít</a>';
+    legacy.innerHTML = odkazOtevritSken(s.Zdrojovy_soubor_URL, 'Starší odkaz na soubor:');
     wrap.appendChild(legacy);
   }
 
@@ -6785,6 +6800,23 @@ function escapeAttr(text) {
   return escapeHtml(text);
 }
 
+// Odkaz na sken dokladu (v4.38) - Jan: "aby nebyl jen text" - appka do v4.37
+// ukazovala prostý podtržený text "otevřít", appka teď kreslí plný "chip" s
+// ikonou lupy (stejný princip vlastní inline SVG appka už používá u loga na
+// přihlašovací obrazovce - appka žádnou ikonovou knihovnu nemá připojenou).
+// `popisek` je volitelný text PŘED odkazem (appka ho u některých míst
+// používala, např. "Starší odkaz na soubor:") - u nového vzhledu appka ho
+// nechává prázdný, chip sám o sobě dost jasně říká, co udělá.
+function odkazOtevritSken(url, popisek) {
+  return (popisek ? escapeHtml(popisek) + ' ' : '') +
+    '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener" class="odkaz-sken">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>' +
+      '</svg>' +
+      'Otevřít sken' +
+    '</a>';
+}
+
 // ---------- INICIALIZACE ----------
 
 document.getElementById('tlacitko-prihlasit').addEventListener('click', prihlasit);
@@ -6793,9 +6825,6 @@ document.getElementById('pole-pin').addEventListener('keydown', (e) => {
 });
 document.getElementById('tlacitko-odhlasit').addEventListener('click', odhlasit);
 document.getElementById('tlacitko-zustat-prihlasen').addEventListener('click', idleResetovatCasovac);
-document.getElementById('tlacitko-zavrit-qr-platbu').addEventListener('click', () => {
-  document.getElementById('qr-platba-modal').classList.add('skryto');
-});
 document.getElementById('tlacitko-vyfotit').addEventListener('click', () => document.getElementById('pole-foto').click());
 document.getElementById('tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('pole-soubor').click());
 document.getElementById('pole-foto').addEventListener('change', (e) => zpracujVybranySoubor(e.target.files[0]));

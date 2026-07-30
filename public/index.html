@@ -805,16 +805,11 @@
     </div>
   </div>
 
-  <!-- QR Platba (v4.32, viz lib/qrPlatba.js) - appka tenhle overlay používá
-       pro zobrazení vygenerovaného QR kódu k naskenování v bankovní appce.
-       Appka tu nic sama neposílá/neplatí - jde jen o zobrazení. -->
-  <div id="qr-platba-modal" class="varovani-odhlaseni-overlay skryto">
-    <div class="varovani-odhlaseni-box" style="max-width: 340px;">
-      <h3 style="margin-top:0;">QR Platba</h3>
-      <div id="qr-platba-obsah"></div>
-      <button id="tlacitko-zavrit-qr-platbu" type="button" class="sekundarni">Zavřít</button>
-    </div>
-  </div>
+  <!-- QR Platba (v4.32, viz lib/qrPlatba.js) - appka do v4.37 zobrazovala QR
+       v tomhle overlay po kliknutí na tlačítko. Od v4.38 appka QR u
+       schváleného dokladu zobrazuje rovnou v detailu (viz .qr-inline v
+       style.css a nactiQrPlatbuInline() v app.js), overlay appka už
+       nepoužívá. -->
 
 </div>
 <script src="app.js"></script>

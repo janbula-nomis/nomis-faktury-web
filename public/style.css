@@ -227,7 +227,12 @@ nav.zalozky button.zamcena-zalozka:hover { background: var(--barva-karta); }
   justify-content: center;
   padding: 60px;
 }
-.prihlaseni-logo-znak { width: 60px; height: 60px; flex: none; }
+/* (v4.37, oprava: Jan "celé logo zvětši ať je videt") - appka logo
+   zvětšila z 60px na 84px, appka ho na mobilu neschovává ani nezmenšuje
+   zpátky (viz @media 760px níž) - ostatní prvky hero panelu appka na
+   mobilu naopak zúžila, ať se přihlašovací tlačítko vešlo na obrazovku
+   bez scrollování i s větším logem. */
+.prihlaseni-logo-znak { width: 84px; height: 84px; flex: none; }
 .prihlaseni-panel-vlevo h1 {
   font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-weight: 700;
@@ -310,10 +315,28 @@ nav.zalozky button.zamcena-zalozka:hover { background: var(--barva-karta); }
 #view-login #tlacitko-prihlasit:hover { background: #0a1522; }
 .prihlaseni-paticka { margin-top: 22px; font-size: 0.68rem; color: #a9b0bb; }
 
+/* (v4.37, oprava: Jan "na úvodní obrazovce to změnši aby bez scroolovani
+   se dalo přihlásit") - appka na mobilu zjistila, že navy hero panel
+   (logo + nadpis + tagline + pilulka "Privátní systém") + karta s
+   formulářem dohromady přetahovaly výšku běžné mobilní obrazovky (appka
+   naměřila tlačítko "Přihlásit se" i přes 700px od horního okraje, což se
+   na telefonu se sbalenou adresní lištou Safari nevejde bez scrollování).
+   Appka proto na mobilu: zúžila odsazení hero panelu i karty, zmenšila
+   nadpis a schovala okrasný podtext (appka ho nepotřebuje pro samotné
+   přihlášení), a zúžila mezery mezi poli formuláře - logo přitom appka
+   NECHÁVÁ ve zvětšené velikosti (viz `.prihlaseni-logo-znak` výš), ať je
+   podle Jana "vidět". */
 @media (max-width: 760px) {
   #view-login.prihlaseni-split { flex-direction: column; overflow-y: auto; min-height: 100vh; height: auto; }
-  .prihlaseni-panel-vlevo { padding: 36px 30px; flex: 0 0 auto; }
-  .prihlaseni-panel-vpravo { padding: 30px; flex: 0 0 auto; }
+  .prihlaseni-panel-vlevo { padding: 16px 24px 12px; flex: 0 0 auto; }
+  .prihlaseni-panel-vlevo h1 { font-size: 1.4rem; margin-top: 10px; }
+  .prihlaseni-tagline { display: none; }
+  .prihlaseni-pill { margin-top: 12px; }
+  .prihlaseni-panel-vpravo { padding: 18px 24px 22px; flex: 0 0 auto; }
+  .prihlaseni-podnadpis { margin-bottom: 14px; }
+  .prihlaseni-karta label { margin: 10px 0 5px; }
+  #view-login #tlacitko-prihlasit { margin-top: 16px; }
+  .prihlaseni-paticka { margin-top: 12px; }
 }
 
 .zprava { padding: 9px 11px; border-radius: var(--radius-sm); font-size: 13px; margin-top: 10px; }
@@ -423,6 +446,59 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 .doklad-sipka { display: inline-block; transition: transform 0.15s; }
 .doklad-radek-detail label:first-child { margin-top: 0; }
 .doklad-radek-detail .radek-akci { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+
+/* Odkaz "Otevřít sken" (v4.38, viz odkazOtevritSken() v app.js) - Jan chtěl
+   místo prostého podtrženého textu "otevřít" opravdový vizuální prvek.
+   Appka zvolila plný "chip" (zaoblená plná barevná bublina s ikonou) -
+   stejný vizuální jazyk appka nemá jinde použitý na odkaz, jen na tlačítka,
+   takže appka barvy zesvětlila (#eaf0ff), ať je jasné, že jde o odkaz na
+   soubor, ne o akční tlačítko jako Uložit/Schválit/Smazat. */
+.odkaz-sken {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #eaf0ff;
+  color: var(--barva-primarni-tmava);
+  border-radius: 999px;
+  padding: 6px 13px 6px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  line-height: 1.2;
+}
+.odkaz-sken svg { width: 14px; height: 14px; flex: none; }
+.odkaz-sken:hover { background: #dbe6ff; }
+
+/* QR Platba - zobrazení rovnou v detailu (v4.38, viz nactiQrPlatbuInline()
+   v app.js). Appka do v4.37 QR schovávala za tlačítko + modální okno přes
+   celou appku - appka teď QR připraví a ukáže hned po rozbalení schváleného
+   dokladu, oddělené od tlačítek Uložit/Smazat vodorovnou linkou, ve
+   zmenšené velikosti (appka obrázek zmenšila na 173px, cca 2/3 dřívějších
+   260px). */
+.qr-inline {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--barva-hranice);
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.qr-inline.qr-inline-nacita,
+.qr-inline.qr-inline-chyba { font-size: 12.5px; color: var(--barva-text-tlumena); border-top: none; padding-top: 0; margin-top: 8px; }
+.qr-inline.qr-inline-chyba { color: var(--barva-chyba, #d64545); }
+.qr-inline-obrazek { display: block; flex-shrink: 0; border: 1px solid var(--barva-hranice); border-radius: 4px; }
+.qr-inline-popisek {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--barva-text);
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.qr-inline-popisek svg { flex: none; }
+.qr-inline-napoveda { font-size: 11px; color: var(--barva-text-tlumena); margin: 0; max-width: 260px; }
 
 /* Probarvení celého skládacího řádku podle stavu (konzistentní s barvami
    .stav-chip výše). */
@@ -571,6 +647,57 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 .kj-sipka { display: inline-block; transition: transform 0.15s; }
 .kj-radek-detail .radek-akci { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
 
+/* (v4.35) Jan po nahlášení nezarovnaných sloupců appku přepnul z flexboxu
+   na pevnou CSS grid mřížku - stejný princip jako appka v téže dávce
+   zavedla u Dokladů výše (viz komentář tam). Appka žádné vlastní evidenční
+   číslo bankovnímu pohybu nepřiřazuje (viz .cislo-evid výše) - první
+   sloupec za šipkou tak appka jen ukazuje, zbytek (Datum/Protistrana/
+   Stav/Částka) zůstává jako dřív. Appka odstranila `overflow: hidden`
+   (stejný důvod jako u Smlouvy/Vydaných faktur/Dokladů - jinak by
+   osekávalo obsah řádku dřív, než by se stihl scrollovat), zaoblení řeší
+   `border-radius` přímo na `.banka-radek-detail`.
+   Pozn. (v4.37, oprava): tenhle blok appka přesunula SEM (před @media
+   breakpointy níž) - appka do v4.37 měla tenhle nepodmíněný základní
+   pravidlo omylem AŽ ZA mobilními @media bloky (které "banka-radek-hlava"
+   mřížku zužují), takže se stejnou specificitou vždy vyhrálo tohle pozdější
+   pravidlo bez ohledu na šířku obrazovky a appka na mobilu vždy používala
+   plnou desktopovou šestisloupcovou mřížku (16/92/92/140/100/110px) - to
+   appka nahlásila jako "přetéká" (protistrana/stav/částka se vměstnávaly do
+   špatných, náhodných sloupců podle toho, kolik skrytých polí zbylo). Appka
+   ostatní skládací seznamy (Doklady/Smlouvy/Vydané faktury/Kniha jízd) měla
+   správně - jejich základní pravidlo je v souboru PŘED @media bloky, jen
+   appka tohle bankovní přidala později (v4.35) na konec souboru a zapomněla
+   ho posunout nahoru. */
+.banka-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
+.banka-radek-hlava, .banka-radek-hlavicka {
+  display: grid;
+  grid-template-columns: 16px 92px 92px minmax(140px, 1fr) 100px 110px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.banka-radek-hlava { padding: 8px 10px; cursor: pointer; }
+.banka-radek-hlava > span, .banka-radek-hlavicka > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.banka-radek-hlavicka { padding: 0 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
+/* Stav appka drží v jedné buňce mřížky, ale UVNITŘ ní appka nechává
+   odznaky (stav párování + "chybí zařazení") volně zalomit na 2 řádky,
+   pokud se vedle sebe nevejdou - appka schválně nepřidává další sloupec do
+   celé mřížky jen kvůli druhému, řidčeji zobrazenému odznaku. */
+.banka-stav-bunka { display: flex; flex-wrap: wrap; gap: 4px; overflow: visible !important; white-space: normal !important; }
+.banka-radek-hlava:hover { filter: brightness(0.97); }
+.banka-radek-hlava .castka { font-weight: 600; text-align: right; white-space: nowrap; }
+.banka-radek-hlava .castka.prijem { color: var(--barva-uspech); }
+.banka-radek-hlava .castka.vydaj { color: var(--barva-text); }
+/* (v4.35) Stejný princip sdíleného vodorovného scrollu jako u Smlouvy/
+   Vydaných faktur/Dokladů výše - viz komentář tam. */
+.banka-tabulka-obal { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
+.banka-tabulka-obal::-webkit-scrollbar { height: 8px; }
+.banka-tabulka-obal::-webkit-scrollbar-thumb { background: var(--barva-hranice); border-radius: 4px; }
+.banka-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.banka-radek.rozbaleno .banka-radek-detail { display: block; }
+.banka-radek.rozbaleno .banka-sipka { transform: rotate(90deg); }
+.banka-sipka { display: inline-block; transition: transform 0.15s; }
+
 .mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .polozka-souhrn { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 13px; }
 .polozka-souhrn strong { white-space: nowrap; margin-left: 12px; }
@@ -674,9 +801,14 @@ input[type="file"] { margin-top: 8px; }
 
   /* (v4.35) Bankovní výpisy appka na mobilu schovává evidenční číslo
      spárovaného dokladu/faktury (nth-child(2)) - appka ho pořád ukáže
-     po rozkliknutí řádku (detail appka nijak nemění). */
+     po rozkliknutí řádku (detail appka nijak nemění).
+     Pozn. (v4.37, oprava): appka sloupce Stav (84px) a Částka (90px)
+     rozšířila na 100px - odznak "chybí zařazení" i delší částky (např.
+     "-125 480,50 Kč") appka změřila na cca 91-95px, užší sloupec by je
+     nechal přetéct do sousedního sloupce (viz oprava pořadí pravidel
+     výše u `.banka-radek-hlava` základní mřížky). */
   .banka-radek-hlava, .banka-radek-hlavicka {
-    grid-template-columns: 14px 74px minmax(90px, 1fr) 84px 90px;
+    grid-template-columns: 14px 74px minmax(90px, 1fr) 100px 100px;
   }
   .banka-radek-hlava > span:nth-child(2), .banka-radek-hlavicka > span:nth-child(2) { display: none; }
 }
@@ -715,8 +847,12 @@ input[type="file"] { margin-top: 8px; }
   .doklad-radek-hlava > span:nth-child(4), .doklad-radek-hlavicka > span:nth-child(4) { display: none; }
 
   /* (v4.35) Bankovní výpisy na opravdu úzkém mobilu appka schová ještě
-     Datum (nth-child(3)) - evidenční číslo je schované už od 640px. */
-  .banka-radek-hlava, .banka-radek-hlavicka { grid-template-columns: 14px minmax(80px, 1fr) 70px 70px; }
+     Datum (nth-child(3)) - evidenční číslo je schované už od 640px.
+     Pozn. (v4.37, oprava): appka Stav i Částku rozšířila na 96px ze
+     70px - stejný důvod jako u 640px breakpointu výš (odznak "chybí
+     zařazení"/delší částky appce potřebují víc než 70px, jinak jí
+     přetékaly do sousedního sloupce). */
+  .banka-radek-hlava, .banka-radek-hlavicka { grid-template-columns: 14px minmax(70px, 1fr) 96px 96px; }
   .banka-radek-hlava > span:nth-child(3), .banka-radek-hlavicka > span:nth-child(3) { display: none; }
 }
 
@@ -724,45 +860,6 @@ input[type="file"] { margin-top: 8px; }
 
 .tlacitka-nahrani { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .tlacitka-nahrani button { margin-top: 0; flex: 1; min-width: 140px; }
-
-/* (v4.35) Jan po nahlášení nezarovnaných sloupců appku přepnul z flexboxu
-   na pevnou CSS grid mřížku - stejný princip jako appka v téže dávce
-   zavedla u Dokladů výše (viz komentář tam). Appka žádné vlastní evidenční
-   číslo bankovnímu pohybu nepřiřazuje (viz .cislo-evid výše) - první
-   sloupec za šipkou tak appka jen ukazuje, zbytek (Datum/Protistrana/
-   Stav/Částka) zůstává jako dřív. Appka odstranila `overflow: hidden`
-   (stejný důvod jako u Smlouvy/Vydaných faktur/Dokladů - jinak by
-   osekávalo obsah řádku dřív, než by se stihl scrollovat), zaoblení řeší
-   `border-radius` přímo na `.banka-radek-detail`. */
-.banka-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
-.banka-radek-hlava, .banka-radek-hlavicka {
-  display: grid;
-  grid-template-columns: 16px 92px 92px minmax(140px, 1fr) 100px 110px;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.banka-radek-hlava { padding: 8px 10px; cursor: pointer; }
-.banka-radek-hlava > span, .banka-radek-hlavicka > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.banka-radek-hlavicka { padding: 0 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
-/* Stav appka drží v jedné buňce mřížky, ale UVNITŘ ní appka nechává
-   odznaky (stav párování + "chybí zařazení") volně zalomit na 2 řádky,
-   pokud se vedle sebe nevejdou - appka schválně nepřidává další sloupec do
-   celé mřížky jen kvůli druhému, řidčeji zobrazenému odznaku. */
-.banka-stav-bunka { display: flex; flex-wrap: wrap; gap: 4px; overflow: visible !important; white-space: normal !important; }
-.banka-radek-hlava:hover { filter: brightness(0.97); }
-.banka-radek-hlava .castka { font-weight: 600; text-align: right; white-space: nowrap; }
-.banka-radek-hlava .castka.prijem { color: var(--barva-uspech); }
-.banka-radek-hlava .castka.vydaj { color: var(--barva-text); }
-/* (v4.35) Stejný princip sdíleného vodorovného scrollu jako u Smlouvy/
-   Vydaných faktur/Dokladů výše - viz komentář tam. */
-.banka-tabulka-obal { overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
-.banka-tabulka-obal::-webkit-scrollbar { height: 8px; }
-.banka-tabulka-obal::-webkit-scrollbar-thumb { background: var(--barva-hranice); border-radius: 4px; }
-.banka-radek-detail { padding: 10px; border-top: 1px solid var(--barva-hranice); background: rgba(0,0,0,0.03); display: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
-.banka-radek.rozbaleno .banka-radek-detail { display: block; }
-.banka-radek.rozbaleno .banka-sipka { transform: rotate(90deg); }
-.banka-sipka { display: inline-block; transition: transform 0.15s; }
 
 /* Probarvení celého řádku (hlavička i po rozbalení) podle stavu spárování.
    Navrženo je záměrně modré (odlišné od ostatních třech), aby v seznamu

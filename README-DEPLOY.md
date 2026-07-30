@@ -3969,6 +3969,117 @@ na nový rozpad služby/vlastní náklad, a celá regresní sada appky
 
 `APP_VERZE` appka zvýšila na `v4.37 – 2026-07-28`.
 
+## 79. Oprava: bankovní výpisy na mobilu měly rozbitou mřížku sloupců + zúžená/zvětšená přihlašovací obrazovka na mobilu (v4.37.1)
+
+Jan poslal dva screenshoty z mobilu (přehled bankovních pohybů a
+přihlašovací obrazovku) s dotazem, proč appka na bankovních výpisech
+„přetéká“, a požádal appku zúžit přihlašovací hero panel, ať se appka na
+mobilu dá přihlásit bez scrollování, a zvětšit logo, ať je vidět.
+
+**a) Bankovní výpisy - mřížka sloupců na mobilu.** Skutečná příčina:
+appka měla ve `style.css` DVĚ definice `.banka-radek-hlava`/
+`.banka-radek-hlavicka` gridu se STEJNOU specificitou - responzivní
+zúžené verze uvnitř `@media (max-width: 640px)`/`@media (max-width:
+480px)` (starší, z dřívější responzivní dávky), a nepodmíněnou základní
+šesti-sloupcovou verzi (appka ji přidala až v4.35 při přechodu z
+flexboxu na grid, ale omylem ji zapsala AŽ ZA oba mobilní `@media`
+bloky). Při stejné specificitě vyhrává v CSS pravidlo, které je v
+souboru NAPSANÉ POZDĚJI bez ohledu na to, jestli jeho `@media` podmínka
+platí - appka tak na mobilu vždy používala plnou desktopovou mřížku
+(16/92/92/140/100/110px), i když měla dvě z šesti buněk schované
+(`display: none`). Protože skryté buňky appka z gridu úplně vyřazuje,
+zbylé viditelné buňky (protistrana/stav/částka) se navíc posunuly do
+ŠPATNÝCH sloupců (např. „protistrana“ dostala jen 92px místo pružné
+šířky) - přesně to Jan viděl jako „přetéká“. Appka opravu ověřila i
+naměřením: badge „chybí zařazení“ (91px) se do takhle zúženého sloupce
+Stav nevešel a přetékal do sloupce Částka.
+
+Oprava: appka přesunula nepodmíněné základní pravidlo `.banka-radek-
+hlava`/`.banka-radek-hlavicka` PŘED oba mobilní `@media` bloky (stejné
+pořadí, jaké appka má u Dokladů/Smluv/Vydaných faktur/Kniha jízd - u
+těch appka tenhle problém neměla, protože jejich základní pravidlo bylo
+napsané dřív). Appka zároveň rozšířila sloupce Stav/Částka na mobilu
+(640px: 84→100px, 480px: 70→96px) - appka změřila, že odznak „chybí
+zařazení“ i delší částky (např. „-125 480,50 Kč“) potřebují cca
+91-95px, užší sloupec by je nechal přetéct i po opravě pořadí pravidel.
+
+**b) Přihlašovací obrazovka na mobilu - zúžení + větší logo.** Appka
+naměřila, že tlačítko „Přihlásit se“ bylo na mobilu přes 700px od
+horního okraje (hero panel s logem/nadpisem/tagline/pilulkou + karta s
+formulářem dohromady), což se na běžném telefonu s viditelnou adresní
+lištou Safari nevejde bez scrollování. Appka na mobilu (`@media
+max-width: 760px`) zúžila odsazení hero panelu i karty, zmenšila nadpis
+a schovala okrasný podtext (appka ho nepotřebuje k samotnému
+přihlášení), a zúžila mezery mezi poli formuláře. Logo (`.prihlaseni-
+logo-znak`) appka naopak zvětšila z 60px na 84px - VŽDY (mobil i
+desktop), podle Jana „ať je vidět“ - i přes větší logo je díky ostatním
+úsporám appka po opravě vešla tlačítko na mobilu na cca 474px od
+horního okraje (dřív přes 700px).
+
+Appka obě opravy ověřila Playwright skriptem proti lokální kopii appky
+(reprodukce reálné mřížky bankovního řádku + odznaků, měření výšky
+přihlašovací obrazovky na několika šířkách/výškách 375-430×650-932px) -
+badge se po opravě už nepřekrývá s částkou na žádné z testovaných šířek
+a tlačítko „Přihlásit se“ appka na všech testovaných výškách (i
+konzervativní 650px) vejde bez scrollování. Čistě CSS oprava
+(`public/style.css`) - appka neměnila žádnou logiku v `app.js` ani na
+backendu, není potřeba `/api/setup`.
+
+`APP_VERZE` appka zvýšila na `v4.37.1 – 2026-07-30`.
+
+## 80. Vzhledové tlačítko „Otevřít sken“ + QR Platba zobrazená rovnou v detailu dokladu (v4.38)
+
+Jan poslal grafické návrhy (viz `navrh_otevrit_qr.png`, poslaný v chatu)
+dvou úprav detailu schváleného dokladu a po odsouhlasení appka obě
+zapracovala.
+
+**a) Odkaz na sken dokladu.** Appka do v4.37 ukazovala jen prostý
+podtržený text „otevřít“ (`Soubor: otevřít`) - Jan chtěl, ať to
+„nějak vypadá, nebyl to jen text“. Appka teď kreslí plný zaoblený „chip“
+se světle modrým pozadím (`#eaf0ff`) a vlastní inline SVG ikonou lupy
+(appka žádnou ikonovou knihovnu nemá připojenou, stejný princip appka
+už používá u loga na přihlašovací obrazovce) s textem „Otevřít sken“ -
+z návrhů poslaných appkou Jan vybral variantu B (plný „chip“, ne
+obrysové tlačítko). Appka zavedla sdílenou pomocnou funkci
+`odkazOtevritSken(url, popisek)` (`public/app.js`) a nahradila jí
+všech 5 míst, kde appka dřív skládala odkaz ručně (detail dokladu ve
+fázi „Zpracovává se“ i běžný, detail vydané faktury, přiřazený doklad
+v detailu bankovního pohybu, starší odkaz na soubor u smlouvy).
+
+**b) QR Platba - zobrazení rovnou v detailu, bez klikání.** Appka do
+v4.37 QR kód schovávala za tlačítko „QR Platba“, které po kliknutí
+zavolalo `/api/qr-platba` a zobrazilo výsledek v modálním okně přes
+celou appku (`#qr-platba-modal`). Jan chtěl QR „zobrazovat automaticky“
+a menší (cca 2/3 dosavadní velikosti). Appka teď u schváleného dokladu
+(viditelné jen adminovi/účetní, stejná podmínka jako dřív) zavolá
+`/api/qr-platba` automaticky hned při rozbalení řádku (appka volání
+zachovala líné - appka `vytvorDetailDoklad()` sestavuje pořád jen při
+prvním rozbalení konkrétního řádku, viz `radek.dataset.naplneno` v
+`vytvorRadekDoklad()`, appka tedy nepřidala žádné nové hromadné
+dotazy navíc) a zobrazí QR rovnou v detailu, pod tlačítky Uložit/
+Smazat, oddělené vodorovnou linkou - appka tlačítko „QR Platba“ i
+modální okno úplně odstranila (`#qr-platba-modal` appka smazala z
+`index.html`, `zobrazQrPlatbu()` appka nahradila funkcí
+`nactiQrPlatbuInline()`). Appka obrázek QR zmenšila ze 260px na 173px
+(přesně 2/3 podle Janova zadání) a dlouhý SPAYD text pod ním appka
+nahradila kratší nápovědou („Naskenujte v bankovní appce…“) - appka
+zobrazuje i mezistav při načítání („Připravuji QR Platbu…“) a chybový
+stav přímo v ploše (appka tu záměrně nepoužívá `alert()`, aby appka
+uživatele nerušila vyskakovacím oknem u automatického načtení).
+
+Appka obě úpravy ověřila Playwright skriptem proti lokální kopii appky
+(sestavení `vytvorDetailDoklad()` s falešným `fetch`) - chip odkaz se
+vykresluje se správnou třídou/textem, QR obrázek má po načtení přesně
+173×173px i na úzké mobilní šířce (390px, appka změřila, že se nepřekrývá
+s okrajem obrazovky), a appka doplnila `flex-shrink: 0` na obrázek QR,
+ať se na úzkých šířkách nezmenší pod cílovou velikost. Čistě frontendová
+změna (`public/app.js`, `public/style.css`, `public/index.html`) - appka
+neměnila žádný backend (`netlify/functions/qr-platba.js`/
+`lib/qrPlatba.js` zůstávají beze změny, appka jen jinak volá a
+zobrazuje stejnou odpověď), není potřeba `/api/setup`.
+
+`APP_VERZE` appka zvýšila na `v4.38 – 2026-07-30`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
