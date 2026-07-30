@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.38 – 2026-07-30';
+const APP_VERZE = 'v4.40 – 2026-07-30';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1035,7 +1035,7 @@ function vytvorSekciPolozek(opts) {
         tdAkce.appendChild(tlacitkoUlozit);
 
         const tlacitkoSmazat = document.createElement('button');
-        tlacitkoSmazat.className = 'maly sekundarni';
+        tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
         tlacitkoSmazat.textContent = 'Smazat';
         tlacitkoSmazat.onclick = async () => {
           if (!confirm('Smazat položku „' + (p.Nazev || '(bez názvu)') + '“?')) return;
@@ -1218,7 +1218,7 @@ function vytvorDetailDoklad(d) {
     akce.appendChild(tlacitkoDokoncit);
 
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.onclick = () => smazDoklad(d.ID, d.Dodavatel, tlacitkoSmazat);
     akce.appendChild(tlacitkoSmazat);
@@ -1227,7 +1227,7 @@ function vytvorDetailDoklad(d) {
     if (d.Zdrojovy_soubor_URL) {
       const souborDiv = document.createElement('div');
       souborDiv.style.marginTop = '12px';
-      souborDiv.innerHTML = odkazOtevritSken(d.Zdrojovy_soubor_URL);
+      souborDiv.innerHTML = odkazOtevritSken(d.Zdrojovy_soubor_URL, d.Zdrojovy_soubor_ID, 'doklad');
       wrap.appendChild(souborDiv);
     }
 
@@ -1420,7 +1420,7 @@ function vytvorDetailDoklad(d) {
   if (d.Zdrojovy_soubor_URL) {
     const souborDiv = document.createElement('div');
     souborDiv.style.marginTop = '12px';
-    souborDiv.innerHTML = odkazOtevritSken(d.Zdrojovy_soubor_URL);
+    souborDiv.innerHTML = odkazOtevritSken(d.Zdrojovy_soubor_URL, d.Zdrojovy_soubor_ID, 'doklad');
     wrap.appendChild(souborDiv);
   }
 
@@ -1480,7 +1480,7 @@ function vytvorDetailDoklad(d) {
   const jeUcetniNeboAdminDoklad = stav.role === 'admin' || stav.role === 'ucetni';
   if (d.Stav !== 'Schváleno' && jeUcetniNeboAdminDoklad) {
     const tlacitkoSchvalit = document.createElement('button');
-    tlacitkoSchvalit.className = 'maly';
+    tlacitkoSchvalit.className = 'maly akce-potvrdit';
     tlacitkoSchvalit.textContent = 'Schválit';
     tlacitkoSchvalit.onclick = () => ulozZmenu(
       d.ID,
@@ -1496,7 +1496,7 @@ function vytvorDetailDoklad(d) {
   // DELETE, stejná podmínka).
   if (jeUcetniNeboAdminDoklad || d.Nahral_uzivatel === stav.jmeno) {
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.onclick = () => smazDoklad(d.ID, d.Dodavatel, tlacitkoSmazat);
     akce.appendChild(tlacitkoSmazat);
@@ -2296,7 +2296,7 @@ function vytvorDetailVydanaFaktura(f) {
     akce.appendChild(tlacitkoDokoncit);
 
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.onclick = () => smazVydanouFakturu(f.ID, f.Cislo_faktury, tlacitkoSmazat);
     akce.appendChild(tlacitkoSmazat);
@@ -2448,7 +2448,7 @@ function vytvorDetailVydanaFaktura(f) {
   if (f.Zdrojovy_soubor_URL) {
     const souborDiv = document.createElement('div');
     souborDiv.style.marginTop = '12px';
-    souborDiv.innerHTML = odkazOtevritSken(f.Zdrojovy_soubor_URL);
+    souborDiv.innerHTML = odkazOtevritSken(f.Zdrojovy_soubor_URL, f.Zdrojovy_soubor_ID, 'faktura');
     wrap.appendChild(souborDiv);
   }
 
@@ -2507,11 +2507,12 @@ function vytvorDetailVydanaFaktura(f) {
   const jeUcetniNeboAdminVf = stav.role === 'admin' || stav.role === 'ucetni';
   if (jeUcetniNeboAdminVf) {
     const tlacitkoStav = document.createElement('button');
-    tlacitkoStav.className = 'maly';
     if (f.Stav === 'Uhrazeno') {
+      tlacitkoStav.className = 'maly';
       tlacitkoStav.textContent = 'Zrušit uhrazení';
       tlacitkoStav.onclick = () => ulozZmenuVydaneFaktury(f.ID, { Stav: 'Neuhrazeno', Datum_uhrady: '' }, tlacitkoStav);
     } else {
+      tlacitkoStav.className = 'maly akce-potvrdit';
       tlacitkoStav.textContent = 'Označit uhrazeno';
       tlacitkoStav.onclick = () => ulozZmenuVydaneFaktury(
         f.ID,
@@ -2528,7 +2529,7 @@ function vytvorDetailVydanaFaktura(f) {
   // DELETE, stejná podmínka).
   if (jeUcetniNeboAdminVf || f.Vytvoril === stav.jmeno) {
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.onclick = () => smazVydanouFakturu(f.ID, f.Cislo_faktury, tlacitkoSmazat);
     akce.appendChild(tlacitkoSmazat);
@@ -3044,7 +3045,7 @@ function vytvorDetailBanka(p) {
       '<strong>Přiřazený doklad:</strong> ' + escapeHtml(propojenyDoklad.Dodavatel || '(bez dodavatele)') +
       ', ' + escapeHtml(String(parsujCastkuZListu(propojenyDoklad.Castka))) + ' ' + escapeHtml(propojenyDoklad.Mena || '') +
       (propojenyDoklad.Zdrojovy_soubor_URL
-        ? ' – ' + odkazOtevritSken(propojenyDoklad.Zdrojovy_soubor_URL)
+        ? ' – ' + odkazOtevritSken(propojenyDoklad.Zdrojovy_soubor_URL, propojenyDoklad.Zdrojovy_soubor_ID, 'doklad')
         : '') +
       '<div class="popis">Středisko: ' +
         (p.Doklad_Stredisko
@@ -3064,9 +3065,14 @@ function vytvorDetailBanka(p) {
   }
   wrap.appendChild(dokladBox);
 
-  function tlacitkoBanka(text, onclick) {
+  // `trida` (volitelný 3. parametr, v4.39) appka přidává jednu ze 4
+  // sémantických tříd `akce-potvrdit`/`akce-zamitnout`/`akce-poznamka`/
+  // `akce-smazat` (viz public/style.css) - appka tak barevně odlišuje
+  // potvrzení/zamítnutí/poznámku/smazání i uvnitř jednoho detailu
+  // bankovního pohybu, kde dřív byla všechna tlačítka stejně modrá.
+  function tlacitkoBanka(text, onclick, trida) {
     const b = document.createElement('button');
-    b.className = 'maly sekundarni';
+    b.className = 'maly sekundarni' + (trida ? ' ' + trida : '');
     b.textContent = text;
     b.onclick = onclick;
     return b;
@@ -3087,13 +3093,13 @@ function vytvorDetailBanka(p) {
   akce.className = 'radek-akci';
 
   if (p.Stav_parovani === 'Navrženo') {
-    akce.appendChild(tlacitkoBanka('Potvrdit shodu', (e) => ulozZmenuBanka({ Stav_parovani: 'Potvrzeno' }, e.target)));
+    akce.appendChild(tlacitkoBanka('Potvrdit shodu', (e) => ulozZmenuBanka({ Stav_parovani: 'Potvrzeno' }, e.target), 'akce-potvrdit'));
     akce.appendChild(
-      tlacitkoBanka('Zamítnout návrh', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Doklad_ID: '' }, e.target))
+      tlacitkoBanka('Zamítnout návrh', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Doklad_ID: '' }, e.target), 'akce-zamitnout')
     );
   } else if (p.Stav_parovani === 'Potvrzeno') {
     akce.appendChild(
-      tlacitkoBanka('Zrušit potvrzení', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Doklad_ID: '' }, e.target))
+      tlacitkoBanka('Zrušit potvrzení', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Doklad_ID: '' }, e.target), 'akce-zamitnout')
     );
   } else if (p.Stav_parovani === 'Navrženo - trvalý příkaz') {
     // Od v3.19 - appka auto-navrhla přiřazení ke stejné Smlouvě jako u
@@ -3116,7 +3122,7 @@ function vytvorDetailBanka(p) {
       : 'Appka navrhuje přiřadit ke smlouvě, kterou v seznamu nenašla (možná byla mezitím smazána).';
     akce.appendChild(infoSmlouva);
     akce.appendChild(
-      tlacitkoBanka('Potvrdit trvalý příkaz', (e) => ulozZmenuBanka({ Stav_parovani: 'Trvalý příkaz' }, e.target))
+      tlacitkoBanka('Potvrdit trvalý příkaz', (e) => ulozZmenuBanka({ Stav_parovani: 'Trvalý příkaz' }, e.target), 'akce-potvrdit')
     );
     akce.appendChild(
       tlacitkoBanka('Zamítnout návrh', (e) =>
@@ -3128,7 +3134,7 @@ function vytvorDetailBanka(p) {
             ? { Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }
             : { Stav_parovani: 'Nespárováno', Smlouva_ID: '' },
           e.target
-        )
+        ), 'akce-zamitnout'
       )
     );
   } else if (p.Stav_parovani === 'Trvalý příkaz') {
@@ -3181,7 +3187,7 @@ function vytvorDetailBanka(p) {
             ? { Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }
             : { Stav_parovani: 'Nespárováno', Smlouva_ID: '' },
           e.target
-        )
+        ), 'akce-zamitnout'
       )
     );
   } else if (p.Stav_parovani === 'Příjem přiřazen') {
@@ -3195,7 +3201,7 @@ function vytvorDetailBanka(p) {
       (p.Cislo_uctu_vlastni ? ', účet: ' + p.Cislo_uctu_vlastni : '') + '.';
     akce.appendChild(infoPrijem);
     akce.appendChild(
-      tlacitkoBanka('Zrušit přiřazení příjmu', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Stredisko: '' }, e.target))
+      tlacitkoBanka('Zrušit přiřazení příjmu', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Stredisko: '' }, e.target), 'akce-zamitnout')
     );
   } else if (p.Stav_parovani === 'Navrženo - vydaná faktura') {
     // Od v3.22 - appka navrhla spárování příchozí platby s konkrétní
@@ -3217,12 +3223,12 @@ function vytvorDetailBanka(p) {
     akce.appendChild(infoFaktura);
     akce.appendChild(
       tlacitkoBanka('Potvrdit spárování', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Spárováno - vydaná faktura' }, e.target)
+        ulozZmenuBanka({ Stav_parovani: 'Spárováno - vydaná faktura' }, e.target), 'akce-potvrdit'
       )
     );
     akce.appendChild(
       tlacitkoBanka('Zamítnout návrh', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Vydana_faktura_ID: '' }, e.target)
+        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Vydana_faktura_ID: '' }, e.target), 'akce-zamitnout'
       )
     );
   } else if (p.Stav_parovani === 'Spárováno - vydaná faktura') {
@@ -3240,7 +3246,7 @@ function vytvorDetailBanka(p) {
     akce.appendChild(infoFakturaSparovana);
     akce.appendChild(
       tlacitkoBanka('Zrušit spárování', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Vydana_faktura_ID: '' }, e.target)
+        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Vydana_faktura_ID: '' }, e.target), 'akce-zamitnout'
       )
     );
     const upozorneniZruseni = document.createElement('div');
@@ -3287,11 +3293,11 @@ function vytvorDetailBanka(p) {
           { Stav_parovani: 'Spárováno - nájemní smlouva', Stredisko: vyberStrediskoNajemNavrzeno.value },
           e.target
         );
-      })
+      }, 'akce-potvrdit')
     );
     akce.appendChild(
       tlacitkoBanka('Zamítnout návrh', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }, e.target)
+        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }, e.target), 'akce-zamitnout'
       )
     );
   } else if (p.Stav_parovani === 'Spárováno - nájemní smlouva') {
@@ -3310,7 +3316,7 @@ function vytvorDetailBanka(p) {
     akce.appendChild(infoNajemSparovano);
     akce.appendChild(
       tlacitkoBanka('Zrušit spárování', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }, e.target)
+        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }, e.target), 'akce-zamitnout'
       )
     );
   } else if (p.Stav_parovani === 'Daňová platba') {
@@ -3323,7 +3329,7 @@ function vytvorDetailBanka(p) {
     infoDan.textContent = 'Přiřazeno k dani: ' + (NAZVY_TYPU_DANE[p.Typ_dane] || p.Typ_dane || '(neznámý typ)') + '.';
     akce.appendChild(infoDan);
     akce.appendChild(
-      tlacitkoBanka('Zrušit přiřazení k dani', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Typ_dane: '' }, e.target))
+      tlacitkoBanka('Zrušit přiřazení k dani', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Typ_dane: '' }, e.target), 'akce-zamitnout')
     );
   } else if (parsujCastkuZListu(p.Castka) > 0) {
     // PŘÍJEM (Nespárováno / Bez dokladu, kladná částka) - appka od v3.19
@@ -3479,7 +3485,7 @@ function vytvorDetailBanka(p) {
         tlacitkoBanka('Označit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu' }, e.target))
       );
     } else {
-      akce.appendChild(tlacitkoBanka('Zrušit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno' }, e.target)));
+      akce.appendChild(tlacitkoBanka('Zrušit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno' }, e.target), 'akce-zamitnout'));
     }
   } else {
     const vyberDokladu = document.createElement('select');
@@ -3612,7 +3618,7 @@ function vytvorDetailBanka(p) {
         tlacitkoBanka('Označit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Doklad_ID: '' }, e.target))
       );
     } else {
-      akce.appendChild(tlacitkoBanka('Zrušit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno' }, e.target)));
+      akce.appendChild(tlacitkoBanka('Zrušit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno' }, e.target), 'akce-zamitnout'));
     }
   }
 
@@ -3637,7 +3643,7 @@ function vytvorDetailBanka(p) {
     poznamkaVstup.value = p.Poznamka || '';
     poznamkaVstup.style.fontSize = '13px';
     poznamkaDiv.appendChild(poznamkaVstup);
-    poznamkaDiv.appendChild(tlacitkoBanka('Uložit poznámku', (e) => ulozZmenuBanka({ Poznamka: poznamkaVstup.value.trim() }, e.target)));
+    poznamkaDiv.appendChild(tlacitkoBanka('Uložit poznámku', (e) => ulozZmenuBanka({ Poznamka: poznamkaVstup.value.trim() }, e.target), 'akce-poznamka'));
   } else if (p.Poznamka) {
     poznamkaDiv.className = 'popis';
     poznamkaDiv.textContent = 'Poznámka: ' + p.Poznamka;
@@ -3653,7 +3659,7 @@ function vytvorDetailBanka(p) {
     const smazatDiv = document.createElement('div');
     smazatDiv.style.marginTop = '14px';
     smazatDiv.appendChild(
-      tlacitkoBanka('Smazat pohyb', (e) => smazBankovniPohyb(p, e.target))
+      tlacitkoBanka('Smazat pohyb', (e) => smazBankovniPohyb(p, e.target), 'akce-smazat')
     );
 
     if (p.Import_ID) {
@@ -3661,7 +3667,8 @@ function vytvorDetailBanka(p) {
       if (pocetVImportu > 1) {
         const tlSmazatImport = tlacitkoBanka(
           'Smazat celý import (' + pocetVImportu + ' pohybů)',
-          (e) => smazImportBankovnichPohybu(p.Import_ID, pocetVImportu, e.target)
+          (e) => smazImportBankovnichPohybu(p.Import_ID, pocetVImportu, e.target),
+          'akce-smazat'
         );
         tlSmazatImport.style.marginLeft = '8px';
         smazatDiv.appendChild(tlSmazatImport);
@@ -3926,7 +3933,7 @@ function vykresliUzivatele(uzivatele) {
     tr.children[4].appendChild(tlacitkoUlozit);
 
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.style.marginLeft = '6px';
     tlacitkoSmazat.onclick = () => smazUzivatele(u._row, u.Jmeno, tlacitkoSmazat);
@@ -4066,7 +4073,7 @@ function vykresliFirmy(firmy) {
     tr.children[5].appendChild(tlacitkoUlozit);
 
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.style.marginLeft = '6px';
     tlacitkoSmazat.onclick = () => smazFirmu(f._row, f.Nazev, tlacitkoSmazat);
@@ -4215,7 +4222,7 @@ function vykresliAuta(auta, firmyDostupne) {
     tr.children[4].appendChild(tlacitkoUlozit);
 
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.style.marginLeft = '6px';
     tlacitkoSmazat.onclick = () => smazAuto(a._row, a.SPZ, tlacitkoSmazat);
@@ -4353,7 +4360,7 @@ function vykresliUcty(ucty, firmyDostupne) {
     tr.children[4].appendChild(tlacitkoUlozit);
 
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.style.marginLeft = '6px';
     tlacitkoSmazat.onclick = () => smazUcet(u._row, u.Cislo_uctu, tlacitkoSmazat);
@@ -4478,7 +4485,7 @@ function vykresliStrediska(strediska) {
     tr.children[3].appendChild(tlacitkoUlozit);
 
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.style.marginLeft = '6px';
     tlacitkoSmazat.onclick = () => smazStredisko(s._row, s.Nazev, tlacitkoSmazat);
@@ -4599,7 +4606,7 @@ function vykresliPredkontace(predkontace) {
     tr.children[3].appendChild(tlacitkoUlozit);
 
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.style.marginLeft = '6px';
     tlacitkoSmazat.onclick = () => smazPredkontaci(p._row, (p.Firma || '') + ' / ' + (p.Kategorie || ''), tlacitkoSmazat);
@@ -4927,10 +4934,20 @@ function vytvorPrilohySekce(s, prilohyTeto) {
     odkaz.target = '_blank';
     odkaz.rel = 'noopener';
     odkaz.textContent = p.Nazev_souboru || '(soubor bez názvu)';
+    // v4.40: i příloha smlouvy jde přes proxy appky, ne přímo na Drive -
+    // jinak by ji otevřel jen Jan, viz otevriSken()/soubor.js. Tenhle odkaz
+    // není chip (je to prostý název souboru v seznamu), takže handler appka
+    // věší přímo na element místo přes odkazOtevritSken().
+    if (p.Zdrojovy_soubor_ID) {
+      odkaz.onclick = (e) => {
+        e.preventDefault();
+        otevriSken(odkaz, p.Zdrojovy_soubor_ID, 'priloha');
+      };
+    }
     li.appendChild(odkaz);
 
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni smazat-prilohu';
+    tlacitkoSmazat.className = 'maly sekundarni smazat-prilohu akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.onclick = () => smazPrilohuSmlouvy(p.ID, p.Nazev_souboru, tlacitkoSmazat);
     li.appendChild(tlacitkoSmazat);
@@ -4951,7 +4968,7 @@ function vytvorPrilohySekce(s, prilohyTeto) {
   if (s.Zdrojovy_soubor_URL) {
     const legacy = document.createElement('div');
     legacy.className = 'popis';
-    legacy.innerHTML = odkazOtevritSken(s.Zdrojovy_soubor_URL, 'Starší odkaz na soubor:');
+    legacy.innerHTML = odkazOtevritSken(s.Zdrojovy_soubor_URL, s.Zdrojovy_soubor_ID, 'smlouva', 'Starší odkaz na soubor:');
     wrap.appendChild(legacy);
   }
 
@@ -4998,7 +5015,7 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
     akce.appendChild(tlacitkoDokoncit);
 
     const tlacitkoSmazat = document.createElement('button');
-    tlacitkoSmazat.className = 'maly sekundarni';
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.onclick = () => smazSmlouvu(s.ID, s.Nazev || '(bez názvu)', tlacitkoSmazat);
     akce.appendChild(tlacitkoSmazat);
@@ -5204,7 +5221,7 @@ function vytvorDetailSmlouva(s, prilohyTeto) {
   akce.appendChild(tlacitkoUlozit);
 
   const tlacitkoSmazat = document.createElement('button');
-  tlacitkoSmazat.className = 'maly sekundarni';
+  tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
   tlacitkoSmazat.textContent = 'Smazat';
   tlacitkoSmazat.onclick = () => smazSmlouvu(s.ID, s.Nazev || '(bez názvu)', tlacitkoSmazat);
   akce.appendChild(tlacitkoSmazat);
@@ -5663,7 +5680,7 @@ function vytvorKartuJednotky(j) {
   sekceZaklad.appendChild(tlacitkoUlozitZaklad);
 
   const tlacitkoSmazatJednotku = document.createElement('button');
-  tlacitkoSmazatJednotku.className = 'maly sekundarni';
+  tlacitkoSmazatJednotku.className = 'maly sekundarni akce-smazat';
   tlacitkoSmazatJednotku.textContent = 'Smazat jednotku';
   tlacitkoSmazatJednotku.style.marginLeft = '6px';
   tlacitkoSmazatJednotku.style.marginTop = '8px';
@@ -5906,7 +5923,7 @@ function vykresliSekciKlice(el, j, klice) {
     tr.children[6].appendChild(btnUlozit);
 
     const btnSmazat = document.createElement('button');
-    btnSmazat.className = 'maly sekundarni';
+    btnSmazat.className = 'maly sekundarni akce-smazat';
     btnSmazat.style.marginLeft = '6px';
     btnSmazat.textContent = 'Smazat';
     btnSmazat.onclick = () => smazDetailPolozku('klice', k.ID, j, btnSmazat);
@@ -5969,7 +5986,7 @@ function vykresliSekciMeridla(el, j, meridla, odecty) {
     btnUlozitMeridlo.onclick = () => ulozDetailPolozku('meridla', m.ID,
       { Typ: vTyp.value, Vyrobni_cislo: vVyrobni.value.trim(), EAN_EIC: vEan.value.trim() }, btnUlozitMeridlo, j);
     const btnSmazatMeridlo = document.createElement('button');
-    btnSmazatMeridlo.className = 'maly sekundarni';
+    btnSmazatMeridlo.className = 'maly sekundarni akce-smazat';
     btnSmazatMeridlo.style.marginLeft = '6px';
     btnSmazatMeridlo.textContent = 'Smazat měřidlo';
     btnSmazatMeridlo.onclick = () => smazDetailPolozku('meridla', m.ID, j, btnSmazatMeridlo);
@@ -5992,7 +6009,7 @@ function vykresliSekciMeridla(el, j, meridla, odecty) {
       const btnU = document.createElement('button'); btnU.className = 'maly sekundarni'; btnU.textContent = 'Uložit';
       btnU.onclick = () => ulozDetailPolozku('meridla_odecty', o.ID,
         { Datum: vDatum.value, Stav: vStav.value.trim(), Poznamka: vPozn.value.trim() }, btnU, j);
-      const btnS = document.createElement('button'); btnS.className = 'maly sekundarni'; btnS.style.marginLeft = '6px'; btnS.textContent = 'Smazat';
+      const btnS = document.createElement('button'); btnS.className = 'maly sekundarni akce-smazat'; btnS.style.marginLeft = '6px'; btnS.textContent = 'Smazat';
       btnS.onclick = () => smazDetailPolozku('meridla_odecty', o.ID, j, btnS);
       tr.children[3].appendChild(btnU); tr.children[3].appendChild(btnS);
       teloOdecty.appendChild(tr);
@@ -6087,7 +6104,7 @@ function vykresliSekciRevize(el, j, revize) {
     const btnU = document.createElement('button'); btnU.className = 'maly sekundarni'; btnU.textContent = 'Uložit';
     btnU.onclick = () => ulozDetailPolozku('revize', r.ID,
       { Typ_revize: vTyp.value, Datum_revize: vDatum.value, Platnost_do: vPlatnost.value, Poznamka: vPozn.value.trim() }, btnU, j);
-    const btnS = document.createElement('button'); btnS.className = 'maly sekundarni'; btnS.style.marginLeft = '6px'; btnS.textContent = 'Smazat';
+    const btnS = document.createElement('button'); btnS.className = 'maly sekundarni akce-smazat'; btnS.style.marginLeft = '6px'; btnS.textContent = 'Smazat';
     btnS.onclick = () => smazDetailPolozku('revize', r.ID, j, btnS);
     tr.children[4].appendChild(btnU); tr.children[4].appendChild(btnS);
 
@@ -6327,7 +6344,7 @@ function vykresliHistoriiVyuctovani(el, seznam, mena, obnov) {
     }
     if (z.Stav === 'Spočítáno') {
       const btnSmazat = document.createElement('button');
-      btnSmazat.className = 'maly sekundarni';
+      btnSmazat.className = 'maly sekundarni akce-smazat';
       btnSmazat.style.marginLeft = '6px';
       btnSmazat.textContent = 'Smazat';
       btnSmazat.onclick = async () => {
@@ -6569,7 +6586,7 @@ function vytvorDetailJizda(j) {
   akce.appendChild(tlacitkoUlozit);
 
   const tlacitkoSmazat = document.createElement('button');
-  tlacitkoSmazat.className = 'maly sekundarni';
+  tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
   tlacitkoSmazat.textContent = 'Smazat';
   tlacitkoSmazat.onclick = () => smazJizdu(j.ID, tlacitkoSmazat);
   akce.appendChild(tlacitkoSmazat);
@@ -6807,14 +6824,102 @@ function escapeAttr(text) {
 // `popisek` je volitelný text PŘED odkazem (appka ho u některých míst
 // používala, např. "Starší odkaz na soubor:") - u nového vzhledu appka ho
 // nechává prázdný, chip sám o sobě dost jasně říká, co udělá.
-function odkazOtevritSken(url, popisek) {
+//
+// v4.40: `souborId` + `typ` jsou nové - viz otevriSken() níž a
+// netlify/functions/soubor.js. Chip appka kreslí pořád stejně, jen kliknutí
+// od teď obslouží appka sama místo toho, aby prohlížeč poslala na Google.
+// `url` (původní Drive odkaz) appka nechává v `href` schválně: jednak jako
+// záloha, když by proxy selhala (např. moc velký sken), jednak aby
+// prostřední tlačítko myši / "Otevřít v novém panelu" pořád něco dělalo.
+function odkazOtevritSken(url, souborId, typ, popisek) {
+  const obsah =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>' +
+    '</svg>' +
+    'Otevřít sken';
+
+  // Starší záznamy (nebo ručně vložená URL u smluv) nemusí ID souboru na
+  // Drive vůbec mít - tam appce nezbývá než odkázat na Google jako dřív.
+  const onclick = souborId
+    ? ' onclick="otevriSken(this, \'' + escapeAttr(souborId) + '\', \'' + escapeAttr(typ || '') + '\'); return false;"'
+    : '';
+
   return (popisek ? escapeHtml(popisek) + ' ' : '') +
-    '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener" class="odkaz-sken">' +
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-        '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>' +
-      '</svg>' +
-      'Otevřít sken' +
+    '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener" class="odkaz-sken"' + onclick + '>' +
+      obsah +
     '</a>';
+}
+
+// Otevření skenu přes appku (v4.40) - Jan: "app u jiných uživatelů odmítne
+// otevřít scan, blokuje to google". Podrobné vysvětlení PROČ je v hlavičce
+// netlify/functions/soubor.js; ve zkratce: soubory na Drive patří Janovu
+// Google účtu, takže přímý odkaz na drive.google.com Google komukoli jinému
+// zablokuje. Appka si proto soubor vyzvedne sama (svým přihlášením) a
+// uživateli ho podá jako blob - prohlížeč uživatele s Googlem vůbec nemluví.
+//
+// Pozn. k pořadí kroků: prázdný panel appka otevírá HNED, ještě před
+// `await` - blokátor vyskakovacích oken totiž povolí window.open jen
+// bezprostředně při kliknutí; kdyby appka čekala až na stažený soubor,
+// prohlížeč by okno tiše zahodil a uživateli by se nestalo vůbec nic.
+//
+// Pozn. proč onclick volající appku vypadá "otevriSken(...); return false;"
+// a ne "return otevriSken(...)": funkce je `async`, takže vždycky vrací
+// Promise - a ten je pravdivostně `true`. Prohlížeč by tedy odchod na
+// `href` (původní Drive odkaz) NEZRUŠIL a panel by se otevřel dvakrát,
+// jednou správně přes appku a jednou rovnou na Google se zamčenou hláškou.
+async function otevriSken(prvek, souborId, typ) {
+  if (prvek.dataset.nacita === '1') return false;
+
+  const zalozniUrl = prvek.getAttribute('href') || '';
+  const puvodniObsah = prvek.innerHTML;
+  prvek.dataset.nacita = '1';
+  prvek.classList.add('nacita');
+  prvek.innerHTML = '<span class="odkaz-sken-kolecko"></span>Otevírám sken…';
+
+  const panel = window.open('', '_blank');
+
+  try {
+    const hlavicky = {};
+    if (stav && stav.token) hlavicky['Authorization'] = 'Bearer ' + stav.token;
+
+    const odpoved = await fetch(
+      '/api/soubor?id=' + encodeURIComponent(souborId) + (typ ? '&typ=' + encodeURIComponent(typ) : ''),
+      { cache: 'no-store', headers: hlavicky }
+    );
+
+    if (!odpoved.ok) {
+      const data = await odpoved.json().catch(() => ({}));
+      // Moc velký sken appka proxovat nedokáže (limit odpovědi Netlify
+      // funkce) - v tom případě appka aspoň pošle uživatele na původní
+      // Drive odkaz. Janovi se otevře normálně, kolegovi ukáže Google
+      // aspoň srozumitelnou hlášku místo prázdné stránky.
+      if (data.prilisVelky && zalozniUrl && panel) {
+        panel.location.href = zalozniUrl;
+        return false;
+      }
+      throw new Error(data.error || 'Chyba serveru (' + odpoved.status + ')');
+    }
+
+    const blob = await odpoved.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    if (panel) {
+      panel.location.href = blobUrl;
+    } else {
+      window.open(blobUrl, '_blank');
+    }
+    // Uvolnění až po chvíli - kdyby appka blob zrušila hned, panel by se
+    // nestihl načíst a zůstal by prázdný.
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+  } catch (e) {
+    if (panel) panel.close();
+    alert('Sken se nepodařilo otevřít: ' + e.message);
+  } finally {
+    prvek.dataset.nacita = '';
+    prvek.classList.remove('nacita');
+    prvek.innerHTML = puvodniObsah;
+  }
+
+  return false;
 }
 
 // ---------- INICIALIZACE ----------

@@ -4080,6 +4080,169 @@ zobrazuje stejnou odpověď), není potřeba `/api/setup`.
 
 `APP_VERZE` appka zvýšila na `v4.38 – 2026-07-30`.
 
+## 81. Probarvení tlačítek podle jejich akce (potvrdit/zamítnout/poznámka/smazat) napříč celou appkou (v4.39)
+
+Jan poslal dva ořezané screenshoty detailu bankovního pohybu (tlačítka
+„Potvrdit shodu“/„Zamítnout návrh“/„Uložit poznámku“/„Smazat pohyb“ -
+appka je do v4.38 kreslila úplně stejně, jen jednotnou modrou obrysovou
+barvou) se zadáním „probarvení tlačítka potvrdit zeleně, zamítnout
+modrá, poznámka šedá, smazat červená“. Appka nejdřív poslala grafický
+návrh (`navrh_barvy_tlacitek.png`) k odsouhlasení, a po odsouhlasení se
+Jan zeptal „jsou podobná tlačítka i jinde? pokud ano, napiš a probarvi
+je stejne“ - appka tedy prošla celý `public/app.js` a stejné probarvení
+zavedla u KAŽDÉHO tlačítka se stejným čtyřmi typy akcí, ne jen v bance.
+
+**Sémantika (appka barvu odvozuje od AKCE tlačítka, ne od záložky, kde
+zrovna je):**
+- zelená (`--barva-uspech`) - potvrzení/schválení/kladné rozhodnutí,
+- modrá (`--barva-primarni`, appky dosavadní výchozí barva) - zamítnutí/
+  zrušení/vrácení do předchozího stavu,
+- šedá (`--barva-text-tlumena`) - neutrální uložení poznámky,
+- červená (`--barva-chyba`) - nevratné smazání.
+
+Appka zavedla čtyři nové CSS třídy (`akce-potvrdit`/`akce-zamitnout`/
+`akce-poznamka`/`akce-smazat`, `public/style.css`) - u obrysových
+(„sekundárních“) tlačítek appka mění barvu okraje+textu, u plných
+(„primárních“) tlačítek appka mění barvu výplně. Appka záměrně použila
+selektory s vyšší specificitou (`button.sekundarni.akce-potvrdit`
+místo spoléhání na pořadí v souboru), protože appka si z v4.37.1 (viz
+bod 79) pamatuje, že spoléhání na pořadí pravidel v CSS už appce
+jednou rozbilo vzhled - všechny čtyři barvy appka bere ze stávajících
+proměnných, žádnou appka nezavádí novou.
+
+**Kde appka probarvení zavedla (kompletní seznam):**
+- **Bankovní výpisy** (detail pohybu, `vytvorDetailBanka`) - „Potvrdit
+  shodu“/„Potvrdit spárování“/„Potvrdit trvalý příkaz“ zeleně; „Zamítnout
+  návrh“/„Zrušit potvrzení“/„Zrušit spárování“/„Zrušit přiřazení
+  příjmu/k dani“/„Zrušit „Bez dokladu““ modře; „Uložit poznámku“ šedě;
+  „Smazat pohyb“ a „Smazat celý import“ červeně.
+- **Přijaté faktury (Doklady)** - „Schválit“ (plné tlačítko) zeleně;
+  „Smazat“ (doklad i položka) červeně. „Uložit“ appka nechala beze
+  změny (výchozí primární modrá appce tu slouží jako běžná/neutrální
+  akce formuláře, ne jako „zamítnutí“).
+- **Vydané faktury** - přepínací tlačítko „Označit uhrazeno“ appka
+  probarvila zeleně (plné), opačný stav „Zrušit uhrazení“ appka
+  nechala jako běžné neutrální tlačítko; „Smazat“ červeně.
+- **Registr smluv** - „Smazat“ (smlouva i příloha) červeně.
+- **Nastavení** (všech 6 admin číselníků - Uživatelé, Firmy, Auta,
+  Účty, Střediska, Předkontace) - „Smazat“ všude červeně.
+- **Nemovitosti** (jednotka, klíče, měřidla, odečty, revize, uložené
+  vyúčtování) - „Smazat“ všude červeně.
+- **Kniha jízd** - „Smazat“ červeně.
+
+Appka změnu ověřila třemi způsoby: `node --check public/app.js` (bez
+chyby), regulárním výrazem přes celý soubor (žádné tlačítko „Smazat“
+appce nezůstalo bez `akce-smazat`), a Playwright screenshotem detailu
+Banky/Dokladů/Vydaných faktur vykresleného appkou přímo (`vytvorDetail*`
+zavolané s testovacími daty) - všechny čtyři barvy appka vykresluje
+správně a bez rozbití rozvržení. Čistě frontendová změna (`public/
+app.js`, `public/style.css`), žádná změna v backendu, není potřeba
+`/api/setup`.
+
+`APP_VERZE` appka zvýšila na `v4.39 – 2026-07-30`.
+
+## 82. Otevírání skenů ostatními uživateli - soubor podává appka sama místo odkazu na Google Drive (v4.40)
+
+Jan nahlásil: *"jeste mám problém, že app u jiných uživatelů odmítne
+otevřít scan, blokuje to google, ale to je problém."*
+
+**Příčina.** Appka do v4.39 dávala do chipu "Otevřít sken" přímo
+`webViewLink`, tedy normální odkaz na `drive.google.com` (uložený při
+nahrání do sloupce `Zdrojovy_soubor_URL`, viz `netlify/functions/
+upload.js`, `vydane-faktury-upload.js`, `smlouvy-upload.js`). Jenže
+soubory na Drive vznikají pod **Janovým** Google účtem - appka se ke
+Google hlásí jedním OAuth refresh tokenem (viz `lib/google.js`) - a
+nikde v kódu nebylo jediné volání `drive.permissions.create`, takže
+sdílené s nikým nebyly. Když na takový odkaz klikl kdokoli jiný,
+prohlížeč šel rovnou na Google a ten neposuzoval přihlášení do appky, ale
+**vlastní Google účet toho člověka**. Ten k souboru přístup neměl, takže
+dostal "Potřebujete přístup / Request access" - a appka o tom vůbec
+nevěděla. Na mobilu je to ještě horší, protože tam bývá přihlášený
+soukromý účet.
+
+**Zvažované varianty.** Appka Janovi poslala PNG návrh se třemi cestami:
+(a) nastavit souborům sdílení "kdokoli s odkazem může číst" - nejmíň
+kódu, ale odkaz na fakturu by pak otevřel úplně kdokoli, komu se dostane
+do ruky, bez přihlášení a bez ohledu na firmu; (b) nasdílet složku Inbox
+konkrétním Google účtům kolegů - vyžaduje, aby každý měl Google účet a byl
+v prohlížeči přihlášený právě tím účtem, což u appky přihlašující PINem
+selhává hlavně na mobilu; (c) **proxy přes appku** - soubor si vyzvedne
+appka svým vlastním přihlášením a pošle ho uživateli sama. Jan vybral (c).
+
+**Řešení.** Nová funkce `netlify/functions/soubor.js`, `GET /api/soubor?id=<Drive file ID>[&typ=doklad|faktura|priloha|smlouva]`. Prohlížeč
+uživatele s Googlem vůbec nemluví, takže Google nemá co blokovat.
+
+- **Oprávnění.** Appka soubor nevydá komukoli, kdo zná ID. Nejdřív najde
+  řádek, ke kterému soubor patří (`Zdrojovy_soubor_ID` v listech
+  `Doklady`, `Vydane_faktury`, `Smlouvy_Prilohy`, `Smlouvy`), a teprve
+  pak na něj pustí **stejnou kontrolu firmy**, jakou má příslušný list i
+  pro data samotná: Doklady a Vydané faktury - admin vidí vše, ostatní
+  jen svoje přiřazené firmy (u dokladu podle `Firma_potvrzena`, a když
+  ještě není potvrzená, podle `Firma_AI_odhad`); Smlouvy a jejich přílohy
+  jen admin/účetní, a k tomu kontrola firmy. Osiřelou přílohu (nadřazená
+  smlouva už neexistuje) appka pustí jen adminovi. Soubor, který k žádnému
+  viditelnému řádku nepatří, appka nevydá (404) - **ID souboru samo o sobě
+  tedy není heslo.**
+- **Nápověda `typ`** je nepovinná a slouží jen k tomu, aby appka nemusela
+  číst všechny čtyři listy. Kontrolu práv appka dělá vždycky stejně, ať
+  nápověda přijde nebo ne, a když je vedle, appka to nevzdá a projde
+  zbývající listy taky.
+- **Limit velikosti.** Netlify Functions umí vrátit tělo do cca 6 MB a
+  binární obsah appka posílá jako base64 (+33 %), takže reálný strop je
+  kolem 4 MB. Upload appka omezuje na 4,5 MB, takže drtivá většina skenů
+  projde - u většího appka vrátí 413 s příznakem `prilisVelky` a frontend
+  na to zareaguje otevřením původního Drive odkazu (Janovi funguje
+  vždycky, kolegovi aspoň Google srozumitelně řekne, co se děje, místo
+  prázdné stránky).
+- **`Content-Disposition: inline`**, ne `attachment` - Jan chce sken
+  vidět, ne stahovat (u exportu do Excelu/Money S3 je to naopak, viz
+  `lib/http.js`).
+
+**Frontend.** `odkazOtevritSken(url, souborId, typ, popisek)` v `public/
+app.js` má dva nové parametry a nová funkce `otevriSken()` obslouží
+kliknutí. Chip vypadá pořád stejně, jen po dobu vyzvedávání appka vymění
+lupu za točící se kolečko a text za "Otevírám sken…"
+(`.odkaz-sken.nacita` + `.odkaz-sken-kolecko` v `public/style.css`) - a
+druhé kliknutí během načítání ignoruje. Dvě věci, na které appka při psaní
+narazila a stojí za zapamatování:
+
+- **Prázdný panel se musí otevřít hned**, ještě před prvním `await` -
+  blokátor vyskakovacích oken povolí `window.open` jen bezprostředně při
+  kliknutí. Kdyby appka čekala až na stažený soubor, prohlížeč by okno
+  tiše zahodil a uživateli by se nestalo vůbec nic.
+- **`onclick="otevriSken(...); return false;"`, ne `return otevriSken(...)`** - funkce je `async`, takže vždycky vrací Promise, a
+  ten je pravdivostně `true`. Prohlížeč by tedy odchod na `href` (původní
+  Drive odkaz) nezrušil a panel by se otevřel dvakrát: jednou správně
+  přes appku a jednou rovnou na Google se zamčenou hláškou.
+
+Původní Drive odkaz appka v `href` nechává schválně - jako zálohu pro moc
+velký sken a aby prostřední tlačítko myši / "Otevřít v novém panelu" pořád
+něco dělalo. Starší záznamy bez `Zdrojovy_soubor_ID` (ručně vložená URL u
+smluv) appka pozná a nechá je odkazovat na Google jako dřív.
+
+Přepnutá jsou všechna místa, kde se sken otvírá: Přijaté doklady (seznam
+i detail), Vydané faktury, Bankovní výpisy (u přiřazeného dokladu),
+přílohy Smluv (tam odkaz není chip, ale prostý název souboru v seznamu,
+takže handler appka věší přímo na element) a legacy odkaz u smlouvy.
+
+**Migrace dat není potřeba** - `Zdrojovy_soubor_ID` appka do tabulek
+ukládá od začátku, takže oprava funguje i na všech už nahraných souborech.
+Není potřeba ani `/api/setup`, ani nový Google scope: `drive.file` dává
+appce plný přístup k souborům, které sama vytvořila, a to na čtení stačí.
+
+**Ověření.** Appka napsala dvě sady testů. Backend: 18 případů proti
+`soubor.js` s mockovaným Sheets i Drive (admin/účetní/běžný uživatel ×
+doklad/faktura/příloha/smlouva, cizí firma → 403, osiřelá příloha,
+neznámé ID → 404, chybějící ID → 400, moc velký soubor → 413, bez tokenu
+→ 401, správnost `Content-Type`/`Content-Disposition`/base64 těla) -
+všech 18 prošlo. Frontend: 15 kontrol v Playwrightu proti skutečnému
+`app.js` (mezistav s kolečkem, volání `/api/soubor` s Bearer tokenem,
+ignorování dvojkliku, blob URL v novém panelu místo drive.google.com,
+návrat chipu do původního stavu, fallback u 413, zavření panelu a hláška
+u 403, legacy záznam bez ID, nulové JS chyby) - všech 15 prošlo.
+
+`APP_VERZE` appka zvýšila na `v4.40 – 2026-07-30`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

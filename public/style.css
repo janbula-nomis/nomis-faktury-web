@@ -68,6 +68,38 @@ button.sekundarni { background: transparent; color: var(--barva-primarni); borde
 button.maly { padding: 5px 9px; font-size: 12px; margin-top: 0; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Probarvení akčních tlačítek podle jejich VÝZNAMU (v4.39, Jan: "probarvení
+   tlačítka potvrdit zeleně, zamítnout modrá, poznámka šedá, smazat červená").
+   Appka do teď kreslila VŠECHNA sekundární tlačítka stejnou modrou outline
+   barvou bez ohledu na to, co dělají (potvrdit shody i smazání vypadaly
+   identicky) - appka teď barvu odvozuje ze 4 sémantických kategorií:
+   potvrzení/přijetí návrhu (zelená), zamítnutí/zrušení/odvolání (modrá -
+   appka nechává původní primární barvu appky, jde jen o explicitní pojmenování),
+   uložení poznámky (šedá - appka bere z appky existující tlumené textové
+   barvy) a nevratné smazání (červená - appka bere z appky existující barvy
+   pro chybové stavy). Appka nezavádí žádné nové odstíny, jen tyhle 4 třídy
+   POJMENUJE podle akce a přiřadí je vedle stávajících `.maly`/`.sekundarni`
+   napříč appkou (Doklady, Vydané faktury, Bankovní výpisy, Smlouvy, Kniha
+   jízd, Nemovitosti i admin panely v Nastavení) - appka takhle poprvé sjednotila
+   barvu podle role tlačítka, ne podle záložky, ve které se zrovna nachází.
+   Vyšší specificita (`button.sekundarni.akce-xxx`) appka zvolila záměrně -
+   pořadí pravidel v souboru appce už jednou způsobilo bug (viz v4.37.1 výše
+   u `.banka-radek-hlava`), tady appka radši nespoléhá na to, že tahle
+   pravidla zůstanou zapsaná POD `.sekundarni`. */
+button.sekundarni.akce-potvrdit { border-color: var(--barva-uspech); color: var(--barva-uspech); }
+button.sekundarni.akce-potvrdit:hover { background: rgba(26, 156, 107, 0.08); }
+button.sekundarni.akce-zamitnout { border-color: var(--barva-primarni); color: var(--barva-primarni); }
+button.sekundarni.akce-zamitnout:hover { background: rgba(36, 84, 255, 0.06); }
+button.sekundarni.akce-poznamka { border-color: var(--barva-text-tlumena); color: var(--barva-text-tlumena); }
+button.sekundarni.akce-poznamka:hover { background: rgba(107, 114, 128, 0.08); }
+button.sekundarni.akce-smazat { border-color: var(--barva-chyba); color: var(--barva-chyba); }
+button.sekundarni.akce-smazat:hover { background: rgba(208, 52, 44, 0.06); }
+/* "Schválit" appka kreslí jako PLNÉ (ne outline) tlačítko, protože jde o
+   jedinou zdůrazněnou akci v daném kontextu (na rozdíl od outline "Uložit"
+   vedle něj) - appka mu proto barvu mění na pozadí, ne na border/text. */
+button.akce-potvrdit:not(.sekundarni) { background: var(--barva-uspech); }
+button.akce-potvrdit:not(.sekundarni):hover { background: #157d57; }
+
 /* Jan (2026-07-19): tlačítka hlavní navigace dřív měla šířku podle
    délky vlastního textu (flex-wrap) - u 10 záložek s hodně různě
    dlouhými popisky ("Dashboard" vs. "Bankovní výpisy") se řádky lomily
@@ -468,6 +500,40 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 }
 .odkaz-sken svg { width: 14px; height: 14px; flex: none; }
 .odkaz-sken:hover { background: #dbe6ff; }
+
+/* Stav "appka právě vyzvedává sken" (v4.40, viz otevriSken() v app.js).
+   Od v4.40 kliknutí na chip nevede rovnou na Google Drive - appka si soubor
+   nejdřív vyzvedne sama (soubory na Drive patří Janovu účtu a ostatním je
+   Google blokuje, viz netlify/functions/soubor.js). To pár set milisekund
+   trvá, takže appka po tu dobu chip vizuálně ztlumí a místo lupy ukáže
+   točící se kolečko - jinak by to vypadalo, že se po kliknutí nic nestalo,
+   a uživatel by klepal znovu. */
+.odkaz-sken.nacita {
+  background: #f0f1f4;
+  color: var(--barva-text-tlumena);
+  cursor: default;
+}
+.odkaz-sken.nacita:hover { background: #f0f1f4; }
+.odkaz-sken-kolecko {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  /* Kolečko appka používá i mimo chip - u příloh smlouvy, kde je odkaz
+     jen prostý název souboru v seznamu (viz vytvorPrilohySekce()). Tam
+     kolem sebe potřebuje vlastní mezeru, uvnitř chipu ji ale ne (o odsazení
+     se stará `gap` flexboxu). */
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 4px;
+  border-radius: 50%;
+  border: 2px solid #c9ccd4;
+  border-top-color: var(--barva-text-tlumena);
+  animation: odkaz-sken-toceni 0.7s linear infinite;
+}
+.odkaz-sken .odkaz-sken-kolecko { margin-right: 0; vertical-align: baseline; }
+@keyframes odkaz-sken-toceni {
+  to { transform: rotate(360deg); }
+}
 
 /* QR Platba - zobrazení rovnou v detailu (v4.38, viz nactiQrPlatbuInline()
    v app.js). Appka do v4.37 QR schovávala za tlačítko + modální okno přes
