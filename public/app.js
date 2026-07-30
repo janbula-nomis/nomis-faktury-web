@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.40 – 2026-07-30';
+const APP_VERZE = 'v4.42 – 2026-07-30';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -273,11 +273,33 @@ function zobrazLogin() {
   document.getElementById('view-app').classList.add('skryto');
 }
 
+// (v4.41) Iniciály do kolečka vedle jména v hlavičce. Appka bere první písmena
+// prvních dvou slov jména ("správa ES" -> "SE"); u jednoslovného jména vezme
+// jeho první dvě písmena ("Jan" -> "JA"). Číslice a interpunkci appka
+// přeskakuje, ať v kolečku nekončí "5." nebo "S.".
+function inicialy(jmeno) {
+  const slova = String(jmeno || '')
+    .split(/[\s._-]+/)
+    .map((s) => s.replace(/[^\p{L}]/gu, ''))
+    .filter(Boolean);
+  if (!slova.length) return '';
+  if (slova.length === 1) return slova[0].slice(0, 2).toUpperCase();
+  return (slova[0][0] + slova[1][0]).toUpperCase();
+}
+
 function zobrazApp() {
   document.getElementById('view-login').classList.add('skryto');
   document.getElementById('view-app').classList.remove('skryto');
   const oznaceniRole = stav.role === 'admin' ? ' (admin)' : stav.role === 'ucetni' ? ' (účetní)' : '';
-  document.getElementById('jmeno-uzivatele').textContent = stav.jmeno + oznaceniRole;
+  const popisUzivatele = stav.jmeno + oznaceniRole;
+  const prvekJmeno = document.getElementById('jmeno-uzivatele');
+  prvekJmeno.textContent = popisUzivatele;
+  // (v4.41) Jméno appka v hlavičce drží na jednom řádku a dlouhé zkracuje na
+  // "…" (viz #jmeno-uzivatele ve style.css), takže celé ho dává do `title` -
+  // po najetí myší je pořád vidět.
+  prvekJmeno.title = popisUzivatele;
+  const prvekAvatar = document.getElementById('avatar-uzivatele');
+  if (prvekAvatar) prvekAvatar.textContent = inicialy(stav.jmeno);
 
   const jeAdmin = stav.role === 'admin';
   const jeUcetniNeboAdmin = stav.role === 'admin' || stav.role === 'ucetni';

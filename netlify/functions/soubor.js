@@ -64,6 +64,25 @@ function maPristupKFirme(uzivatel, firma) {
   return uzivatel.role === 'admin' || (uzivatel.firmy || []).includes(firma);
 }
 
+// (v4.42) Řádky ve stavu "Zpracovává se" ještě firmu nemají - AI ji teprve
+// vytěžuje, nebo ji někdo musí potvrdit. Seznamy (vydaneFaktury.js,
+// smlouvy.js) na ně mají zvláštní pravidlo: dokud je firma prázdná,
+// rozhoduje role, případně to, že řádek nahrál sám přihlášený uživatel.
+// Ve v4.40 to appka u skenů nezkopírovala, takže správce ES viděl v seznamu
+// fakturu i smlouvu "Zpracovává se", ale při otevření skenu dostal 403.
+// Tyhle dvě pomocné funkce tu nesrovnalost odstraňují - drží pravidla
+// skenu a seznamu doslova stejná.
+function smiFakturuBezFirmy(uzivatel, radek) {
+  return (
+    uzivatel.role === 'admin' ||
+    uzivatel.role === 'ucetni' ||
+    radek.Nahral_uzivatel === uzivatel.jmeno
+  );
+}
+function smiSmlouvuBezFirmy(uzivatel, radek) {
+  return uzivatel.role === 'admin' || radek.Nahral_uzivatel === uzivatel.jmeno;
+}
+
 // Popis jednotlivých listů, ve kterých může nahraný soubor "bydlet".
 // `firma` vrací firmu daného řádku, `smi` rozhoduje o přístupu - obojí
 // schválně kopíruje pravidla z příslušné funkce (doklady.js,
@@ -71,23 +90,34 @@ function maPristupKFirme(uzivatel, firma) {
 const ZDROJE = {
   doklad: {
     list: 'Doklady',
+    // Doklady zvláštní pravidlo pro "Zpracovává se" nemají - doklady.js
+    // pouští jen podle firmy (potvrzené, jinak odhadnuté AI), takže tady
+    // appka schválně nic navíc nepřidává.
     smi: (uzivatel, radek) =>
       maPristupKFirme(uzivatel, radek.Firma_potvrzena || radek.Firma_AI_odhad || ''),
   },
   faktura: {
     list: 'Vydane_faktury',
-    smi: (uzivatel, radek) => maPristupKFirme(uzivatel, radek.Firma || ''),
+    smi: (uzivatel, radek) =>
+      radek.Firma
+        ? maPristupKFirme(uzivatel, radek.Firma)
+        : smiFakturuBezFirmy(uzivatel, radek),
   },
   priloha: {
     list: 'Smlouvy_Prilohy',
     // Přílohy smlouvy samy firmu nenesou - je na nadřazené smlouvě. Appka
     // proto rovnou dohledá smlouvu; osiřelou přílohu (smlouva už neexistuje)
     // appka pustí jen adminovi, ať se sken nedá vytáhnout obcházením.
+    // Smlouvy.js vrací přílohy podle viditelnosti nadřazené smlouvy, takže
+    // i tady appka na smlouvu použije úplně stejné pravidlo včetně stavu
+    // "Zpracovává se".
     smi: (uzivatel, radek, kontext) => {
       if (uzivatel.role !== 'admin' && uzivatel.role !== 'ucetni') return false;
       const smlouva = (kontext.smlouvy || []).find((s) => s.ID === radek.Smlouva_ID);
       if (!smlouva) return uzivatel.role === 'admin';
-      return maPristupKFirme(uzivatel, smlouva.Firma || '');
+      return smlouva.Firma
+        ? maPristupKFirme(uzivatel, smlouva.Firma)
+        : smiSmlouvuBezFirmy(uzivatel, smlouva);
     },
     potrebujeSmlouvy: true,
   },
@@ -95,7 +125,9 @@ const ZDROJE = {
     list: 'Smlouvy',
     smi: (uzivatel, radek) =>
       (uzivatel.role === 'admin' || uzivatel.role === 'ucetni') &&
-      maPristupKFirme(uzivatel, radek.Firma || ''),
+      (radek.Firma
+        ? maPristupKFirme(uzivatel, radek.Firma)
+        : smiSmlouvuBezFirmy(uzivatel, radek)),
   },
 };
 

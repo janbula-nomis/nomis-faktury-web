@@ -201,8 +201,83 @@ nav.zalozky button.zamcena-zalozka:hover { background: var(--barva-karta); }
 .tlacitko-nahrat-cta:hover,
 .tlacitko-nahrat-cta.aktivni { background: #b32a23; border-color: #b32a23; }
 
-.hlavicka-app { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.hlavicka-app .uzivatel { font-size: 12px; color: var(--barva-text-tlumena); text-align: right; }
+/* Hlavička appky. Do v4.40 appka do `.uzivatel` naskládala čtyři prvky vedle
+   sebe (výběr skinu, den/noc, jméno, Odhlásit) a samotnému `#jmeno-uzivatele`
+   nedávala ŽÁDNÉ vlastní pravidlo. Jako flex položka uvnitř flex položky se
+   pak jméno smrsklo na nejužší možnou šířku (nejdelší slovo) a text se lámal
+   doprostřed - a to nejen na mobilu, ale i na desktopu, kde bylo místa dost
+   (Jan: „není to hezké a navíc se text zalamuje"). Od v4.41 appka ovládání
+   sdružuje do dvou skupin (.skupina-vzhled | .skupina-ucet) a jméno drží
+   natrvalo na jednom řádku. */
+.hlavicka-app { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+.hlavicka-app .znacka { min-width: 0; }
+.hlavicka-app .uzivatel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--barva-text-tlumena);
+}
+
+/* Skupina „vzhled appky" - výběr skinu a den/noc appka slučuje do jedné
+   zaoblené pilulky, ať to působí jako jeden ucelený ovládací prvek, ne dvě
+   náhodně vedle sebe hozené věci. */
+.skupina-vzhled {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding: 3px;
+  border: 1px solid var(--barva-hranice);
+  border-radius: 999px;
+  background: var(--barva-karta);
+}
+.skupina-vzhled #vyber-skinu { border: none; background: transparent; padding: 3px 4px 3px 8px; }
+.skupina-vzhled .prepinac-ikona { border-color: transparent; background: transparent; padding: 4px 8px; }
+.skupina-vzhled .prepinac-ikona:hover { background: var(--barva-pozadi); }
+.skupina-vzhled .prepinac-ikona[aria-pressed="true"] { background: var(--barva-primarni); border-color: var(--barva-primarni); }
+
+/* Skupina „účet" - avatar s iniciálami (rychlá orientace i po zkrácení
+   textu) + jméno/role + Odhlásit. */
+.skupina-ucet {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+#avatar-uzivatele {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: var(--barva-primarni);
+  color: #fff;
+}
+/* Dokud appka nezná jméno (odhlášeno), avatar se nekreslí vůbec. */
+#avatar-uzivatele:empty { display: none; }
+/* Jádro opravy: jméno/role appka drží na jednom řádku a dlouhý text raději
+   zkrátí na „…", než aby ho zalomila doprostřed slova. Celé jméno appka
+   dává do `title`, ať je po zkrácení pořád k dispozici. */
+#jmeno-uzivatele {
+  min-width: 0;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.hlavicka-app #tlacitko-odhlasit { flex: none; white-space: nowrap; }
 
 /* Značka appky (logo + název) v hlavičce appky (do v4.29 appka stejnou
    strukturu `.znacka` používala i na přihlašovací obrazovce - od v4.30
@@ -807,10 +882,15 @@ input[type="file"] { margin-top: 8px; }
   #app { padding: 10px; }
   .karta { padding: 12px; margin-bottom: 10px; }
 
-  /* Hlavička appky - logo/jméno appka nechá zalomit, ať se na úzkém okně
-     nesplácnou vedle sebe. */
+  /* Hlavička appky - značka a řádek s ovládáním appka na úzkém okně dá pod
+     sebe, ať se nesplácnou vedle sebe. Řádek s ovládáním pak appka roztáhne
+     přes celou šířku a skupiny rozhodí do rohů: „vzhled" vlevo, „účet"
+     vpravo (v4.41). Jméno appka na mobilu zkracuje dřív, protože místa je
+     míň - pořád ale na JEDNOM řádku, nikdy zalomené doprostřed. */
   .hlavicka-app { flex-wrap: wrap; gap: 8px; }
-  .hlavicka-app .uzivatel { text-align: left; }
+  .hlavicka-app .uzivatel { width: 100%; justify-content: space-between; gap: 8px; }
+  #jmeno-uzivatele { max-width: 108px; }
+  #avatar-uzivatele { width: 26px; height: 26px; font-size: 10px; }
 
   /* Tlačítka hlavní navigace appka na mobilu skládá do 2 sloupců (od v4.30
      appka je skládá pevnou CSS grid, viz komentář výš u `nav.zalozky` -
@@ -974,7 +1054,9 @@ input[type="file"] { margin-top: 8px; }
 }
 .prepinac-ikona:hover { background: var(--barva-pozadi); }
 .prepinac-ikona[aria-pressed="true"] { background: var(--barva-primarni); border-color: var(--barva-primarni); }
-.hlavicka-app .uzivatel { display: flex; align-items: center; gap: 10px; }
+/* (v4.41) Rozložení `.hlavicka-app .uzivatel` appka drží pohromadě nahoře
+   u ostatních pravidel hlavičky - dřív bylo rozsypané i sem, což pak
+   přebíjelo mobilní úpravy v @media bloku výš. */
 
 /* Skládací panely (Nastavení, Vydané faktury) - kompaktnější než samostatné
    záložky, výchozí stav zavřený kromě těch s atributem "open" v HTML. */
@@ -1145,6 +1227,22 @@ input[type="file"] { margin-top: 8px; }
   background: var(--barva-karta);
   color: var(--barva-text);
 }
+
+/* (v4.41) Pilulka „vzhledu", avatar a jméno v barevných skinech. Tenhle blok
+   appka schválně nechává AŽ ZA pravidly skinů výš - ta mají stejnou
+   specificitu (`:root[data-skin] .hlavicka-app #vyber-skinu`), takže rozhoduje
+   pořadí. Uvnitř pilulky appka rámeček a pozadí selectu ruší, rámeček nese
+   celá pilulka. */
+:root[data-skin="navy"] .hlavicka-app .skupina-vzhled { background: rgba(255,255,255,0.06); border-color: #33436b; }
+:root[data-skin="gold"] .hlavicka-app .skupina-vzhled { background: rgba(255,255,255,0.06); border-color: #565a63; }
+:root[data-skin="navy"] .hlavicka-app #vyber-skinu,
+:root[data-skin="gold"] .hlavicka-app #vyber-skinu { background: transparent; border-color: transparent; }
+:root[data-skin="navy"] .hlavicka-app .skupina-vzhled .prepinac-ikona:hover,
+:root[data-skin="gold"] .hlavicka-app .skupina-vzhled .prepinac-ikona:hover { background: rgba(255,255,255,0.12); }
+:root[data-skin="navy"] .hlavicka-app #avatar-uzivatele { background: linear-gradient(135deg, #e6cd98, #b7924a); color: #1a1200; }
+:root[data-skin="gold"] .hlavicka-app #avatar-uzivatele { background: linear-gradient(135deg, #f2d477, #c9a227); color: #14161a; }
+:root[data-skin="navy"] .hlavicka-app #jmeno-uzivatele { color: #e7ecf7; }
+:root[data-skin="gold"] .hlavicka-app #jmeno-uzivatele { color: #f0f1f4; }
 
 /* ========== AUTOMATICKÉ ODHLÁŠENÍ PO NEAKTIVITĚ (v4.17) ========== */
 .varovani-odhlaseni-overlay {

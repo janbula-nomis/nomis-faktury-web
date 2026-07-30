@@ -61,14 +61,25 @@
         <img class="misto-logo" src="assets/icon-navy.svg" alt="NOMIS Group" />
         <h1>NOMIS Group <span class="znacka-crm">CRM system</span></h1>
       </div>
+      <!-- (v4.41) Jan: "navrhni jak to lépe uspořádat, není to hezké a navíc
+           se text zalamuje" - appka ovládání hlavičky rozdělila do dvou
+           skupin: vlevo "vzhled appky" (výběr skinu + den/noc sloučené do
+           jedné pilulky), vpravo "účet" (avatar s iniciálami + jméno/role
+           natrvalo na jednom řádku + Odhlásit). Viz .skupina-vzhled /
+           .skupina-ucet / #avatar-uzivatele v public/style.css. -->
       <div class="uzivatel">
-        <select id="vyber-skinu" title="Vzhled appky">
-          <option value="gold">Gold</option>
-          <option value="navy">Navy</option>
-        </select>
-        <button class="prepinac-ikona" id="tlacitko-motiv" type="button" title="Přepnout světlý/tmavý režim" aria-pressed="false">🌙</button>
-        <div id="jmeno-uzivatele"></div>
-        <button class="sekundarni maly" id="tlacitko-odhlasit">Odhlásit</button>
+        <div class="skupina-vzhled">
+          <select id="vyber-skinu" title="Vzhled appky">
+            <option value="gold">Gold</option>
+            <option value="navy">Navy</option>
+          </select>
+          <button class="prepinac-ikona" id="tlacitko-motiv" type="button" title="Přepnout světlý/tmavý režim" aria-pressed="false">🌙</button>
+        </div>
+        <div class="skupina-ucet">
+          <div id="avatar-uzivatele" aria-hidden="true"></div>
+          <div id="jmeno-uzivatele"></div>
+          <button class="sekundarni maly" id="tlacitko-odhlasit">Odhlásit</button>
+        </div>
       </div>
     </div>
 

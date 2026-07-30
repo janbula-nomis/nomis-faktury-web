@@ -4243,6 +4243,112 @@ u 403, legacy záznam bez ID, nulové JS chyby) - všech 15 prošlo.
 
 `APP_VERZE` appka zvýšila na `v4.40 – 2026-07-30`.
 
+## 83. Přeuspořádání hlavičky appky - jméno na jednom řádku, ovládání ve dvou skupinách (v4.41)
+
+Jan: *„navrhni jak to lépe uspořádat, není to hezké a navíc se text zalamuje
+- png pls"*. Appka nejdřív poslala grafický návrh (`navrh_hlavicka.png`), Jan
+ho schválil a v4.41 ho appka naimplementovala.
+
+**Co bylo špatně.** V `.hlavicka-app .uzivatel` appka měla čtyři prvky vedle
+sebe (výběr skinu, den/noc, jméno, Odhlásit) a samotný `#jmeno-uzivatele`
+neměl ve `style.css` ŽÁDNÉ vlastní pravidlo. Jenže `.uzivatel` je flex položka
+hlavičky a jméno je flex položka v ní - prohlížeč tedy `.uzivatel` smrskl na
+jeho nejmenší možnou šířku, tedy na nejdelší slovo, a jméno se zalomilo. Při
+měření se ukázalo, že se to nedělo jen na mobilu: „správa ES (účetní)" vycházelo
+na **tři řádky i na desktopu při 1100 px**, kde je místa spousta, a samotný
+text byl široký 41 px.
+
+**Co appka změnila.**
+
+1. **Jméno drží na jednom řádku.** `#jmeno-uzivatele` dostal
+   `white-space: nowrap` + `overflow: hidden` + `text-overflow: ellipsis` a
+   `max-width` (220 px na desktopu, 108 px na mobilu). Dlouhé jméno se tedy
+   zkrátí na „…", nikdy se nezalomí doprostřed slova. Celý text appka dává do
+   `title`, takže po najetí myší je pořád k dispozici.
+2. **Ovládání ve dvou skupinách.** Nová `.skupina-vzhled` (výběr skinu +
+   den/noc) a `.skupina-ucet` (avatar + jméno + Odhlásit) - místo jedné
+   napěchované řady čtyř prvků. Na mobilu appka celý řádek s ovládáním
+   roztáhne přes šířku a skupiny rozhodí do rohů (`justify-content:
+   space-between`).
+3. **Výběr skinu a den/noc v jedné pilulce.** Rámeček nese celá
+   `.skupina-vzhled` (`border-radius: 999px`), `#vyber-skinu` i
+   `.prepinac-ikona` mají uvnitř průhledné pozadí a rámeček - působí to jako
+   jeden ovládací prvek. Zvýraznění zapnutého nočního režimu
+   (`aria-pressed="true"`) zůstává.
+4. **Avatar s iniciálami.** Nový `#avatar-uzivatele` a pomocná funkce
+   `inicialy()` v `app.js`: bere první písmena prvních dvou slov („správa ES"
+   → „SE"), u jednoslovného jména jeho první dvě písmena („Jan" → „JA"),
+   číslice a interpunkci přeskakuje. Prázdné jméno = žádný avatar
+   (`#avatar-uzivatele:empty { display: none }`).
+
+**Na co si dát pozor při dalších úpravách.** Rozložení `.hlavicka-app
+.uzivatel` bylo dřív rozsypané na dvou místech ve `style.css` - jednou nahoře
+u hlavičky a podruhé o 800 řádků níž. Ta druhá kopie měla stejnou specificitu,
+ale byla ZA mobilním `@media` blokem, takže by přebíjela mobilní úpravy. Appka
+ji zrušila a všechno drží nahoře pohromadě. Podobně pravidla barevných skinů
+pro pilulku a avatar musí být až za bloky `:root[data-skin="…"] .hlavicka-app
+#vyber-skinu` výš - mají stejnou specificitu, takže rozhoduje pořadí.
+
+**Ověřeno.** 307 kontrol v Playwrightu proti skutečnému `index.html` a
+`style.css`: 5 šířek okna (360, 390, 768, 1100, 1440) × 3 vzhledy (navy, gold,
+základní) × 4 jména různé délky, u každé kombinace se kontroluje, že je jméno
+na jednom řádku, že má `nowrap` i `ellipsis`, že je celé v `title`, že avatar
+má dva znaky a je kulatý a že žádný prvek nepřetéká z hlavičky ven. K tomu 6
+jednotkových kontrol funkce `inicialy()` a kontrola nulových JS chyb. Všech 307
+prošlo. Vizuálně appka projela i světlý/tmavý režim a oba skiny.
+
+`APP_VERZE` appka zvýšila na `v4.41 – 2026-07-30`.
+
+## 84. Sken dokladů ve stavu "Zpracovává se" - srovnání práv `/api/soubor` se seznamy (v4.42)
+
+Jan zadal "ověř přístup k dokumentům u správce ES". Appka proto porovnala, co
+účet role `ucetni` (v Janově tabulce "správa ES") **vidí v seznamech** s tím,
+co mu **pustí proxy `/api/soubor`** zavedená ve v4.40. Kontrola se dělá logicky
+nad skutečným kódem funkcí, ne nad živou tabulkou - přihlašovací údaje ke
+Google appka v tomhle prostředí nemá.
+
+**Co se našlo.** U dokladů a u všeho, co už má potvrzenou firmu, se seznam a
+sken chovaly stejně. Neseděly ale řádky ve stavu **"Zpracovává se"**, tedy
+čerstvě nahrané doklady, kde AI teprve vytěžuje firmu a sloupec `Firma` je
+zatím prázdný. Seznamy na ně mají zvláštní pravidlo:
+
+- `vydaneFaktury.js`: prázdná firma -> vidí ji admin, účetní **a** ten, kdo ji nahrál,
+- `smlouvy.js`: prázdná firma -> vidí ji admin **a** ten, kdo ji nahrál (a k tomu musí být admin nebo účetní),
+- přílohy smlouvy jdou za viditelností nadřazené smlouvy,
+- `doklady.js` žádné takové pravidlo nemá - pouští jen podle firmy.
+
+`soubor.js` z v4.40 tohle nekopíroval a u prázdné firmy prostě neuspěl v testu
+na příslušnost k firmě. Výsledkem bylo, že správce ES **viděl v seznamu**
+vydanou fakturu, smlouvu i její přílohu ve stavu "Zpracovává se", ale při
+kliknutí na sken dostal `403 K tomuhle skenu nemáte přístup.` Celkem 6
+nesrovnalostí (3 u účtu s přiřazenou firmou, 3 u účtu bez firem). Nešlo o díru
+v právech - naopak byla appka u skenu **přísnější** než u dat - ale pro
+uživatele to vypadalo jako rozbitá appka.
+
+**Oprava.** V `netlify/functions/soubor.js` přibyly dvě pomocné funkce
+`smiFakturuBezFirmy()` a `smiSmlouvuBezFirmy()` a pravidla `faktura`, `smlouva`
+a `priloha` se teď větví stejně jako seznamy: je-li firma vyplněná, rozhoduje
+příslušnost k firmě, je-li prázdná, rozhoduje role, případně `Nahral_uzivatel`.
+`doklad` appka schválně nechala beze změny, protože `doklady.js` žádnou výjimku
+pro prázdnou firmu nemá a přidat ji jen na straně skenu by naopak práva
+rozvolnilo.
+
+**Ověření.** Testovací skript pouští **skutečný handler** `soubor.js` s
+podstrčeným Sheets/Drive klientem a porovnává jeho odpověď s pravidly
+opsanými z reálných seznamových funkcí - 8 typů dokumentu × 3 účty (účetní s
+firmou Alfa, účetní bez přiřazené firmy, admin), tedy 24 případů. Před opravou
+6 neshod, po opravě 0. Původních 18 testů proxy `/api/soubor` z v4.40 prošlo
+beze změny.
+
+**Co za tím zůstává jako provozní věc, ne jako chyba kódu.** Účet role
+`ucetni` má od v4.30 přístup omezený sloupcem `Firmy` v listu `Uzivatele`
+(neomezený průchod má už jen `admin`). Pokud má "správa ES" ve `Firmy` prázdno
+nebo firmy zapsané jinak než v dokladech (jiná diakritika, "s.r.o." vs
+"s. r. o."), neuvidí nic kromě čerstvě nahraných řádků - a to je pak potřeba
+opravit v tabulce, ne v kódu.
+
+`APP_VERZE` appka zvýšila na `v4.42 – 2026-07-30`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
