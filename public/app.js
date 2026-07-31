@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.42 – 2026-07-30';
+const APP_VERZE = 'v4.43 – 2026-07-30';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -4965,6 +4965,12 @@ function vytvorPrilohySekce(s, prilohyTeto) {
         e.preventDefault();
         otevriSken(odkaz, p.Zdrojovy_soubor_ID, 'priloha');
       };
+    } else if (!stav || stav.role !== 'admin') {
+      // (v4.43) Bez ID souboru by odkaz vedl rovnou na Google a kolega by
+      // skončil na "Potřebujete přístup" - viz odkazOtevritSken().
+      odkaz.removeAttribute('href');
+      odkaz.className = 'odkaz-sken-nedostupny';
+      odkaz.title = 'U téhle přílohy je jen ručně vložený odkaz na Google Disk, ne soubor nahraný přes appku. Požádejte prosím Jana, ať ji nahraje do appky znovu.';
     }
     li.appendChild(odkaz);
 
@@ -6860,11 +6866,29 @@ function odkazOtevritSken(url, souborId, typ, popisek) {
     '</svg>' +
     'Otevřít sken';
 
-  // Starší záznamy (nebo ručně vložená URL u smluv) nemusí ID souboru na
-  // Drive vůbec mít - tam appce nezbývá než odkázat na Google jako dřív.
-  const onclick = souborId
-    ? ' onclick="otevriSken(this, \'' + escapeAttr(souborId) + '\', \'' + escapeAttr(typ || '') + '\'); return false;"'
-    : '';
+  // Starší záznamy nemusí ID souboru na Drive vůbec mít (od v4.43 si ho
+  // appka u smluv zkusí vytáhnout z odkazu, viz idZeSdileneUrl() v
+  // lib/driveHelpers.js, ale ne vždycky se to povede). Bez ID appka sken
+  // podat neumí - a odkaz na drive.google.com má smysl nabídnout UŽ JEN
+  // ADMINOVI, protože ten je na Drive vlastník. Komukoli jinému by Google
+  // ukázal "Potřebujete přístup" a Janovi poslal e-mail se žádostí o
+  // sdílení; česká hláška je pro kolegu užitečnější.
+  if (!souborId) {
+    const jeAdmin = stav && stav.role === 'admin';
+    if (!jeAdmin) {
+      return (popisek ? escapeHtml(popisek) + ' ' : '') +
+        '<span class="odkaz-sken odkaz-sken-nedostupny" title="U tohohle záznamu je jen ručně vložený odkaz na Google Disk, ne soubor nahraný přes appku. Požádejte prosím Jana, ať sken nahraje do appky jako přílohu.">' +
+          obsah +
+        '</span>';
+    }
+    return (popisek ? escapeHtml(popisek) + ' ' : '') +
+      '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener" class="odkaz-sken">' +
+        obsah +
+      '</a>';
+  }
+
+  const onclick =
+    ' onclick="otevriSken(this, \'' + escapeAttr(souborId) + '\', \'' + escapeAttr(typ || '') + '\'); return false;"';
 
   return (popisek ? escapeHtml(popisek) + ' ' : '') +
     '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener" class="odkaz-sken"' + onclick + '>' +
@@ -6904,25 +6928,60 @@ async function otevriSken(prvek, souborId, typ) {
     const hlavicky = {};
     if (stav && stav.token) hlavicky['Authorization'] = 'Bearer ' + stav.token;
 
-    const odpoved = await fetch(
-      '/api/soubor?id=' + encodeURIComponent(souborId) + (typ ? '&typ=' + encodeURIComponent(typ) : ''),
-      { cache: 'no-store', headers: hlavicky }
-    );
+    // (v4.43) Sken si appka bere po kusech - viz netlify/functions/soubor.js.
+    // Do jedné odpovědi Netlify funkce se vejde jen cca 4 MB, takže velký
+    // sken (běžný scan smlouvy má klidně 8 MB) by dřív skončil chybou a
+    // odkazem na Google, kde kolega narazil na "Request access". Teď si
+    // appka řekne o `od=0`, pak o `od=<kolik už má>` a kusy slepí do jednoho
+    // blobu; uživatel o tom neví, jen vidí procenta.
+    const casti = [];
+    let stazeno = 0;
+    let celkem = 0;
+    let typObsahu = 'application/octet-stream';
 
-    if (!odpoved.ok) {
-      const data = await odpoved.json().catch(() => ({}));
-      // Moc velký sken appka proxovat nedokáže (limit odpovědi Netlify
-      // funkce) - v tom případě appka aspoň pošle uživatele na původní
-      // Drive odkaz. Janovi se otevře normálně, kolegovi ukáže Google
-      // aspoň srozumitelnou hlášku místo prázdné stránky.
-      if (data.prilisVelky && zalozniUrl && panel) {
-        panel.location.href = zalozniUrl;
-        return false;
+    // Pojistka proti nekonečné smyčce, kdyby server vracel prázdné kusy.
+    for (let kolo = 0; kolo < 24; kolo++) {
+      const odpoved = await fetch(
+        '/api/soubor?id=' + encodeURIComponent(souborId) +
+          (typ ? '&typ=' + encodeURIComponent(typ) : '') +
+          '&od=' + stazeno,
+        { cache: 'no-store', headers: hlavicky }
+      );
+
+      if (!odpoved.ok) {
+        const data = await odpoved.json().catch(() => ({}));
+        // Původní Drive odkaz appka nabízí UŽ JEN ADMINOVI. Komukoli jinému
+        // by Google stejně ukázal "Potřebujete přístup" a poslal Janovi
+        // e-mail se žádostí o sdílení - což je přesně ta situace, kvůli
+        // které proxy vznikla. Kolegovi je srozumitelná česká hláška
+        // mnohem užitečnější než cizí přihlašovací obrazovka Googlu.
+        if (data.prilisVelky && zalozniUrl && panel && stav && stav.role === 'admin') {
+          panel.location.href = zalozniUrl;
+          return false;
+        }
+        throw new Error(data.error || 'Chyba serveru (' + odpoved.status + ')');
       }
-      throw new Error(data.error || 'Chyba serveru (' + odpoved.status + ')');
+
+      typObsahu = odpoved.headers.get('Content-Type') || typObsahu;
+      celkem = Number(odpoved.headers.get('X-Sken-Celkem') || 0) || celkem;
+
+      const cast = await odpoved.arrayBuffer();
+      if (!cast.byteLength) break;
+      casti.push(cast);
+      stazeno += cast.byteLength;
+
+      if (odpoved.headers.get('X-Sken-Posledni') === '1') break;
+      if (celkem && stazeno >= celkem) break;
+
+      if (celkem) {
+        prvek.innerHTML = '<span class="odkaz-sken-kolecko"></span>Otevírám sken… ' +
+          Math.min(99, Math.round((stazeno / celkem) * 100)) + ' %';
+      }
     }
 
-    const blob = await odpoved.blob();
+    if (!casti.length) throw new Error('Sken se stáhl prázdný.');
+
+    const blob = new Blob(casti, { type: typObsahu });
     const blobUrl = URL.createObjectURL(blob);
     if (panel) {
       panel.location.href = blobUrl;

@@ -576,6 +576,27 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 .odkaz-sken svg { width: 14px; height: 14px; flex: none; }
 .odkaz-sken:hover { background: #dbe6ff; }
 
+/* (v4.43) Sken, který appka podat nedokáže, protože u záznamu je jen ručně
+   vložený odkaz na Google Disk a ne soubor nahraný přes appku. Chip appka
+   nechává vidět (ať je jasné, že sken existuje), ale ztlumený a bez odkazu -
+   kliknutí by kolegu poslalo na Google na "Potřebujete přístup". Důvod je
+   v `title`, viz odkazOtevritSken() v app.js. */
+.odkaz-sken-nedostupny {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f0f1f4;
+  color: var(--barva-text-tlumena);
+  border-radius: 999px;
+  padding: 6px 13px 6px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  line-height: 1.2;
+  cursor: help;
+}
+.odkaz-sken-nedostupny svg { width: 14px; height: 14px; flex: none; }
+
 /* Stav "appka právě vyzvedává sken" (v4.40, viz otevriSken() v app.js).
    Od v4.40 kliknutí na chip nevede rovnou na Google Drive - appka si soubor
    nejdřív vyzvedne sama (soubory na Drive patří Janovu účtu a ostatním je

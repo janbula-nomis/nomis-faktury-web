@@ -4349,6 +4349,78 @@ opravit v tabulce, ne v kódu.
 
 `APP_VERZE` appka zvýšila na `v4.42 – 2026-07-30`.
 
+## 85. Sken se pořád neotevřel - velké skeny po kusech a konec odkazů na Google Disk (v4.43)
+
+**Co se stalo.** Kolegyni z RE/MAX přišel do Gmailu e-mail "Žádost o sdílení
+položky", který jí Google nabídl poté, co jí prohlížeč otevřel
+`drive.google.com` a ona tam narazila na "Potřebujete přístup". Jenže od v4.40
+appka sken podává sama přes `/api/soubor` a prohlížeč uživatele s Googlem vůbec
+nemluví - takže někde ještě zbývala cesta, kterou appka uživatele na Google
+pustila. Patička ukazovala `v4.42`, takže nešlo o nenasazenou verzi. Zbyly dvě
+díry a obě jsou v této verzi zalepené.
+
+**Díra první: sken větší než 4 MB.** Netlify Functions umí vrátit odpověď
+zhruba do 6 MB a binární obsah se přenáší zakódovaný do base64, což ho nafoukne
+o třetinu - na původní soubor tedy zbývaly cca 4 MB. Nahrát přitom appka
+dovolila 4,5 MB. Mezi 4 a 4,5 MB tak vznikla **mrtvá zóna**: soubor se v
+pohodě nahrál, ale proxy ho odmítla podat (`413`, příznak `prilisVelky`) a
+frontend v tu chvíli uživatele poslal na původní odkaz na Google Disk - přesně
+na obrazovku "Potřebujete přístup", kvůli které proxy vznikla. A protože skeny
+starších smluv jsou v Inboxu i větší, netýkalo se to jen té mrtvé zóny.
+
+Nově si frontend bere sken **po kusech**. Volá `/api/soubor?id=…&od=<bajt>`
+opakovaně, server vrátí nejvýš `KUS_BAJTU` (3,5 MB, po base64 cca 4,7 MB, tedy
+s rezervou pod stropem) a použije k tomu hlavičku `Range: bytes=a-b` směrem na
+Drive. Kolik toho ještě zbývá, appka řekne hlavičkami `X-Sken-Celkem`,
+`X-Sken-Od`, `X-Sken-Do` a `X-Sken-Posledni`; frontend kusy slepí do jednoho
+`Blob`u a otevře ho úplně stejně jako dřív, takže na chování panelu se nic
+nemění. Během stahování chip ukazuje procenta. Strop je nově `STROP_BAJTU`
+= 60 MB (cca 18 kusů) jako pojistka proti nesmyslně velkému souboru.
+
+Důležité kvůli právům: funkce je bezstavová a **práva se kontrolují u každého
+kusu znovu** - první kus není propustka na zbytek. Test to ověřuje tak, že se
+cizím účtem vyžádá prostřední kus a čeká `403`.
+
+Náhradní odkaz rovnou na Google Disk zůstal **jen pro admina** (Jan je
+vlastníkem souborů, jemu se otevře). Běžný uživatel dostane chybovou hlášku,
+nikdy ne přesměrování na Google.
+
+**Díra druhá: záznam bez ID souboru, jen s odkazem.** U smlouvy jde
+`Zdrojovy_soubor_URL` vyplnit ručně nakopírovaným odkazem (formulář "Nová
+smlouva"). Takový řádek neměl `Zdrojovy_soubor_ID`, a bez ID appka sken podat
+neuměla - chip "Otevřít sken" byl obyčejný odkaz na `drive.google.com`. Nově:
+
+- `lib/driveHelpers.js` má funkci `idZeSdileneUrl()`, která ID z odkazu
+  vytáhne (tvary `/file/d/<ID>/view`, `open?id=`, `uc?id=`,
+  `docs.google.com/document/d/<ID>/edit`);
+- `smlouvy.js` ji používá **při zápisu** (nová smlouva) i **při čtení**
+  (dopočítá ID i u řádků, které v tabulce leží už dlouho), takže se kvůli tomu
+  nemusí nic ručně přepisovat;
+- když ID opravdu není, chip se pro neadmina vykreslí jako šedý neaktivní
+  `.odkaz-sken-nedostupny` s vysvětlením v tooltipu místo odkazu na Google.
+  Totéž platí pro přílohy smluv.
+
+**Co ani tohle nespraví (a je to vlastnost, ne chyba).** Appka má OAuth scope
+`drive.file`, takže na Disku vidí jen soubory, které sama vytvořila. Soubor,
+který na Disk někdo nahrál ručně a do appky vložil jen odkaz na něj, appce
+Drive nevydá ani se správným ID - odpoví `404`. Na to `/api/soubor` nově
+reaguje srozumitelnou hláškou ("appka tenhle soubor na Disku nevidí, nahrajte
+ho prosím do appky znovu jako přílohu") a příznakem `mimoAppku`, ne obecnou
+chybou. Řešení je jediné: takový sken jednou nahrát do appky, pak už půjde
+otevřít komukoli, kdo na něj má právo.
+
+**Ověření.** Nový skript pouští skutečný handler a proti němu 1:1 přepsanou
+klientskou smyčku z `public/app.js`: 9,3MB soubor se stáhne na 3 kusy, slepí
+se a porovná **bajt po bajtu** s originálem; kontroluje se, že kusy na sebe
+navazují bez děr a překryvů a končí přesně na konci souboru, že žádný
+nepřekročí 3,5 MB a ani po base64 se nepřiblíží 6MB stropu, že malý sken
+projde na jedno kolo, že požadavek s `od` za koncem souboru appka utne (žádná
+nekonečná smyčka) a že cizí účet nedostane ani prostřední kus. K tomu 7
+případů parsování odkazu na Disk. Původních 18 testů proxy i 24 případů
+srovnání práv z v4.42 prošlo beze změny.
+
+`APP_VERZE` appka zvýšila na `v4.43 – 2026-07-30`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

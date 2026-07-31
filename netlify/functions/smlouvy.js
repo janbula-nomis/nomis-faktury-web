@@ -35,6 +35,7 @@ const { readSheetObjects, appendRow, updateRow, deleteRow } = require('../../lib
 const { SMLOUVY_HEADERS, dalsiPoradiSmlouvy } = require('../../lib/smlouvySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
+const { idZeSdileneUrl } = require('../../lib/driveHelpers');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
 
@@ -111,6 +112,21 @@ exports.handler = async (event) => {
         // pole, ať appka nespadne, dokud se znovu nespustí /api/setup.
       }
 
+      // (v4.43) U starších smluv a příloh, kde je vyplněný jen ručně vložený
+      // odkaz na Drive a ne ID souboru, si appka ID z odkazu vytáhne rovnou
+      // v odpovědi. Do tabulky se nic nezapisuje (žádná migrace) - jde jen o
+      // to, aby frontend měl čím zavolat /api/soubor a nemusel uživatele
+      // posílat na drive.google.com, kde by kolega narazil na "Potřebujete
+      // přístup". Viz idZeSdileneUrl() v lib/driveHelpers.js.
+      const doplnIdZOdkazu = (r) => {
+        if (!r.Zdrojovy_soubor_ID && r.Zdrojovy_soubor_URL) {
+          r.Zdrojovy_soubor_ID = idZeSdileneUrl(r.Zdrojovy_soubor_URL);
+        }
+        return r;
+      };
+      viditelne.forEach(doplnIdZOdkazu);
+      prilohy.forEach(doplnIdZOdkazu);
+
       return json(200, { smlouvy: viditelne, prilohy });
     }
 
@@ -166,7 +182,11 @@ exports.handler = async (event) => {
         Platnost_od: String(telo.Platnost_od || '').trim(),
         Platnost_do: String(telo.Platnost_do || '').trim(),
         Zdrojovy_soubor_URL: String(telo.Zdrojovy_soubor_URL || '').trim(),
-        Zdrojovy_soubor_ID: String(telo.Zdrojovy_soubor_ID || '').trim(),
+        // (v4.43) Když uživatel vyplnil jen odkaz, ID si appka vytáhne z něj -
+        // ať je sken od začátku otevíratelný přes appku, ne přes Google.
+        Zdrojovy_soubor_ID:
+          String(telo.Zdrojovy_soubor_ID || '').trim() ||
+          idZeSdileneUrl(telo.Zdrojovy_soubor_URL),
         Poznamka: String(telo.Poznamka || '').trim(),
         Aktivni: String(telo.Aktivni || 'ANO').trim() || 'ANO',
         Poradi: String(poradi),

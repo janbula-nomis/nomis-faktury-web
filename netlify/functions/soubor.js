@@ -44,21 +44,38 @@
  * listy - kontrolu práv appka dělá vždycky stejně, ať nápověda přijde nebo
  * ne. Bez nápovědy appka projde všechny čtyři listy (paralelně).
  *
- * Limit velikosti: Netlify Functions umí vrátit tělo do cca 6 MB, a protože
- * binární obsah appka posílá jako base64 (+33 %), reálný strop je kolem
- * 4 MB původního souboru. Upload appka omezuje na 4,5 MB, takže drtivá
- * většina skenů projde - u většího souboru appka vrátí 413 s příznakem
- * `prilisVelky`, na což frontend zareaguje otevřením původního Drive odkazu
- * (Janovi funguje vždycky, kolegovi aspoň řekne Google srozumitelně, co se
- * děje - lepší než prázdná stránka).
+ * Velikost skenu (v4.43): Netlify Functions umí vrátit tělo do cca 6 MB, a
+ * protože binární obsah appka posílá jako base64 (+33 %), na jednu odpověď
+ * se vejdou zhruba 4 MB původního souboru. Ve v4.40 proto appka u většího
+ * skenu vracela 413 a frontend uživatele poslal na původní Drive odkaz -
+ * jenže tam kolega narazí přesně na to "Request access", kvůli kterému celá
+ * tahle funkce vznikla. A protože upload pouští soubory do 4,5 MB, vzniklo
+ * hluché pásmo 4-4,5 MB: sken se nahrál, ale otevřít ho šlo jen Janovi.
+ *
+ * Od v4.43 proto appka velký sken NEODMÍTÁ, jen si ho vyzvedne po kusech:
+ * frontend volá tuhle funkci opakovaně s `&od=<bajt>` a odpovědi si slepí do
+ * jednoho blobu. Každý kus je nejvýš KUS_BAJTU (3,5 MB), z Drive ho appka
+ * tahá hlavičkou `Range`, takže se nikdy nestahuje víc, než se do odpovědi
+ * vejde. Kolik ještě zbývá, appka řekne hlavičkami `X-Sken-Celkem` /
+ * `X-Sken-Od` / `X-Sken-Do`.
+ *
+ * Práva se kontrolují u KAŽDÉHO kusu znovu (funkce je bezstavová) - kus není
+ * "propustka" k dalším kusům.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { readSheetObjects } = require('../../lib/sheetsHelpers');
 const { json } = require('../../lib/http');
 
-// Cca 4 MB - viz poznámka o base64 a 6MB stropu Netlify výš.
-const MAX_BAJTU = 4 * 1024 * 1024;
+// Kolik bajtů původního souboru appka pošle v JEDNÉ odpovědi. 3,5 MB je po
+// zakódování do base64 cca 4,7 MB, takže je pod 6MB stropem Netlify i s
+// rezervou na hlavičky. Větší sken si frontend vyžádá po víc kusech.
+const KUS_BAJTU = Math.round(3.5 * 1024 * 1024);
+
+// Pojistka proti nesmyslu (poškozený řádek, obří soubor omylem nahraný jinudy
+// do Inboxu). 60 MB = cca 18 kusů, což je ještě únosné; nad to appka raději
+// řekne, že sken nepodá, než aby uživatel čekal minuty.
+const STROP_BAJTU = 60 * 1024 * 1024;
 
 function maPristupKFirme(uzivatel, firma) {
   return uzivatel.role === 'admin' || (uzivatel.firmy || []).includes(firma);
@@ -214,19 +231,50 @@ exports.handler = async (event) => {
 
     const drive = await getDriveClient();
 
-    const meta = await drive.files.get({ fileId: souborId, fields: 'name, mimeType, size' });
+    // (v4.43) Soubor, který na Drive nevznikl přes appku, appka VIDĚT NEMŮŽE -
+    // OAuth scope je `drive.file`, tedy "jen vlastní soubory" (viz
+    // lib/google.js). Typicky se to stane u smlouvy, ke které někdo vložil
+    // odkaz na Drive ručně. Dřív to skončilo obecnou pětistovkou; teď appka
+    // řekne rovnou, co s tím, ať se to nehledá v logu.
+    let meta;
+    try {
+      meta = await drive.files.get({ fileId: souborId, fields: 'name, mimeType, size' });
+    } catch (e) {
+      const kod = (e && (e.code || (e.response && e.response.status))) || 0;
+      if (kod === 404 || kod === 403) {
+        return json(404, {
+          error:
+            'Tenhle soubor appka na Google Drive nevidí - nebyl do něj nahraný přes appku ' +
+            '(nejspíš u něj je jen ručně vložený odkaz). Nahrajte ho prosím do appky znovu ' +
+            'jako přílohu, pak půjde otevřít všem, kdo na něj mají právo.',
+          mimoAppku: true,
+        });
+      }
+      throw e;
+    }
+
     const velikost = Number(meta.data.size || 0);
-    if (velikost > MAX_BAJTU) {
+    if (velikost > STROP_BAJTU) {
       return json(413, {
-        error: 'Sken je moc velký na to, aby ho appka podala sama (' +
+        error: 'Sken je moc velký na to, aby ho appka podala (' +
           Math.round(velikost / 1024 / 1024 * 10) / 10 + ' MB).',
         prilisVelky: true,
       });
     }
 
+    // Který kus souboru si frontend říká. `od` mimo rozsah appka utne na
+    // konec, ať se nedá vynutit prázdná nekonečná smyčka.
+    const od = Math.max(0, Math.min(parseInt(parametry.od, 10) || 0, Math.max(0, velikost - 1)));
+    const do_ = velikost ? Math.min(od + KUS_BAJTU - 1, velikost - 1) : 0;
+    const posledni = !velikost || do_ >= velikost - 1;
+
+    // Range appka posílá vždycky, i u malých souborů - Drive na něj odpoví
+    // 206 s přesně tímhle úsekem, takže se nikdy nestáhne víc, než se do
+    // odpovědi Netlify vejde. (Bez Range by si funkce stáhla do paměti klidně
+    // celých 50 MB jen proto, aby z nich poslala první 3,5.)
     const obsah = await drive.files.get(
       { fileId: souborId, alt: 'media' },
-      { responseType: 'arraybuffer' }
+      { responseType: 'arraybuffer', headers: { Range: 'bytes=' + od + '-' + do_ } }
     );
     const buffer = Buffer.from(obsah.data);
 
@@ -240,9 +288,17 @@ exports.handler = async (event) => {
         // případné ruční stažení z náhledu rozumné jméno.
         'Content-Disposition':
           'inline; filename="' + String(meta.data.name || 'sken').replace(/"/g, '') + '"',
+        // Podle těchhle hlaviček frontend pozná, jestli si má říct o další
+        // kus (viz otevriSken() v public/app.js). `Expose-Headers` je tu
+        // kvůli tomu, aby je JS směl vůbec přečíst.
+        'X-Sken-Celkem': String(velikost),
+        'X-Sken-Od': String(od),
+        'X-Sken-Do': String(do_),
+        'X-Sken-Posledni': posledni ? '1' : '0',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Setup-Secret',
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Expose-Headers': 'X-Sken-Celkem, X-Sken-Od, X-Sken-Do, X-Sken-Posledni',
         'Cache-Control': 'no-store, no-cache, must-revalidate',
         Pragma: 'no-cache',
       },
