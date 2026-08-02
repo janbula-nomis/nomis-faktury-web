@@ -4694,6 +4694,132 @@ a tabulka) a že na desktopu 1180 px je vykreslení nezměněné.
 `APP_VERZE` appka zvýšila na `v4.46 – 2026-08-02`, `VERZE` v `sw.js`
 na `v4.46`.
 
+## 89. Dashboard počítá jen v měnách bankovních účtů firmy a řádky se zarovnaly do dvou sloupců (v4.47)
+
+Jan po v4.46 napsal:
+
+> *„dashboard pořád špatný, přeteká text, potřebuji abys na CZK učtech
+> pracoval jen s menou účtu CZK a na EUR jen s EUR, v Dashboardu je HUF a
+> EUR na CZK uctu firmy, to tak nesmí být, a pak to zarovnej na stránku,
+> pošli návrh png"*
+
+Jsou to čtyři věci najednou a všechny spolu souvisejí víc, než se na první
+pohled zdá: **cizí měny na kartě byly zároveň příčinou toho přetékání.**
+
+### Odkud se HUF a EUR na CZK účtu braly
+
+Appka měla dvě místa, kde si měnu domýšlela z dat, která ji neurčují.
+
+**První: bankovní pohyby.** Funkce `vytvorMenaPohybu` v
+`netlify/functions/dashboard-firmy.js` zkusila pohyb spojit s účtem podle
+`Cislo_uctu_vlastni`, a když to nevyšlo, spadla na `p.Mena` - tedy na pole
+`Mena` na řádku Bankovních pohybů. Jenže banka do něj u zahraniční
+transakce (platba kartou v Maďarsku, převod z rakouského účtu) zapíše
+**původní měnu transakce**, ne měnu účtu, ze kterého peníze reálně odešly.
+Pohyb na korunovém účtu tak dorazil s `Mena = HUF` a appka ho na kartě
+zobrazila jako maďarské forinty.
+
+**Druhé: doklady bez platby.** U dokladu appka od v4.34 hledala platbu
+podle `Doklad_ID` a měnu brala z ní; když doklad platbu neměl, spadla na
+`d.Mena` - tedy na měnu vytěženou z papíru. Maďarská účtenka za naftu se
+tak na kartě korunové firmy objevila jako HUF.
+
+Obojí je teď pryč. Nová funkce `vytvorMenyUctu` staví dvě mapy - měnu podle
+čísla účtu a množinu měn podle firmy - a měnu pohybu určuje řetězcem
+**účet → jediná měna firmy → CZK**. Pole `p.Mena` už appka nepoužívá
+vůbec: bankovní pohyb prostě nemůže být v jiné měně než účet, na kterém
+leží, takže to pole nenese informaci, kterou by Dashboard potřeboval.
+Firmy, které nemají nic v listu `Ucty` a mají jen starý
+`Firmy.Bankovni_ucet`, appka bere jako korunové (to pole měnu nenese a
+historicky byla vždycky CZK).
+
+### Bug, který se u toho našel: 15 000 HUF zaúčtovaných jako 15 000 Kč
+
+Při hledání příčiny vyšlo najevo něco horšího než špatný popisek. Od v4.34
+appka u dokladu spárovaného s platbou brala **měnu z platby**, ale
+**částku z dokladu**. Maďarská účtenka na 15 000 HUF zaplacená z korunového
+účtu (reálně asi 1 400 Kč) se tak do výdajů započítala jako **15 000 Kč** -
+skoro jedenáctinásobek. To nebyla kosmetická vada, to byl špatný součet na
+Dashboardu.
+
+Zeptali jsme se Jana, co s tím, a vybral si **„Částku z platby"**: u
+spárovaného dokladu se bere z bankovního pohybu **měna i částka**. Je to
+zároveň to jediné, co dává smysl - banka do výpisu píše, kolik reálně odešlo
+z účtu, včetně kurzu a poplatku, který si k tomu strhla.
+
+### Doklad v cizí měně, který platbu nemá
+
+Tady appka nemá z čeho počítat: kurzovní lístek nemá a vymýšlet si ho
+nebude. Nabídli jsme tři cesty (přepočítat pevným kurzem, ukázat vedle
+součtu, nebo nezapočítat a napsat to pod kartu) a Jan si vybral
+**„Nezapočítat a napsat to pod kartu"**. Karta tedy takový doklad do součtů
+nezahrne a pod součty přibude řádek:
+
+> 4× doklad v cizí měně (1 150,00 EUR, 148 500,00 HUF) appka do součtů
+> nezapočítala - nemá je zatím spárované s platbou z účtu.
+
+Zamlčet je by znamenalo, že karta tiše ukazuje neúplný obrázek. Takhle je
+vidět, co chybí, a zároveň je jasné, co s tím - spárovat platbu v Bankovních
+výpisech a doklad se do součtu započítá sám, správnou částkou.
+
+V hlavičce karty je nově odznak s měnami účtů firmy (`CZK`, `EUR`, nebo
+`CZK · EUR` u firmy, která má obojí). Není to ozdoba: říká, v čem appka
+tu kartu počítá, a kdyby se tam objevila měna, kterou Jan nečeká, je hned
+vidět, že je špatně založený účet v Nastavení, ne že je špatně výpočet.
+
+### Zarovnání na stránku
+
+Řádek souhrnu byl `display: flex` s `justify-content: space-between`.
+Popisek se nesměl zmenšit (flex položka má výchozí `min-width: auto`) a
+částka je `white-space: nowrap`, aby se číslo netrhalo uprostřed. Součet
+těch dvou minim byl na úzkém mobilu širší než karta, auto-fit sloupec se
+o to roztáhl a celá mřížka firem vyčuhovala **10 px** za pravý okraj
+stránky. K tomu appka slepovala víc měn do jednoho řetězce
+(`233 140,50 Kč + 148 500,00 HUF`), který se kvůli `nowrap` nemohl nikde
+zalomit - právě proto byly cizí měny na kartě zároveň příčinou přetékání.
+
+Poslali jsme Janovi PNG se čtyřmi maketami vyfocenými ve 320 px (A dnešní
+stav, B popisek nad částkou, C dva srovnané sloupce, D kompaktní s
+výpustkou) a Jan si vybral **C**. Řádek je teď
+`grid-template-columns: minmax(0, 1fr) auto`: popisek vlevo se smí zalomit
+(`overflow-wrap: anywhere`), částka vpravo zůstává na jednom řádku a
+**všechny částky lícují v jednom sloupci pod sebou**. Víc měn v jednom
+řádku se od téhle verze vypisuje pod sebe (`.castka-radek`), ne slepené
+spojkou. Mřížka firem dostala `minmax(min(260px, 100%), 1fr)`, aby 260px
+minimum na úzkém displeji stránku neroztlačilo.
+
+### Pozor, ať se historie neopakuje
+
+Samotné `min-width: 0` na flex položce sice smrsknutí povolí, ale
+`justify-content: space-between` pak částky nezarovná do sloupce - každá
+skončí jinde podle délky popisku. Přesně tuhle „nesymetrii" Jan reklamoval
+už ve **v4.44**. Grid to řeší proto, že sloupec `auto` má u všech řádků
+stejnou šířku, ne proto, že by byl modernější.
+
+### Ověření
+
+Logiku měn appka ověřila proti skutečnému `dashboard-firmy.js` (Google
+podstrčené náhrady místo `lib/google`, `lib/sheetsHelpers` a
+`lib/requireAuth`) na čtyřech firmách: korunové, eurové, firmě se dvěma
+účty a staré firmě jen s `Firmy.Bankovni_ucet`. **15 kontrol, 0 chyb** -
+mimo jiné že HUF doklad s platbou dá 1 400 Kč (ne 15 000), že HUF doklad
+bez platby skončí v `cizeMeny` a ne v součtu, že příjem označený bankou
+jako EUR na korunovém účtu je CZK, a že firma se dvěma účty CZK i EUR
+propustí, zatímco PLN doklad ne.
+
+Vykreslení appka ověřila na **skutečném** `index.html`, `style.css` i
+`app.js` - harness volá přímo `vytvorDashFirmaKarta`, nic si nedomýšlí -
+ve **20 kombinacích** (skin Gold i Navy × světlý i tmavý režim × šířky
+320 / 360 / 390 / 768 / 1180 px). Ve všech: **0 px přetečení**, tělo
+stránky přesně na šířku okna, a **všechny částky v kartě zarovnané na
+jeden jediný pravý okraj**.
+
+Změněné soubory: `netlify/functions/dashboard-firmy.js`, `public/app.js`,
+`public/style.css`, `public/sw.js`.
+
+`APP_VERZE` appka zvýšila na `v4.47 – 2026-08-02`, `VERZE` v `sw.js`
+na `v4.47`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

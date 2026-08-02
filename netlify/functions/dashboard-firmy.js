@@ -126,16 +126,57 @@ function pripoctiStredisko(mapaStredisek, stredisko, mena, castka) {
 // měnu uloženou přímo na pohybu (beze změny oproti dřívějšku). Appka
 // samotnou hodnotu `Bankovni_pohyby.Mena` v Sheets nijak nepřepisuje - jen
 // mění, kterou měnu použije pro zobrazení/výpočet.
-function vytvorMenaPohybu(uctyVsechny) {
+//
+// Od v4.47 (Jan: "potřebuji abys na CZK účtech pracoval jen s měnou účtu CZK
+// a na EUR jen s EUR, v Dashboardu je HUF a EUR na CZK účtu firmy, to tak
+// nesmí být") - ta záloha na `p.Mena` byla přesně ta díra, kterou Janovi na
+// CZK firmu prosákl řádek "Výdaje (HUF)". Zaplatí-li Jan kartou na maďarské
+// pumpě, banka do výpisu klidně napíše původní měnu transakce (HUF), i když
+// z účtu odešly koruny - appka to pak vzala jako plnohodnotnou třetí měnu
+// firmy. Bankovní pohyb ale ze své podstaty NEMŮŽE být v jiné měně než účet,
+// na kterém je zaúčtovaný: částka v pohybu je to, co banka opravdu strhla
+// nebo připsala. Appka proto `p.Mena` už nepoužívá vůbec a řadí zálohy takto:
+//   1. měna účtu podle `Cislo_uctu_vlastni` (nejspolehlivější),
+//   2. má-li firma jen JEDEN účet (resp. všechny její účty stejnou měnu),
+//      appka vezme tu - u drtivé většiny firem je to tenhle případ a starší
+//      pohyby bez vyplněného čísla vlastního účtu tím přestanou vyskakovat
+//      jako cizí měna,
+//   3. teprve když firma má víc účtů v RŮZNÝCH měnách a u pohybu appka
+//      nepozná, na kterém z nich je, spadne na CZK - tady už appka nemá jak
+//      hádat a je poctivější držet se výchozí měny appky než čísla z výpisu,
+//      o kterém appka právě zjistila, že mu nemůže věřit.
+function vytvorMenyUctu(uctyVsechny, firmyVsechny) {
   const menaPodleUctu = {};
   (uctyVsechny || []).forEach((u) => {
-    if (u.Cislo_uctu) menaPodleUctu[u.Cislo_uctu] = u.Mena || 'CZK';
+    if (u.Cislo_uctu) menaPodleUctu[u.Cislo_uctu] = normalizujMenu(u.Mena);
   });
-  return function menaPohybu(p) {
-    if (p.Cislo_uctu_vlastni && menaPodleUctu[p.Cislo_uctu_vlastni]) {
-      return menaPodleUctu[p.Cislo_uctu_vlastni];
-    }
-    return p.Mena;
+
+  // Měny účtů po firmách. Legacy pole `Firmy.Bankovni_ucet` (jeden účet
+  // před v3.6, viz lib/uctySchema.js) měnu nenese - je-li to jediný účet
+  // firmy, je to podle konvence appky CZK.
+  const menyFirmy = {};
+  const pridej = (firma, mena) => {
+    if (!firma) return;
+    if (!menyFirmy[firma]) menyFirmy[firma] = new Set();
+    menyFirmy[firma].add(normalizujMenu(mena));
+  };
+  (uctyVsechny || []).forEach((u) => pridej(u.Firma, u.Mena));
+  (firmyVsechny || []).forEach((f) => {
+    if (f.Bankovni_ucet && !(menyFirmy[f.Nazev] || {}).size) pridej(f.Nazev, 'CZK');
+  });
+
+  return {
+    // Seznam měn, ve kterých firma vůbec smí něco vykázat - appka ho posílá
+    // i na frontend (odznak "CZK"/"EUR" v hlavičce karty).
+    menyFirmy: (firma) => Array.from(menyFirmy[firma] || []).sort((a, b) =>
+      (a === 'CZK' ? -1 : b === 'CZK' ? 1 : a.localeCompare(b))),
+    menaPohybu: (p) => {
+      if (p.Cislo_uctu_vlastni && menaPodleUctu[p.Cislo_uctu_vlastni]) {
+        return menaPodleUctu[p.Cislo_uctu_vlastni];
+      }
+      const meny = Array.from(menyFirmy[p.Firma] || []);
+      return meny.length === 1 ? meny[0] : 'CZK';
+    },
   };
 }
 
@@ -187,10 +228,10 @@ exports.handler = async (event) => {
     } catch (e) {
       // Banka appka zatím nemá zapnutou - Dashboard pokračuje bez ní.
     }
-    const menaPohybu = vytvorMenaPohybu(uctyVsechny);
+    const { menyFirmy, menaPohybu } = vytvorMenyUctu(uctyVsechny, firmyVsechny);
 
     // v4.34 (Jan: "v dashboard uvádět částky pouze v měně účtu") - appka
-    // dosud u Dokladů (na rozdíl od Bankovních pohybů, viz vytvorMenaPohybu
+    // dosud u Dokladů (na rozdíl od Bankovních pohybů, viz vytvorMenyUctu
     // výš od v4.26.1) brala měnu přímo z pole `Mena` NA DOKLADU (appka ho
     // vytěží/appka ho ručně zadá při zpracování) - to appce může "ujet"
     // stejně jako u pohybu (překlep, špatně rozpoznaná měna), ale doklad
@@ -203,13 +244,31 @@ exports.handler = async (event) => {
     // (zatím) spárovaný, appka na Janovo výslovné potvrzení (AskUserQuestion)
     // NECHÁVÁ beze změny - zůstane v měně uvedené přímo na dokladu, jak appka
     // dělala dosud, dokud párování neproběhne.
-    const menaDokladuPodleId = {};
+    //
+    // v4.47 tenhle poslední odstavec ruší a opravuje u toho tiššího, ale
+    // horšího brouka: appka si od v4.34 brala z účtu jen MĚNU, ale ČÁSTKU
+    // pořád z dokladu. Účtenka z maďarské pumpy na 15 000 HUF spárovaná s
+    // korunovou platbou se tedy do CZK součtu započítala jako 15 000 Kč,
+    // místo těch zhruba 1 400 Kč, které banka reálně strhla - součet byl
+    // desetinásobně mimo a nebylo to na kartě nijak vidět. Appka proto u
+    // spárovaného dokladu bere z platby OBOJÍ, měnu i částku (Jan to výslovně
+    // potvrdil: "Částku z platby"). Platby se u jednoho dokladu sčítají -
+    // doklad může být uhrazený na několikrát a jinak by ten poslední pohyb
+    // přebil předchozí.
+    //
+    // Nespárovaný doklad v cizí měně appka do součtů NEDÁVÁ (Janův výběr
+    // "Nezapočítat a napsat to pod kartu") - kurzovní lístek appka nemá a
+    // vymýšlet si ho nebude, přičíst číslo z účtenky do CZK součtu by byla
+    // přesně ta chyba, kvůli které tahle verze vznikla. Aby to ale nebylo
+    // tiché zametení pod koberec, appka takové doklady spočítá a pošle je
+    // na frontend zvlášť (`cizeMeny`), kde je karta vypíše pod součty.
+    const platbaPodleDokladu = {};
     pohybyVsechny.forEach((p) => {
-      if (p.Doklad_ID) menaDokladuPodleId[p.Doklad_ID] = menaPohybu(p);
+      if (!p.Doklad_ID) return;
+      const zaznam = platbaPodleDokladu[p.Doklad_ID] || { mena: menaPohybu(p), castka: 0 };
+      zaznam.castka += Math.abs(parsujCastkuZListu(p.Castka));
+      platbaPodleDokladu[p.Doklad_ID] = zaznam;
     });
-    function menaDokladu(d) {
-      return menaDokladuPodleId[d.ID] || d.Mena;
-    }
 
     const strediskoPodleSmlouvy = {};
     smlouvyVsechny.forEach((s) => {
@@ -230,20 +289,49 @@ exports.handler = async (event) => {
       const prijmyPodleMeny = {};
       const vydajePodleMeny = {};
 
+      // Měny, ve kterých firma vůbec smí něco vykázat - tedy měny jejích
+      // bankovních účtů. Firma bez jediného účtu (appka ji zná, ale banku
+      // pro ni Jan zatím nezapnul) se chová jako korunová.
+      const menyUctu = menyFirmy(firma);
+      const povoleneMeny = new Set(menyUctu.length > 0 ? menyUctu : ['CZK']);
+
+      // Doklady v cizí měně, které appka nezapočítala (viz komentář výš) -
+      // mapa měna -> součet, plus prostý počet dokladů pro větu na kartě.
+      const cizeMenyCastky = {};
+      let cizeMenyPocet = 0;
+
       doklady
         .filter((d) => (d.Firma_potvrzena || d.Firma_AI_odhad) === firma)
         .filter((d) => d.Stav !== 'Zpracovává se')
         .filter((d) => String(d.Datum_dokladu || '') >= zacatekOkna)
         .forEach((d) => {
           const stredisko = d.Stredisko || '(bez střediska)';
-          const castka = parsujCastkuZListu(d.Castka);
           // v4.32: Dobropis (opravný daňový doklad) SNIŽUJE dřívější náklad,
           // ne přičítá nový - appka proto částku odečte (záporné znaménko),
           // stejný princip jako u DPH bilance v danovy-prehled.js, viz
           // lib/dokladySchema.js pro plné zdůvodnění.
           const znamenko = d.Typ_dokladu === 'Dobropis' ? -1 : 1;
-          pripoctiStredisko(strediskaVydaje, stredisko, menaDokladu(d), castka * znamenko);
-          pripoctiCelkem(vydajePodleMeny, menaDokladu(d), castka * znamenko);
+
+          // Spárovaný doklad: appka bere měnu i částku z platby, protože ta
+          // je vždycky v měně účtu a je to částka, která z účtu opravdu odešla.
+          const platba = platbaPodleDokladu[d.ID];
+          if (platba) {
+            pripoctiStredisko(strediskaVydaje, stredisko, platba.mena, platba.castka * znamenko);
+            pripoctiCelkem(vydajePodleMeny, platba.mena, platba.castka * znamenko);
+            return;
+          }
+
+          // Nespárovaný doklad: měna z dokladu se musí shodovat s měnou
+          // některého účtu firmy, jinak ho appka nezapočítá a jen ho vykáže.
+          const mena = normalizujMenu(d.Mena);
+          const castka = parsujCastkuZListu(d.Castka);
+          if (!povoleneMeny.has(mena)) {
+            cizeMenyCastky[mena] = (cizeMenyCastky[mena] || 0) + castka;
+            cizeMenyPocet += 1;
+            return;
+          }
+          pripoctiStredisko(strediskaVydaje, stredisko, mena, castka * znamenko);
+          pripoctiCelkem(vydajePodleMeny, mena, castka * znamenko);
         });
 
       const pohybyTetoFirmy = pohybyVsechny.filter((p) => p.Firma === firma);
@@ -334,6 +422,7 @@ exports.handler = async (event) => {
 
       return {
         firma,
+        menyUctu,
         prijmyPodleMeny,
         vydajePodleMeny,
         rozdilPodleMeny,
@@ -341,6 +430,7 @@ exports.handler = async (event) => {
         strediskaVydaje,
         dokladyKeSchvaleni,
         pohybyNesparovane,
+        cizeMeny: { pocet: cizeMenyPocet, castky: cizeMenyCastky },
       };
     });
 

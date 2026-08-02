@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.46 – 2026-08-02';
+const APP_VERZE = 'v4.47 – 2026-08-02';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1692,9 +1692,17 @@ function vykresliDashSouhrnStredisek(souhrn) {
   if (zaznamy.length === 0) return '<div class="popis" style="margin:0">Žádná data.</div>';
   return zaznamy
     .map(([klic, podleMeny]) => {
+      // Od v4.47 appka měny NESLEPUJE do jednoho řádku spojkou " + " (dřív
+      // "233 140,50 Kč + 148 500,00 HUF"). Ten slepenec se nesměl zalomit
+      // (`.polozka-souhrn strong` má `white-space: nowrap`, aby se částka
+      // netrhala uprostřed čísla), takže na mobilu roztlačil celou kartu o
+      // deset pixelů za okraj stránky - přesně to, co Jan viděl. Každá měna
+      // má teď vlastní řádek uvnitř buňky s částkou; po opravě měn v
+      // netlify/functions/dashboard-firmy.js je to stejně skoro vždycky jen
+      // jeden řádek, ale appka na to už nespoléhá.
       const castkyText = serazeneMeny(podleMeny)
-        .map((mena) => formatCastkaSMenou(podleMeny[mena], mena))
-        .join(' + ');
+        .map((mena) => '<span class="castka-radek">' + formatCastkaSMenou(podleMeny[mena], mena) + '</span>')
+        .join('');
       return '<div class="polozka-souhrn"><span>' + escapeHtml(klic) + '</span><strong>' + castkyText + '</strong></div>';
     })
     .join('');
@@ -1723,8 +1731,19 @@ function vytvorDashFirmaKarta(f) {
   const karta = document.createElement('div');
   karta.className = 'dash-firma-karta';
 
+  // Od v4.47 hlavička karty nese odznak s měnou/měnami bankovních účtů firmy
+  // (`menyUctu` z dashboard-firmy.js). Není to jen ozdoba: od téhle verze
+  // appka ve zbytku karty počítá VÝHRADNĚ v těchhle měnách, takže odznak
+  // rovnou říká, proč jsou částky takové, jaké jsou - a kdyby se u firmy
+  // objevila měna, kterou Jan nečeká, je vidět, že je špatně nastavený účet
+  // v Nastavení, ne výpočet.
+  const menyUctu = f.menyUctu || [];
+  const odznakMeny = menyUctu.length > 0
+    ? '<span class="dash-mena-uctu">' + escapeHtml(menyUctu.join(' · ')) + '</span>'
+    : '';
+
   let html =
-    '<h3>' + escapeHtml(f.firma) + '</h3>' +
+    '<h3>' + escapeHtml(f.firma) + odznakMeny + '</h3>' +
     radkySouhrnPodleMeny('Příjmy (12 měsíců)', f.prijmyPodleMeny) +
     radkySouhrnPodleMeny('Výdaje (12 měsíců)', f.vydajePodleMeny) +
     radkySouhrnPodleMeny('Rozdíl', f.rozdilPodleMeny, (hodnota) => (hodnota >= 0 ? 'rozdil-kladny' : 'rozdil-zaporny')) +
@@ -1732,6 +1751,24 @@ function vytvorDashFirmaKarta(f) {
     vykresliDashSouhrnStredisek(f.strediskaVydaje) +
     '<div class="dash-stredisko-nadpis">Příjmy podle střediska</div>' +
     vykresliDashSouhrnStredisek(f.strediskaPrijmy);
+
+  // Od v4.47: doklady v měně, ve které firma nemá bankovní účet, appka do
+  // součtů výš NEZAPOČÍTALA (nemá kurzovní lístek a nebude si ho vymýšlet -
+  // viz netlify/functions/dashboard-firmy.js). Zamlčet je by ale znamenalo,
+  // že karta tiše ukazuje neúplný obrázek, takže je appka vypíše pod součty.
+  // Jan si tuhle podobu vybral výslovně (AskUserQuestion, v4.47:
+  // "Nezapočítat a napsat to pod kartu").
+  const cizeMeny = f.cizeMeny || {};
+  if (cizeMeny.pocet > 0) {
+    const rozpis = serazeneMeny(cizeMeny.castky)
+      .map((mena) => formatCastkaSMenou(cizeMeny.castky[mena], mena))
+      .join(', ');
+    html +=
+      '<div class="dash-cizi-mena">' +
+      cizeMeny.pocet + '× doklad v cizí měně (' + escapeHtml(rozpis) + ') appka do součtů ' +
+      'nezapočítala - nemá je zatím spárované s platbou z účtu.' +
+      '</div>';
+  }
 
   const upozorneni = [];
   if (f.dokladyKeSchvaleni > 0) {

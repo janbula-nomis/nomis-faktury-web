@@ -883,17 +883,82 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 .banka-sipka { display: inline-block; transition: transform 0.15s; }
 
 .mriz-souhrn { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-.polozka-souhrn { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--barva-hranice); font-size: 13px; }
-.polozka-souhrn strong { white-space: nowrap; margin-left: 12px; }
+
+/* Řádek souhrnu (popisek vlevo, částka vpravo) - od v4.47 dva srovnané
+   sloupce místo `display: flex`.
+   Jan v4.47: "dashboard pořád špatný, přeteká text (...) a pak to zarovnej
+   na stránku, pošli návrh png". Poslali jsme mu čtyři makety (A dnešní stav,
+   B popisek nad částkou, C dva srovnané sloupce, D kompaktní s výpustkou)
+   a Jan si vybral C.
+   Proč to dřív přetékalo: flex řádek nesmršťoval popisek (výchozí
+   `min-width: auto` u flex položky) a částka je `white-space: nowrap`.
+   Součet obou minim byl širší než karta, auto-fit sloupec se roztáhl a
+   celá mřížka firem vyčuhovala o 10 px za pravý okraj stránky (naměřeno
+   ve 320 px, což je šířka, kterou Jan na iPhonu se zvětšeným písmem
+   reálně vidí - ne 390 px).
+   Proč zrovna grid: `minmax(0, 1fr)` dovolí popisku smrsknout se pod jeho
+   nejdelší slovo a `overflow-wrap: anywhere` ho pak zalomí; částka zůstane
+   na jednom řádku a všechny částky lícují v jednom sloupci pod sebou.
+   Nezkoušet znovu: samotné `min-width: 0` na flex položce sice smrsknutí
+   povolí, ale `justify-content: space-between` pak částky nezarovná do
+   sloupce - každá skončí jinde podle délky popisku, což byla přesně ta
+   "nesymetrie", kterou Jan reklamoval už ve v4.44. */
+.polozka-souhrn {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--barva-hranice);
+  font-size: 13px;
+}
+.polozka-souhrn > span { min-width: 0; overflow-wrap: anywhere; }
+.polozka-souhrn strong { white-space: nowrap; margin-left: 0; text-align: right; }
 .polozka-souhrn:last-child { border-bottom: none; }
+/* Víc měn v jednom řádku (např. středisko placené z CZK i z EUR účtu) se
+   od v4.47 nelepí do jednoho řetězce přes " + ", ale každá měna dostane
+   vlastní řádek pod sebou. Slepený řetězec se totiž kvůli `nowrap` nemohl
+   nikde zalomit a byl hlavní příčinou přetékání. */
+.polozka-souhrn .castka-radek { display: block; }
 
 /* Dashboard (od v3.22) - karta pro každou firmu vedle sebe (ne přepínač/
    filtr jedné firmy jako u Přehledu plateb výše) - stejný .mriz-souhrn
    auto-fit vzor, jen o něco širší minimum, ať se do karty vejde rozpad
    podle střediska i řádek s upozorněními. */
-.mriz-dashboard-firmy { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+/* `min(260px, 100%)` (od v4.47): na úzkém mobilu je 260px minimum širší než
+   celá karta a auto-fit sloupec pak stránku roztlačí do strany. `min()` to
+   zastropuje na šířku, která je k dispozici - na desktopu se nic nemění. */
+.mriz-dashboard-firmy { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 12px; }
 .dash-firma-karta { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); padding: 12px; background: var(--barva-pozadi); }
-.dash-firma-karta h3 { margin: 0 0 8px; font-size: 13.5px; font-weight: 700; }
+.dash-firma-karta h3 { margin: 0 0 8px; font-size: 13.5px; font-weight: 700; overflow-wrap: anywhere; }
+/* Odznak s měnami účtu firmy vedle jejího názvu (v4.47). Jan: "potřebuji
+   abys na CZK učtech pracoval jen s menou účtu CZK a na EUR jen s EUR" -
+   odznak je vidět, v jaké měně appka tu kartu počítá, aby nebylo potřeba
+   to hádat z částek. `float: right` schválně, ne flex: název se tak smí
+   obtéct kolem odznaku a nezalomí se zbytečně brzy. */
+.dash-mena-uctu {
+  float: right;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--barva-hranice);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 8px;
+  color: var(--barva-text-tlumena);
+}
+/* Poznámka pod kartou o dokladech v cizí měně, které appka nezapočítala
+   (v4.47). Jan si u otázky "co s dokladem v cizí měně bez platby" vybral
+   "Nezapočítat a napsat to pod kartu". */
+.dash-cizi-mena {
+  margin-top: 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--barva-text-tlumena);
+  border-left: 2px solid var(--barva-hranice);
+  padding-left: 8px;
+  overflow-wrap: anywhere;
+}
 .dash-firma-karta .rozdil-kladny { color: var(--barva-uspech); }
 .dash-firma-karta .rozdil-zaporny { color: var(--barva-chyba); }
 .dash-firma-karta .dash-stredisko-nadpis { font-size: 11.5px; color: var(--barva-text-tlumena); margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 0.02em; }
