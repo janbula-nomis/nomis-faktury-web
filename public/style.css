@@ -1045,6 +1045,162 @@ input[type="file"] { margin-top: 8px; }
   .banka-radek-hlava > span:nth-child(3), .banka-radek-hlavicka > span:nth-child(3) { display: none; }
 }
 
+/* ---------- MOBILNÍ REŽIM: řádek jako karta (v4.46) ----------
+   Jan 2026-08-02 poslal snímek z iPhonu: *„rozhazuje se to a přetéká, není
+   lepší vyvinout i verzi je pro mobily?"*. Appka to změřila a Jan měl
+   pravdu - na jeho telefonu (zvětšené systémové písmo, takže efektivní
+   šířka stránky je cca 320 CSS px, ne 390) potřebovala mřížka Bankovních
+   výpisů z bloku 480px minimálně 14+70+96+96 px sloupců plus 3x 8px mezery,
+   dohromady 300 px, ale dovnitř karty se vešlo jen 272 px. Řádek tedy
+   přetékal o 38 px doprava a Částka se ořezávala uprostřed čísla
+   („-2 770,").
+
+   Appka se schválně NEROZDĚLILA na zvlášť „mobilní verzi" (Jan se na to
+   ptal). Zůstává jedna appka, jeden kód, žádná detekce zařízení - jen
+   se pod tímhle breakpointem řádek přeskládá z TABULKY na KARTU. Důvod:
+   dosavadní strategie „zúžit sloupce a ty nejméně důležité schovat"
+   (Číslo od 640px, Datum od 480px) došla na konec - i po schování dvou
+   sloupců se zbytek nevešel. Karta nemá strop, protože nesoutěží
+   o vodorovné místo.
+
+   Podoba karty (Jan si ji vybral ze čtyř vykreslených maket jako
+   „variantu B - karta na dva řádky"):
+     ▶  Protistrana / dodavatel               Částka
+        datum                                  stav
+
+   Zamítnuté varianty pro pořádek, ať se nezkoušejí znovu: „C - karta
+   s popisky" (každý údaj na vlastní řádek s popiskem vlevo) byla
+   nejčitelnější, ale na obrazovku se vešly jen ~3 pohyby místo 5;
+   „D - kompaktní" (bez stavového odznaku, stav jen barvou pozadí) sice
+   ukázala nejvíc pohybů, ale dlouhé názvy protistran pořád ořezávala,
+   což byl původní problém.
+
+   Breakpoint je 560px, ne 480px: karta dává smysl všude, kde je řádek
+   užší než zhruba dva palce textu, a 560 je pohodlně nad šířkou i těch
+   největších telefonů na šířku obsahu (a pod šířkou tabletu na výšku,
+   který si šestisloupcovou mřížku ještě v pohodě nese).
+
+   POZOR na pořadí v souboru: tenhle blok MUSÍ zůstat AŽ ZA bloky 640px
+   a 480px výš. Ty totiž schovávají buňky přes `> span:nth-child(n)`
+   (specificita 0,2,1) a tenhle blok je zase odkrývá přes `> span.trida`
+   (taky 0,2,1) - při shodné specificitě rozhoduje pořadí v souboru.
+   Kdyby se tenhle blok posunul nahoru, Datum i odznak banky by na mobilu
+   zmizely a karta by měla prázdný druhý řádek. (Stejná past už jednou
+   appku dostala ve v4.37, viz komentář u `.banka-radek-hlava` výš.) */
+
+/* Souhrn nad bankovními pohyby je v DOM dvakrát (viz vykresliBankovniPohyby
+   v public/app.js): jako věta a jako dlaždice. Ve výchozím stavu (desktop)
+   je vidět věta, dlaždice appka drží schované - přepnutí řeší @media blok
+   níž. Tyhle základní deklarace musí zůstat PŘED tím blokem, jinak by
+   pozdější `display: none` přebilo `display: flex` z media query. */
+.souhrn-dlazdice { display: none; flex-wrap: wrap; gap: 6px; }
+.souhrn-dlazdice-polozka {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  border: 1px solid var(--barva-hranice);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  color: var(--barva-text-tlumena);
+}
+.souhrn-dlazdice-polozka b { font-size: 13px; color: var(--barva-text); }
+/* Celkový počet je jen orientační kotva, ne stav k vyřízení - appka ho
+   tlumí, ať nesoupeří s dlaždicemi, které vyžadují akci. */
+.souhrn-dlazdice-polozka.souhrn-dlazdice-celkem { opacity: 0.75; }
+
+@media (max-width: 560px) {
+  /* Tlačítka „Aktualizovat" a „Stáhnout Excel" v Bankovních výpisech sedí
+     v HTML MIMO `.tlacitka-nahrani`, takže na ně pravidlo `width: 100%`
+     z bloku 640px výš nedosáhne - a přesně proto měla každá řada tlačítek
+     na Janově snímku jinou šířku. Appka je tu srovná zvlášť podle id. */
+  #tlacitko-banka-aktualizovat, #tlacitko-export-excel-banka { width: 100%; }
+
+  /* Souhrn: věta ven, dlaždice dovnitř. Filtr „jen chybějící" (lupa) appka
+     drží vedle dlaždic vpravo nahoře - `.banka-souhrn-radek` je flexbox
+     s `flex-wrap: wrap`, takže by ho dlaždice na svoji šířku vytlačily na
+     vlastní řádek pod sebe a lupa by osiřela uprostřed obrazovky. */
+  .souhrn-text { display: none; }
+  .souhrn-dlazdice { display: flex; }
+  /* Dlaždice dostanou celý zbytek řádku (`flex: 1` + `min-width: 0`, aby se
+     směly zúžit pod šířku svého obsahu a zalomit se dovnitř místo toho, aby
+     vytlačily lupu na vlastní řádek pod sebe). Lupa se drží nahoře u prvního
+     řádku dlaždic, ne uprostřed jejich výšky.
+
+     POZOR: obojí je schválně zapsané přes id, ne přes třídu - základní
+     pravidla `.banka-souhrn-radek` / `.prepinac-ikona` jsou v souboru AŽ
+     ZA tímhle blokem, takže při shodné specificitě by vyhrála ona.
+
+     A druhá past, na kterou appka jednou doplatila: tenhle komentář musí mít
+     opravdu i otevírací značku (lomítko-hvězdička), ne jen tu ukončovací.
+     Když se při jedné úpravě otevírací značka ztratila, prohlížeč začal text
+     komentáře číst jako selektor a spolkl i pravidlo
+     `.banka-souhrn-radek #banka-souhrn` hned za ním - dlaždice pak neměly
+     `flex: 1` a lupa opravdu spadla na vlastní třetí řádek. Na Janově
+     snímku to vypadalo přesně takhle. */
+  .banka-souhrn-radek #banka-souhrn { flex: 1; min-width: 0; }
+  #banka-jen-chybejici { align-self: flex-start; flex: 0 0 auto; }
+
+  /* --- BANKOVNÍ VÝPISY: řádek jako karta --- */
+  /* Hlavička sloupců nedává u karet smysl (nad kartou by stály popisky
+     sloupců, které v kartě nikde nejsou) - appka ji schová celou. */
+  .banka-radek-hlavicka { display: none; }
+  .banka-radek-hlava {
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+    row-gap: 3px;
+    column-gap: 8px;
+    align-items: start;
+  }
+  /* Datum se vrací (blok 480px výš ho schovává přes nth-child(3)). */
+  .banka-radek-hlava > span.banka-datum { display: block; }
+  /* Dlouhý název protistrany se v kartě smí zalomit - základní pravidlo
+     `.banka-radek-hlava > span` (0,2,0) nastavuje `nowrap` a přebilo by
+     samotnou třídu `.dodavatel` (0,1,0), proto ten delší selektor. */
+  .banka-radek-hlava > span.dodavatel { white-space: normal; overflow: visible; }
+  .banka-radek-hlava > span.cislo-evid { display: none; }
+  .banka-radek-hlava .banka-sipka { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+  .banka-radek-hlava .dodavatel { grid-column: 2; grid-row: 1; font-weight: 600; }
+  .banka-radek-hlava .castka { grid-column: 3; grid-row: 1; }
+  .banka-radek-hlava .banka-datum {
+    grid-column: 2; grid-row: 2;
+    font-size: 11.5px; color: var(--barva-text-tlumena);
+  }
+  .banka-radek-hlava .banka-stav-bunka { grid-column: 3; grid-row: 2; justify-content: flex-end; }
+
+  /* --- PŘIJATÉ FAKTURY: řádek jako karta --- */
+  /* Stejný princip, jen doklad má na druhém řádku dva odznaky (vlastní
+     stav dokladu + stav spárování s bankou), takže mřížka má o sloupec víc:
+       ▶  Dodavatel                              Částka
+          datum              [banka]      [stav dokladu]
+     Evidenční číslo appka v kartě neukazuje (je hned v detailu po
+     rozkliknutí a na druhý řádek se s dvěma odznaky nevejde). */
+  .doklad-radek-hlavicka { display: none; }
+  .doklad-radek-hlava {
+    grid-template-columns: 14px minmax(0, 1fr) auto auto;
+    row-gap: 3px;
+    column-gap: 8px;
+    align-items: start;
+  }
+  /* Datum (schované blokem 640px) i buňka s odznakem banky (schovaná
+     blokem 480px) se v kartě vrací - viz poznámka o pořadí výš. */
+  .doklad-radek-hlava > span.doklad-datum { display: block; }
+  .doklad-radek-hlava > span.doklad-banka-bunka { display: block; }
+  .doklad-radek-hlava > span.dodavatel { white-space: normal; overflow: visible; }
+  .doklad-radek-hlava > span.cislo-evid { display: none; }
+  .doklad-radek-hlava .doklad-sipka { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+  .doklad-radek-hlava .dodavatel { grid-column: 2; grid-row: 1; }
+  .doklad-radek-hlava .castka { grid-column: 3 / -1; grid-row: 1; justify-self: end; }
+  .doklad-radek-hlava .doklad-datum {
+    grid-column: 2; grid-row: 2;
+    font-size: 11.5px; color: var(--barva-text-tlumena);
+  }
+  .doklad-radek-hlava .doklad-banka-bunka {
+    grid-column: 3; grid-row: 2;
+    justify-self: end; overflow: visible;
+  }
+  .doklad-radek-hlava .stav-chip { grid-column: 4; grid-row: 2; justify-self: end; }
+}
+
 .patka-verze { text-align: center; font-size: 11px; color: var(--barva-text-tlumena); padding: 14px 0 8px; }
 
 .tlacitka-nahrani { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }

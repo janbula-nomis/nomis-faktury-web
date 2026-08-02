@@ -1,5 +1,5 @@
 /**
- * public/sw.js  (v4.45)
+ * public/sw.js  (v4.46)
  *
  * Service worker appky - ZÁMĚRNĚ BEZ JAKÉHOKOLIV KEŠOVÁNÍ.
  *
@@ -21,7 +21,7 @@
  * bez internetu by stejně nešlo nic načíst ani uložit, protože všechna data
  * jsou v Google Sheets.
  */
-const VERZE = 'v4.45';
+const VERZE = 'v4.46';
 
 self.addEventListener('install', (event) => {
   // Nová verze workeru se má aktivovat hned, ne až se zavřou všechny karty.

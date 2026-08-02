@@ -4589,6 +4589,111 @@ nevadí.
 `APP_VERZE` appka zvýšila na `v4.45 – 2026-08-02`, `VERZE` v `sw.js`
 na `v4.45`.
 
+## 88. Mobilní režim: Bankovní výpisy a Přijaté doklady jako karty místo tabulky (v4.46)
+
+**Co Jan hlásil.** Poslal dva snímky z iPhonu a napsal: *"rozhazuje se to
+a přetéká, není lepší vyvinout i verzi je pro mobily?"* Na snímku
+Bankovních výpisů byly vidět tři věci najednou: každá řada tlačítek jinak
+široká, souhrn jako šestiřádkový slepenec vět, a hlavně **ořezaná
+Částka** - v pravém sloupci stálo `-2 770,`, `-1 171,`, `-2 029,`,
+`-1 717,`, číslo useknuté uprostřed. Druhý snímek (Dashboard) posloužil
+jako kontrola, že zlaté tlačítko z v4.45 se vykresluje správně - to bylo
+v pořádku.
+
+**Odpověď na tu otázku v závorce, protože je důležitější než ta oprava.**
+Appka se **nerozdělila** na "webovou" a "mobilní verzi". Zůstává jeden
+kód, jedno `index.html`, jeden `app.js`, žádná detekce zařízení, žádné
+`if (jsemNaMobilu)`. Dvě verze by znamenaly dvě místa, kde se každá další
+oprava musí udělat - a ta druhá by se dřív nebo později zapomněla.
+Místo toho appka pod určitou šířkou okna **přeskládá** ty samé prvky do
+jiného tvaru. Jan si tuhle cestu vybral z nabídnutých možností
+("Mobilní režim v jedné appce").
+
+**Proč to přetékalo (spočítáno, ne odhadnuto).** Řádek pohybu je CSS
+mřížka. Dosavadní strategie pro úzké displeje byla "zúžit sloupce a ty
+nejméně důležité schovat" - od 640 px mizelo Číslo, od 480 px Datum.
+Jenže i po schování dvou sloupců zbývaly čtyři o pevné šířce:
+14 + 70 + 96 + 96 px = 276 px, plus tři osmipixelové mezery = **300 px
+potřebných**. Vnitřek karty na Janově displeji má **272 px**. Rozdíl
+38 px odtekl doprava a odnesla to Částka, protože je poslední.
+
+Podstatné je, proč zrovna 272 px: Jan má na telefonu zvětšené systémové
+písmo, takže jeho iPhone hlásí stránce šířku kolem **320 CSS px**, ne
+390 px, jak by odpovídalo hardwaru. Všechno mobilní se v této appce
+proto ověřuje na 320 px, ne na 390 px.
+
+**Co appka změnila.** Pod **560 px** se řádek Bankovních výpisů
+i Přijatých dokladů přeskládá z tabulky na **kartu o dvou řádcích**:
+
+```
+  ▶  Protistrana / dodavatel               Částka
+     datum                                   stav
+```
+
+Hlavička sloupců se schová (nad kartou nemá co popisovat), evidenční
+číslo taky (je hned v detailu po rozklepnutí), a naopak se **vrací datum**,
+které se do té doby schovávalo. Dlouhý název protistrany se smí zalomit
+na víc řádků - proto se `ČEZ Prodej a.s.` ani `Nájemné Kollárova 12 -
+byt 3` už neuseknou. Karta nemá strop, protože nesoutěží o vodorovné
+místo; tím ten problém mizí principiálně, ne jen o pár pixelů.
+
+Podobu si Jan vybral ze čtyř vykreslených maket:
+
+| Varianta | Popis | Výsledek |
+| --- | --- | --- |
+| A | dnešní stav (tabulka) | výchozí, právě ten vadný |
+| B | karta na dva řádky | **vybráno** |
+| C | karta s popisky, každý údaj na svém řádku | zamítnuto - vejdou se jen ~3 pohyby místo 5 |
+| D | kompaktní, stav jen barvou pozadí | zamítnuto - dlouhé názvy pořád ořezávala |
+
+K tomu dvě věci ze stejného snímku:
+
+- **Srovnaná tlačítka.** `Aktualizovat` a `Stáhnout Excel` sedí v HTML
+  *mimo* `.tlacitka-nahrani`, takže na ně pravidlo `width: 100 %` z bloku
+  640 px nikdy nedosáhlo - a přesně proto měla každá řada jinou šířku.
+  Pod 560 px je appka srovná zvlášť podle `id`. Na Janově displeji jsou
+  teď všechna tři tlačítka široká 274 px, tedy stejně.
+- **Souhrn v dlaždicích.** Věta *"55 potvrzeno, 0 navrženo, 64 chybí, 40
+  bez dokladu, …"* zabírala na telefonu šest řádků a nešlo z ní nic
+  vyčíst. Pod 560 px ji nahradí řada kulatých dlaždic (`4 Chybí`,
+  `1 Trvalé příkazy`, …) a appka v ní **vynechá nuly** - ukáže jen to,
+  čeho je aspoň jedno. Filtr "jen chybějící" (lupa) zůstává vpravo nahoře
+  vedle dlaždic.
+
+**Jedna věc, která stojí za zmínku, protože je nezvyklá.** Souhrn je
+v HTML **dvakrát**: jednou jako věta, jednou jako dlaždice. Který z nich
+je vidět, rozhoduje čistě CSS podle šířky okna. Nabízelo se to udělat
+v JavaScriptu (změřit šířku okna a vykreslit jen jednu podobu), ale pak
+by se to muselo přepočítávat při každém otočení telefonu a při každé
+změně velikosti okna na PC - a hlavně by šlo trefit stav, kdy appka
+ukazuje mobilní podobu na širokém monitoru. Takhle to řeší prohlížeč sám
+a desktopové vykreslení je zaručeně bit po bitu stejné jako předtím.
+
+**Pozor na pořadí v `style.css`, ať se to neopakuje.** Bloky 640 px
+a 480 px schovávají buňky přes `> span:nth-child(n)`, nový blok 560 px je
+zase odkrývá přes `> span.trida`. Obě zápisy mají **stejnou specificitu**,
+takže rozhoduje pořadí v souboru - nový blok musí zůstat *za* nimi.
+Kdyby se posunul nahoru, datum i odznak banky by na mobilu zmizely
+a karta by měla prázdný druhý řádek. (Do stejné pasti appka spadla už
+ve v4.37.) Ze stejného důvodu jsou pravidla pro souhrnový řádek psaná
+přes `id`, ne přes třídu: základní pravidlo `.banka-souhrn-radek` je
+v souboru *až za* tím blokem.
+
+**Ověření.** Appka si obrazovky vykreslila z opravdového `index.html`
+a `style.css` (ne z ručně přepsané kopie), naplnila je sedmi bankovními
+pohyby a pěti doklady včetně schválně nepříjemných případů (`ČEZ Prodej
+a.s.` s částkou `-125 480,50` a odznakem "chybí zařazení", třířádkový
+název `Alza.cz a.s. - objednávka 2026/114873`, doklad ve stavu
+`Zpracovává se` bez dodavatele i data), a v **28 kombinacích** - skin
+Gold i Navy × světlý i tmavý režim × šířky 320 / 360 / 390 / 560 / 561 /
+768 / 1180 px - změřila přetečení každého řádku. Výsledek: **0 px všude**,
+i na 320 px, kde se dřív ztrácelo 38 px. Ověřila i to, že přepnutí
+nastává přesně na hranici (na 560 px dlaždice a karty, na 561 px věta
+a tabulka) a že na desktopu 1180 px je vykreslení nezměněné.
+
+`APP_VERZE` appka zvýšila na `v4.46 – 2026-08-02`, `VERZE` v `sw.js`
+na `v4.46`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.45 – 2026-08-02';
+const APP_VERZE = 'v4.46 – 2026-08-02';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1196,11 +1196,19 @@ function vytvorRadekDoklad(d) {
       escapeHtml(d.Evidencni_cislo || '–') + '</span>' +
     '<span class="stav-chip ' + stavTrida(d.Stav) + '" title="' + escapeHtml(d.Stav || '') + '">' +
       escapeHtml(dokladStavZkratka(d.Stav)) + '</span>' +
-    (bankSparovaniBadge(d) || '<span></span>') +
+    // (v4.46) Odznak spárování s bankou appka nově obaluje vlastní buňkou
+    // `doklad-banka-bunka` (dřív šel do mřížky odznak samotný, a když
+    // odznak nebyl, prázdný `<span>`). Buňka tu je VŽDY - jednak kvůli
+    // pevnému počtu sloupců mřížky, jednak proto, že se na ni v mobilním
+    // režimu odkazuje CSS (v úzkém breakpointu byla tahle buňka schovaná
+    // přes `nth-child(4)`, teď se místo toho přesouvá na druhý řádek karty).
+    '<span class="doklad-banka-bunka">' + bankSparovaniBadge(d) + '</span>' +
     '<span class="dodavatel">' +
       escapeHtml(d.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (d.Dodavatel || '(bez dodavatele)')) +
     '</span>' +
-    '<span>' + escapeHtml(d.Datum_dokladu || '') + '</span>' +
+    // (v4.46) Datum má vlastní třídu `doklad-datum` - stejný důvod jako
+    // u bankovního řádku výš (v mobilním režimu se přesouvá, ne schovává).
+    '<span class="doklad-datum">' + escapeHtml(d.Datum_dokladu || '') + '</span>' +
     '<span class="castka">' + (d.Stav === 'Zpracovává se' ? '' : formatCastkaSMenou(d.Castka, d.Mena)) + '</span>';
 
   const detail = document.createElement('div');
@@ -2916,12 +2924,50 @@ function vykresliBankovniPohyby() {
   // Od v4.19 - párování PŘÍJMŮ přímo s nájemní Smlouvou.
   const najmyNavrzeno = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Navrženo - nájemní smlouva').length;
   const najmySparovano = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Spárováno - nájemní smlouva').length;
-  souhrn.textContent =
+  // (v4.46) Souhrn appka vykresluje DVAKRÁT do stejného místa: jako větu
+  // (`.souhrn-text`, beze změny - to je to, co appka ukazuje na desktopu)
+  // a jako řadu kulatých dlaždic (`.souhrn-dlazdice`). Který z nich je
+  // vidět, rozhoduje čistě CSS podle šířky okna (viz public/style.css,
+  // blok "MOBILNÍ REŽIM"). Důvod: na telefonu se ta věta rozlila na šest
+  // řádků slepeného textu, ve kterém se nedalo nic najít (Jan 2026-08-02:
+  // "rozhazuje se to a přetéká"). Appka to schválně NEŘEŠÍ v JS podle
+  // šířky okna - jinak by se to muselo přepočítávat při každém otočení
+  // telefonu a při změně velikosti okna na PC.
+  const dlazdiceData = [
+    ['Potvrzeno', potvrzeno],
+    ['Navrženo', navrzeno],
+    ['Chybí', chybi],
+    ['Bez dokladu', bezDokladu],
+    ['Trvalé příkazy', trvalePrikazy],
+    ['Příjmy přiřazené', prijmyPrirazene],
+    ['Návrh k faktuře', fakturyNavrzeno],
+    ['S fakturou', fakturySparovano],
+    ['Návrh k nájmu', najmyNavrzeno],
+    ['S nájmem', najmySparovano],
+    ['Daňové platby', danovePlatby],
+  ];
+  const vetaSouhrnu =
     potvrzeno + ' potvrzeno, ' + navrzeno + ' navrženo, ' + chybi + ' chybí, ' + bezDokladu +
     ' bez dokladu, ' + trvalePrikazy + ' trvalých příkazů, ' + prijmyPrirazene + ' příjmů přiřazeno, ' +
     fakturyNavrzeno + ' navrženo k faktuře, ' + fakturySparovano + ' spárováno s fakturou, ' +
     najmyNavrzeno + ' navrženo k nájmu, ' + najmySparovano + ' spárováno s nájmem, ' +
     danovePlatby + ' daňových plateb (celkem ' + bankaPohybySeznam.length + ')';
+  souhrn.innerHTML =
+    '<span class="souhrn-text">' + escapeHtml(vetaSouhrnu) + '</span>' +
+    '<span class="souhrn-dlazdice">' +
+      // Nulové položky appka do dlaždic schválně nedává - na telefonu je
+      // místa málo a "0 navrženo k nájmu" nenese žádnou informaci. Ve větě
+      // pro desktop nuly zůstávají (tam místo je a Jan je na ni zvyklý).
+      dlazdiceData
+        .filter(([, pocet]) => pocet > 0)
+        .map(
+          ([popis, pocet]) =>
+            '<span class="souhrn-dlazdice-polozka"><b>' + pocet + '</b>' + escapeHtml(popis) + '</span>'
+        )
+        .join('') +
+      '<span class="souhrn-dlazdice-polozka souhrn-dlazdice-celkem"><b>' +
+        bankaPohybySeznam.length + '</b>celkem</span>' +
+    '</span>';
 
   const jenChybejici = document.getElementById('banka-jen-chybejici').getAttribute('aria-pressed') === 'true';
   const serazene = bankaPohybySeznam
@@ -2985,7 +3031,11 @@ function vytvorRadekBanka(p) {
     // a číslo tedy ještě nemá) appka ukáže s pomlčkou.
     '<span class="cislo-evid' + (p.Sparovany_evidencni_cislo ? '' : ' cislo-evid-prazdne') + '">' +
       escapeHtml(p.Sparovany_evidencni_cislo || '–') + '</span>' +
-    '<span>' + escapeHtml(p.Datum || '') + '</span>' +
+    // (v4.46) Datum má vlastní třídu `banka-datum` - v mobilním režimu ho
+    // appka NESCHOVÁVÁ jako dřív, ale přesouvá na druhý řádek karty, a bez
+    // třídy by na něj nešlo v CSS sáhnout jinak než přes `nth-child`, což
+    // je přesně to, co v úzkých breakpointech tohle datum schovávalo.
+    '<span class="banka-datum">' + escapeHtml(p.Datum || '') + '</span>' +
     '<span class="dodavatel">' + escapeHtml(p.Protistrana || p.Typ_pohybu || '') + '</span>' +
     // Stav appka drží v jedné buňce mřížky (appka schválně nepřidává další
     // sloupec jen kvůli odznaku "chybí zařazení") - když se obě appka
