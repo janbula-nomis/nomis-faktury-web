@@ -1308,3 +1308,111 @@ input[type="file"] { margin-top: 8px; }
 .polozky-pridat { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
 .polozky-pridat input { width: auto; flex: 1 1 120px; margin: 0; }
 .varovani-odhlaseni-box button:hover { background: var(--barva-primarni-tmava); }
+
+/* ---------- PROHLÍŽEČKA SKENU UVNITŘ APPKY (v4.44) ----------
+   Používá se jen v režimu "appka spuštěná z plochy telefonu". Tam appka
+   nesmí sken posílat přes window.open - systémový prohlížeč by dostal
+   blob: odkaz, který u sebe neumí otevřít, a uživatel by koukal na prázdné
+   okno (přesně ta chyba, kterou appka řešila ve v4.40 a v4.43).
+   V běžném prohlížeči se tohle okno vůbec nepoužije, sken se otevře v nové
+   kartě jako dosud. Viz jeStandalone()/zobrazSkenVAppce() v app.js. */
+.sken-okno {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: #0d1a2b;
+  display: flex;
+  flex-direction: column;
+  /* Bez tohohle by široký sken (skeny bývají 2000+ px) roztáhl okno mimo
+     displej a lišta s tlačítky by utekla za pravý okraj. */
+  overflow: hidden;
+  /* Fallback pro starší iOS, kde 100 % výšky u fixed prvku nesedí na
+     výšku displeje kvůli mizící liště prohlížeče. */
+  height: 100%;
+  height: 100dvh;
+}
+body.sken-okno-otevreno { overflow: hidden; }
+
+.sken-okno-lista {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  /* Odsazení nahoře kvůli "výřezu"/stavovému řádku iPhonu - v režimu na
+     celý displej appce začíná obsah úplně nahoře pod hodinami. */
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  background: #0d1a2b;
+  border-bottom: 1px solid rgba(200, 161, 90, 0.35);
+  flex: 0 0 auto;
+}
+.sken-okno-nazev {
+  flex: 1 1 auto;
+  color: #e6cd98;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sken-okno-stahnout {
+  flex: 0 0 auto;
+  background: #c8a15a;
+  color: #0d1a2b;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 8px;
+}
+.sken-okno-zavrit {
+  flex: 0 0 auto;
+  background: transparent;
+  color: #e6cd98;
+  border: 1px solid rgba(230, 205, 152, 0.45);
+  border-radius: 8px;
+  /* Nejmenší rozumný terč pro prst. */
+  min-width: 40px;
+  height: 36px;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sken-okno-zavrit:hover { background: rgba(230, 205, 152, 0.12); }
+
+.sken-okno-telo {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: #0a1422;
+}
+.sken-okno-obrazek {
+  max-width: 100%;
+  max-height: 100%;
+  /* min-*: 0 musí být výslovně - u obrázku ve flexboxu se jinak bere
+     přirozená velikost jako minimum a obrázek se odmítne zmenšit. */
+  min-width: 0;
+  min-height: 0;
+  display: block;
+  object-fit: contain;
+}
+.sken-okno-ram {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+}
+.sken-okno-hlaska {
+  color: #cbd5e1;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+  padding: 24px;
+  max-width: 420px;
+}
+.sken-okno-hlaska strong { color: #e6cd98; }

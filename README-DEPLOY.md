@@ -4421,6 +4421,108 @@ srovnání práv z v4.42 prošlo beze změny.
 
 `APP_VERZE` appka zvýšila na `v4.43 – 2026-07-30`.
 
+## 86. Appka na ploše telefonu - vlastní ikona a spuštění bez adresního řádku (v4.44)
+
+**Zadání.** Jan: *"Dokážeš udělat, že bude mít app logo na ikoně, pokud ji dám
+na plochu?"* Do téhle verze si appku sice šlo na plochu telefonu přidat, ale
+ikona byla to, co si prohlížeč vyrobil sám - typicky zmenšený obrázek první
+obrazovky nebo šedé písmeno "N". Mezi ostatními appkami ji nešlo poznat.
+
+**Co appka umí teď.** Po přidání na plochu má vlastní ikonu (zlatý monogram
+NOMIS na tmavě modré, stejný znak jako přihlašovací obrazovka) a spouští se
+**na celý displej**, tedy bez adresního řádku prohlížeče - vypadá a chová se
+jako běžná appka z obchodu.
+
+Jan si ze tří maket (`/tmp/ikony/maketa-ikon.png`) vybral variantu **B -
+zvětšený znak**: tentýž monogram jako ve favikoně, ale zvětšený ze 41 % na
+62 % plochy ikony. Důvod je praktický - na ploše telefonu je ikona fyzicky
+malá (asi 12 mm) a v původní velikosti se tenké zlaté tahy ztrácely.
+
+**Co k tomu bylo potřeba přidat:**
+
+- `public/assets/ikona.svg` - podklad ikony, tmavě modrý čtverec `#0d1a2b`
+  + monogram `#c8a15a` zvětšený na 62 % plochy.
+- `public/assets/ikona-maskable.svg` - tentýž znak, ale zmenšený na 51 %.
+  Android si totiž ikonu ořezává do tvaru podle nastavení telefonu (kruh,
+  čtverec se zakulacenými rohy, "kapka") a garantuje jen **kruh o průměru
+  80 % plochy**. Kdyby appka poslala jen velkou variantu, na telefonech s
+  kruhovým ořezem by se špičky kosočtverce uřízly.
+- `public/assets/apple-touch-icon.png` (180x180), `ikona-192.png`,
+  `ikona-512.png`, `ikona-maskable-512.png` - hotové obrázky. PNG bez
+  průhlednosti, rohy si každý systém zakulatí sám; průhledné pozadí by iOS
+  vykreslil černě.
+- `public/manifest.webmanifest` - jmenovka appky pro Android/Chrome: název
+  ("NOMIS Group CRM system"), krátký název na plochu ("NOMIS CRM"), ikony,
+  barvy, `display: standalone` (= bez adresního řádku).
+- `public/sw.js` - service worker, který **záměrně nic nekešuje**. Je tu
+  jediný důvod: Android nainstaluje stránku na plochu jako opravdovou appku
+  (vlastní ikona, vlastní okno) jen tehdy, když má manifest **a** service
+  worker s obsluhou `fetch`. Worker jen podá požadavek dál do sítě, takže se
+  chová stejně, jako by tam nebyl. Kešující worker by byl v téhle appce
+  vyloženě nebezpečný - už dřív nás opakovaně pálilo, že prohlížeč držel
+  starý `app.js` a Jan pak koukal na appku, která "opravu nemá"; přes
+  service worker by to šlo vypnout jen odinstalací appky z plochy. Cena za
+  to je, že appka nefunguje offline - což je stejně jedno, data jsou v
+  Google Sheets a bez internetu by nešlo načíst ani uložit nic.
+- Hlavička `public/index.html` - odkaz na manifest, `apple-touch-icon`
+  (iOS manifest ignoruje a ikonu si bere odsud), `theme-color` a čtyři
+  `apple-mobile-web-app-*` značky, které iOSu říkají "spusť na celý
+  displej, pojmenuj to NOMIS CRM".
+
+**Past, kterou to skoro způsobilo (a proč je ve verzi i změna otevírání
+skenů).** Režim "na celý displej" má jeden zrádný vedlejší efekt: `window.open`
+v něm neotevře další panel uvnitř appky - iOS ho předá Safari jako úplně jiné
+appce. A `blob:` odkaz vyrobený uvnitř appky v Safari **neplatí**. Appka
+přitom skeny podává právě jako blob (od v4.40, viz sekce 82 a 85). Kdyby se
+tedy zapnul jen ten celý displej, kolega přidávající si appku na plochu by
+narazil přesně na tu chybu, kterou dvě verze předtím řešily: "sken se
+neotevře".
+
+Proto v4.44 přidává do `public/app.js`:
+
+- `jeStandalone()` - pozná, jestli appka běží z plochy
+  (`navigator.standalone` na iOS, `display-mode: standalone/fullscreen/
+  minimal-ui` jinde),
+- `zobrazSkenVAppce()` - prohlížečku skenu **uvnitř** appky: lišta s názvem,
+  tlačítkem **Stáhnout** a křížkem, pod ní obrázek (`<img>`) nebo PDF
+  (`<iframe>`). Tlačítko Stáhnout je tam vždycky, protože iOS v PDF v rámu
+  neumí listovat - kdo potřebuje víc stránek, uloží si sken a otevře ho v
+  prohlížeči PDF svého telefonu. Blob se uvolňuje až při zavření okna, ne
+  časovačem, ať odkaz platí, dokud se uživatel dívá.
+
+`otevriSken()` se větví jen v tomhle jediném místě: v prohlížeči otevírá
+prázdný panel dopředu a chová se přesně jako dosud, v režimu na ploše panel
+neotevírá a sken ukáže uvnitř. Admin, kterému se vrátí `prilisVelky`, dostane
+i v režimu na ploše původní odkaz na Disk - to je běžná `http` adresa, s tou
+si prohlížeč telefonu poradí (na rozdíl od `blob:`).
+
+**Jak si appku přidat na plochu:**
+
+- **iPhone** - otevřít appku v **Safari** (v Chromu na iPhonu to nejde),
+  klepnout na ikonu sdílení dole uprostřed, sjet dolů na **Přidat na plochu**
+  a potvrdit.
+- **Android** - otevřít appku v **Chromu**, menu se třemi tečkami vpravo
+  nahoře, **Přidat na plochu** / **Instalovat aplikaci**.
+
+Ikona se objeví hned; pokud si telefon pamatuje starou verzi appky, stačí
+ikonu smazat a přidat znovu.
+
+**Ověření.** Ikony appka vykresluje z SVG přes headless Chromium a kontrolní
+skript pak u každé z nich ověřuje, že rozměr sedí s tím, co slibuje manifest,
+že v obrázku není ani jeden bílý pixel (první pokus měl na spodním okraji
+bílý pruh - okraj stránky prohlížeče, na ploše telefonu by to byla vidět
+světlá čára) a že roh je opravdu `#0d1a2b`. U maskable varianty skript měří,
+jak daleko od středu sahá nejvzdálenější zlatý pixel: vychází 131 px při
+limitu 205 px, znak tedy využívá 64 % bezpečné zóny a žádný ořez ho
+nezasáhne. Dál se kontroluje, že hlavička `index.html` má všech šest značek,
+že `sw.js` má obsluhu `fetch` a nikde nekešuje, že `app.js` opravdu
+neotevírá panel v režimu na ploše, a prohlížečka skenu se vykresluje ve
+skutečném rozlišení iPhonu (390x844) - jednou s obrázkem a jednou s PDF -
+a měří se, že překryv vyplní displej přesně (390x844) a obrázek se vejde
+do šířky.
+
+`APP_VERZE` appka zvýšila na `v4.44 – 2026-08-02`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

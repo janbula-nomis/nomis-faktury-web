@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.43 – 2026-07-30';
+const APP_VERZE = 'v4.44 – 2026-08-02';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -6913,6 +6913,93 @@ function odkazOtevritSken(url, souborId, typ, popisek) {
 // Promise - a ten je pravdivostně `true`. Prohlížeč by tedy odchod na
 // `href` (původní Drive odkaz) NEZRUŠIL a panel by se otevřel dvakrát,
 // jednou správně přes appku a jednou rovnou na Google se zamčenou hláškou.
+// (v4.44) Běží appka spuštěná z plochy telefonu (bez adresního řádku)?
+//
+// Proč to appka potřebuje vědět: od v4.44 se dá appka přidat na plochu a
+// spustit "na celý displej" (viz manifest.webmanifest a meta značky v
+// index.html). V tomhle režimu ale window.open NEotevře další panel v téže
+// appce - iOS ho předá Safari jako úplně jiné appce a `blob:` odkaz
+// vyrobený uvnitř appky tam neplatí, takže by se uživateli otevřelo prázdné
+// okno nebo hláška o neplatné adrese. Tím by se vrátila přesně ta chyba,
+// kterou appka řešila ve v4.40 a v4.43 ("nejde otevřít sken").
+// Řešení: když appka běží z plochy, sken ukáže ve vlastním okně UVNITŘ
+// appky (funkce zobrazSkenVAppce níže). V prohlížeči se nemění nic.
+function jeStandalone() {
+  try {
+    if (window.navigator.standalone === true) return true; // iOS Safari
+    return window.matchMedia('(display-mode: standalone)').matches ||
+      window.matchMedia('(display-mode: fullscreen)').matches ||
+      window.matchMedia('(display-mode: minimal-ui)').matches;
+  } catch (e) {
+    return false;
+  }
+}
+
+// (v4.44) Prohlížečka skenu uvnitř appky - používá se jen v režimu "appka na
+// ploše" (viz jeStandalone výš).
+//   - obrázek (foto dokladu) appka ukáže jako <img>,
+//   - PDF zkusí ukázat v <iframe>; iOS v PDF v rámu neumí listovat, proto je
+//     tam vždycky i tlačítko "Stáhnout" - to funguje spolehlivě všude a
+//     uživatel si sken otevře v prohlížeči PDF svého telefonu.
+// Blob se uvolňuje až při zavření okna, ne časovačem - dokud okno svítí,
+// odkaz musí platit.
+// (v4.44) Rozumný název pro stažený sken. Skutečné jméno souboru na Disku
+// appka v tuhle chvíli nemá (proxy /api/soubor vrací jen obsah), takže si ho
+// složí z data - hlavní je, ať soubor ve stažených nekončí jako "stazeny".
+function nazevSkenu(typObsahu) {
+  const t = String(typObsahu || '');
+  const pripona = t.includes('pdf') ? 'pdf'
+    : t.includes('png') ? 'png'
+    : t.includes('jpeg') || t.includes('jpg') ? 'jpg'
+    : t.includes('heic') ? 'heic'
+    : 'soubor';
+  const d = new Date();
+  const dvojcifr = (n) => String(n).padStart(2, '0');
+  return 'sken-' + d.getFullYear() + dvojcifr(d.getMonth() + 1) + dvojcifr(d.getDate()) +
+    '-' + dvojcifr(d.getHours()) + dvojcifr(d.getMinutes()) + '.' + pripona;
+}
+
+function zobrazSkenVAppce(blobUrl, typObsahu, nazevSouboru) {
+  const stary = document.getElementById('sken-okno');
+  if (stary) stary.remove();
+
+  const jeObrazek = String(typObsahu || '').startsWith('image/');
+  const jePdf = String(typObsahu || '').includes('pdf');
+
+  const okno = document.createElement('div');
+  okno.id = 'sken-okno';
+  okno.className = 'sken-okno';
+  okno.innerHTML =
+    '<div class="sken-okno-lista">' +
+      '<span class="sken-okno-nazev">' + escapeHtml(nazevSouboru || 'Sken') + '</span>' +
+      '<a class="sken-okno-stahnout" download="' + escapeAttr(nazevSouboru || 'sken') + '" href="' + escapeAttr(blobUrl) + '">Stáhnout</a>' +
+      '<button type="button" class="sken-okno-zavrit" aria-label="Zavřít sken">✕</button>' +
+    '</div>' +
+    '<div class="sken-okno-telo">' +
+      (jeObrazek
+        ? '<img class="sken-okno-obrazek" alt="Sken dokladu" src="' + escapeAttr(blobUrl) + '">'
+        : jePdf
+          ? '<iframe class="sken-okno-ram" title="Sken dokladu" src="' + escapeAttr(blobUrl) + '"></iframe>'
+          : '<p class="sken-okno-hlaska">Tenhle typ souboru appka neumí ukázat přímo. Použijte tlačítko <strong>Stáhnout</strong> nahoře.</p>') +
+    '</div>';
+
+  function zavri() {
+    okno.remove();
+    document.body.classList.remove('sken-okno-otevreno');
+    document.removeEventListener('keydown', naEsc);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  }
+  function naEsc(e) {
+    if (e.key === 'Escape') zavri();
+  }
+
+  okno.querySelector('.sken-okno-zavrit').addEventListener('click', zavri);
+  document.addEventListener('keydown', naEsc);
+
+  document.body.appendChild(okno);
+  document.body.classList.add('sken-okno-otevreno');
+}
+
 async function otevriSken(prvek, souborId, typ) {
   if (prvek.dataset.nacita === '1') return false;
 
@@ -6922,7 +7009,11 @@ async function otevriSken(prvek, souborId, typ) {
   prvek.classList.add('nacita');
   prvek.innerHTML = '<span class="odkaz-sken-kolecko"></span>Otevírám sken…';
 
-  const panel = window.open('', '_blank');
+  // (v4.44) Prázdný panel dopředu otevírá appka jen v prohlížeči - v režimu
+  // "appka na ploše" by ho převzal systémový prohlížeč a blob by v něm
+  // neplatil (viz jeStandalone výš), tam se sken ukazuje uvnitř appky.
+  const vAppce = jeStandalone();
+  const panel = vAppce ? null : window.open('', '_blank');
 
   try {
     const hlavicky = {};
@@ -6955,8 +7046,15 @@ async function otevriSken(prvek, souborId, typ) {
         // e-mail se žádostí o sdílení - což je přesně ta situace, kvůli
         // které proxy vznikla. Kolegovi je srozumitelná česká hláška
         // mnohem užitečnější než cizí přihlašovací obrazovka Googlu.
-        if (data.prilisVelky && zalozniUrl && panel && stav && stav.role === 'admin') {
-          panel.location.href = zalozniUrl;
+        if (data.prilisVelky && zalozniUrl && stav && stav.role === 'admin') {
+          if (panel) {
+            panel.location.href = zalozniUrl;
+          } else {
+            // Režim "appka na ploše": panel appka dopředu neotvírala.
+            // Odkaz na Drive appka pošle systému - tohle je běžná http
+            // adresa, s tou si prohlížeč telefonu poradí (na rozdíl od blob).
+            window.open(zalozniUrl, '_blank');
+          }
           return false;
         }
         throw new Error(data.error || 'Chyba serveru (' + odpoved.status + ')');
@@ -6985,12 +7083,14 @@ async function otevriSken(prvek, souborId, typ) {
     const blobUrl = URL.createObjectURL(blob);
     if (panel) {
       panel.location.href = blobUrl;
+      // Uvolnění až po chvíli - kdyby appka blob zrušila hned, panel by se
+      // nestihl načíst a zůstal by prázdný.
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
     } else {
-      window.open(blobUrl, '_blank');
+      // Appka běží z plochy telefonu - sken ukážeme uvnitř appky. Blob se
+      // uvolní až při zavření okna (řeší si zobrazSkenVAppce samo).
+      zobrazSkenVAppce(blobUrl, typObsahu, nazevSkenu(typObsahu));
     }
-    // Uvolnění až po chvíli - kdyby appka blob zrušila hned, panel by se
-    // nestihl načíst a zůstal by prázdný.
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
   } catch (e) {
     if (panel) panel.close();
     alert('Sken se nepodařilo otevřít: ' + e.message);
@@ -7237,6 +7337,20 @@ document.querySelectorAll('[data-zalozka]').forEach((btn) => {
 });
 
 document.getElementById('verze-cislo').textContent = APP_VERZE;
+
+// (v4.44) Registrace service workeru - jediný důvod, proč tu je: bez něj
+// Android/Chrome nenainstaluje appku na plochu jako opravdovou appku
+// (vlastní ikona, spuštění bez adresního řádku). Worker sám ZÁMĚRNĚ nic
+// nekešuje, viz komentář v public/sw.js. Když registrace selže (starší
+// prohlížeč, http místo https), appka funguje dál úplně stejně, jen ikona na
+// ploše bude obyčejný zástupce.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((e) => {
+      console.warn('Service worker se nepodařilo zaregistrovat:', e && e.message);
+    });
+  });
+}
 
 if (jePrihlasen()) {
   zobrazApp();

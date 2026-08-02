@@ -9,6 +9,23 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Jost:wght@300;400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="style.css" />
 <link rel="icon" type="image/svg+xml" href="assets/icon-navy.svg" />
+
+<!-- v4.44 - appka na ploše telefonu (PWA).
+     Když si ji uživatel přidá na plochu, má mít vlastní ikonu (zlatý znak
+     NOMIS na tmavě modré) a spouštět se bez adresního řádku prohlížeče.
+       - manifest.webmanifest ... řeší Android/Chrome (název, ikony, barvy)
+       - apple-touch-icon .... řeší iPhone/Safari, ten manifest ignoruje a
+                               bere ikonu odsud; musí to být PNG bez
+                               průhlednosti, rohy si iOS zakulatí sám
+       - apple-mobile-web-app-capable ... iOS: spustit na celý displej
+       - theme-color ......... barva stavového řádku / lišty appky -->
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+<meta name="theme-color" content="#0d1a2b" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="NOMIS CRM" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 </head>
 <body>
 <div id="app">
