@@ -412,6 +412,26 @@ exports.handler = async (event) => {
       ).length;
       const pohybyNesparovane = pohybyTetoFirmy.filter((p) => p.Stav_parovani === 'Nespárováno').length;
 
+      // (v4.48) Jan: "na dashboard zobrazit v tlačítku kolik čeká na
+      // vyřízení?" - k tlačítku Vydané faktury patří počet faktur PO
+      // SPLATNOSTI. Ten se do téhle chvíle nikde nepočítal: frontend si ho
+      // odvozoval sám při vykreslení seznamu (vfJePoSplatnosti v
+      // public/app.js), jenže odznáček na tlačítku appka musí umět vykreslit
+      // i ve chvíli, kdy Jan seznam Vydaných faktur vůbec neotevřel - proto
+      // to samé pravidlo počítá i tady.
+      //
+      // Pravidlo je schválně DOSLOVA stejné jako ve frontendu: faktura je po
+      // splatnosti, jen když je Stav 'Neuhrazeno' A Datum_splatnosti je
+      // ostře menší než dnešek. Nikde se neukládá žádný stav "Po splatnosti"
+      // - je to čistě odvozené z dnešního data, takže appka nic nepřepočítává
+      // na pozadí a číslo se "samo" opraví, jakmile Jan fakturu označí za
+      // uhrazenou. Kdyby se pravidlo někdy měnilo, musí se změnit na OBOU
+      // místech naráz, jinak odznáček ukazuje jiné číslo než seznam pod ním.
+      const dnes = new Date().toISOString().slice(0, 10);
+      const fakturyPoSplatnosti = fakturyVsechny.filter(
+        (f) => f.Firma === firma && f.Stav === 'Neuhrazeno' && f.Datum_splatnosti && f.Datum_splatnosti < dnes
+      ).length;
+
       // Appka rozdíl (příjmy - výdaje) počítá zvlášť PRO KAŽDOU měnu, se
       // kterou appka u téhle firmy v okně vůbec něco napočítala (sjednocení
       // klíčů obou map) - appka nikdy nesčítá napříč měnami dohromady.
@@ -430,9 +450,35 @@ exports.handler = async (event) => {
         strediskaVydaje,
         dokladyKeSchvaleni,
         pohybyNesparovane,
+        fakturyPoSplatnosti,
         cizeMeny: { pocet: cizeMenyPocet, castky: cizeMenyCastky },
       };
     });
+
+    // (v4.48) Režim "jen počítadla" - appka ho volá kvůli odznakům na
+    // tlačítkách hlavního menu (viz vykresliPocitadla() v public/app.js).
+    //
+    // Proč vůbec existuje: Dashboard je od v4.30 pro běžnou roli ZAMČENÝ
+    // ("uživatel vidí přijaté, vydané a bank výpisy, víc nic") a plná
+    // odpověď téhle funkce nese příjmy, výdaje a rozpad po střediscích -
+    // tedy přesně ta čísla, která běžný uživatel vidět nemá. Odznak
+    // "kolik čeká na vyřízení" ale dává smysl každé roli. Appka proto
+    // umí odpovědět osekaně: jen tři počty na firmu, žádná částka.
+    // Kdyby se sem někdy dopisovalo další pole, musí se rozmyslet, jestli
+    // patří i do téhle větve - výchozí odpověď je NE. Pozor, ať se
+    // historie neopakuje.
+    const jenPocitadla = String(((event.queryStringParameters || {}).jen_pocitadla) || '') === '1';
+    if (jenPocitadla) {
+      return json(200, {
+        firmy: vysledky.map((f) => ({
+          firma: f.firma,
+          dokladyKeSchvaleni: f.dokladyKeSchvaleni,
+          pohybyNesparovane: f.pohybyNesparovane,
+          fakturyPoSplatnosti: f.fakturyPoSplatnosti,
+        })),
+        googleAuthVarovani: false,
+      });
+    }
 
     return json(200, {
       firmy: vysledky,

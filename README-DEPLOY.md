@@ -4820,6 +4820,191 @@ Změněné soubory: `netlify/functions/dashboard-firmy.js`, `public/app.js`,
 `APP_VERZE` appka zvýšila na `v4.47 – 2026-08-02`, `VERZE` v `sw.js`
 na `v4.47`.
 
+
+## 90. Automatický ořez fotky dokladu a počítadla na tlačítkách menu (v4.48)
+
+Jan (2026-08-02): *„dokážeme udelat ořezání scanu z fotografie? a na
+dashboard zobrazit v tlačítku kolik čeká na vyřízení?"*
+
+Dvě nezávislé věci v jedné verzi. Ani jedna nemění to, jak se s appkou
+pracuje - obojí jen ubírá práci, kterou dosud dělal Jan očima nebo ručně.
+
+### 90.1 Ořez dokladu z fotky - bez ptaní, bez tlačítka navíc
+
+Když appka fotí doklad mobilem, na fotce je vždycky i kus stolu, sedačky
+nebo palubovky. Do v4.47 se do Drive ukládala celá fotka i s tím okolím a
+celá šla i do AI na vytěžení.
+
+Appka teď z fotky sama vyřízne samotný doklad, ještě než ji zmenší a
+nahraje. Jan si v zadání výslovně vybral variantu **„Jen automatický, bez
+ptaní"** - žádný náhled, žádné tahání za rohy, žádné potvrzení. Fotka se
+vyfotí a je hotovo. Jan jako důvod uvedl **všechny tři** nabízené: aby AI
+líp vytěžila údaje, aby uložený sken vypadal jako sken, a aby byly soubory
+menší.
+
+Protože ořez nikdo nekontroluje, je celá detekce postavená obráceně, než
+by člověk čekal: **každý krok má pojistku a při jakékoli pochybnosti appka
+vrátí „nevím" a nahraje fotku nedotčenou** - tedy přesně tak, jak to
+dělala do v4.47. Nejhorší, co se může stát, je že appka neořeže; nemůže
+se stát, že by uřízla kus dokladu.
+
+Jak to appka pozná (obojí čistě v prohlížeči nad `<canvas>`, bez jediné
+knihovny navíc):
+
+1. **Podle světlé plochy.** Appka si fotku zmenší na 480 px delší strany,
+   převede do šedé, Otsuovou metodou najde práh mezi papírem a okolím,
+   vezme největší souvislou světlou oblast a opíše jí nejmenší otočený
+   obdélník. Tahle metoda umí i **srovnat natočení** - když je doklad
+   nafocený nakřivo, appka ho při ořezu zároveň narovná.
+2. **Podle hran** (záloha pro bílý papír na bílém stole, kde první metoda
+   nemá co oddělit). Appka spočítá Sobelovu hranovou mapu, promítne ji do
+   sloupců a řádků a odkrojí z každé strany prázdno. Tahle metoda
+   neotáčí, jen ořezává.
+
+Pojistky, kvůli kterým appka radši neořeže:
+
+- doklad musí zabírat mezi 10 % a 92 % plochy fotky (míň = nejspíš to
+  není doklad, víc = není co ořezávat),
+- oblast musí vyplnit aspoň 86 % svého opsaného obdélníku (viz níž),
+- střed fotky musí do nalezené oblasti patřit (doklad focený mobilem je
+  vždycky zhruba uprostřed záběru),
+- natočení nad 15° appka neotáčí vůbec (jen ořeže) - takové natočení je
+  spíš známka špatné detekce než toho, že Jan držel mobil nakřivo,
+- natočení pod 1,2° appka ignoruje (jinak by zbytečně přesamplovávala
+  obraz kvůli ničemu),
+- ořez musí ubrat aspoň 4 % plochy, jinak nemá smysl,
+- kolem dokladu appka nechává 1,5 % lem, ať neuřízne okraj papíru.
+
+**Práh 86 % není opatrnost navíc, ale konkrétní pojistka proti odlesku.**
+Kruhový odlesk (lampa, sluníčko na lakovaném stole) vyplní svůj opsaný
+obdélník přesně z π/4, tedy 78,5 %. Při nižším prahu appka fotku ořízla
+**na odlesk místo na doklad** - tenhle případ je v testech pod názvem
+`jen_odlesk`. Papír focený mobilem vyplní opsaný obdélník přes 95 %, i
+když je mírně v perspektivě, takže tenhle práh nic reálného neodmítne.
+**Nezkoušet znovu snižovat.**
+
+**Nezkoušet znovu ani OpenCV.js.** Nabízí se sáhnout po hotové knihovně na
+detekci dokumentu, ale OpenCV.js má přes 8 MB, appka nemá build krok, je
+to PWA (soubor by se stahoval i na plochu telefonu) a Jan appku používá na
+mobilních datech. Všechno výš je proto psané ručně v čistém JS.
+
+Ořez je zapojený do `zmensiObrazek()`, kterou používají **všechny čtyři**
+cesty nahrávání souboru - Přijaté faktury, Vydané faktury, Registr smluv i
+příloha k bankovnímu pohybu. Nefotí-li Jan, ale nahrává PDF, ořez se
+neuplatní vůbec (PDF appka nepřevádí přes canvas).
+
+**Ověření:** appka si vyrobila devět syntetických „fotek dokladu" (rovně,
+nakřivo o 8°, přes celou fotku, bílá na bílé, tma, mimo střed, jen odlesk,
+doklad + odlesk vedle sebe, natočení 30°) a prohnala je **skutečnou**
+`zmensiObrazek()` ze `public/app.js` - harness načte reálné `index.html` a
+sestaví reálný `File`, nic si nepředstírá. Všech devět prošlo. Vedle čísel
+appka vyrobila i kontaktní list „před / po", protože z čísel není poznat,
+jestli výřez sedí na správném místě.
+
+Vedlejší efekt, který Jan chtěl: ořezaná fotka je znatelně menší. Na
+testovacích fotkách 43 kB → 14 kB, 56 kB → 19 kB, 33 kB → 11 kB.
+
+### 90.2 Počítadla na tlačítkách hlavního menu
+
+Druhá půlka zadání. Jan si vybral, že čísla mají být **na tlačítkách
+hlavního menu** (ne jako dlaždice na Dashboardu), v podobě **„B - číslo
+hned za názvem"** (odznak stojí v jednom řádku s popiskem), a že se mají
+počítat **tři** věci:
+
+| Tlačítko | Co se počítá |
+|---|---|
+| Přijaté faktury | doklady, které ještě nejsou schválené |
+| Vydané faktury | neuhrazené faktury po splatnosti |
+| Bankovní výpisy | nespárované pohyby |
+
+Podobu si Jan vybral z makety vyfocené ve **320 px** (jeho skutečná šířka
+při zvětšeném písmu na iPhonu) ze čtyř variant: kolečko v rohu tlačítka,
+číslo za názvem, číslo vlevo ve sloupci, drobný text pod názvem. U vybrané
+varianty B **výslovně věděl a přijal, že se dlouhý popisek („Bankovní
+výpisy") na mobilu zalomí na dva řádky.** Kdyby to někdo v budoucnu
+„opravoval" zmenšením písma nebo zkrácením názvu, jde proti tomu, co si
+Jan vybral. Pozor, ať se historie neopakuje.
+
+**Odkud čísla jsou.** Ze stejné odpovědi, ze které se skládá Dashboard
+(`netlify/functions/dashboard-firmy.js`). Appka si kvůli počítadlům
+schválně nezaložila vlastní endpoint - Dashboard už umí počítat po firmách
+a se správným scopem na role, takže vlastní cesta by znamenala druhé
+místo, kde se stejné pravidlo počítá jinak. Appka čísla sečte přes všechny
+firmy, které přihlášený uživatel vidí.
+
+**Nové číslo: faktury po splatnosti.** Doklady ke schválení a nespárované
+pohyby se počítaly už dřív (na kartách Dashboardu). Faktury po splatnosti
+se ale do téhle verze nepočítaly nikde - frontend si je odvozoval sám až
+při vykreslení seznamu. Odznak musí být správně i tehdy, když Jan seznam
+Vydaných faktur vůbec neotevřel, takže pravidlo teď počítá i backend.
+Pravidlo je **doslova stejné** jako ve frontendu: `Stav = 'Neuhrazeno'` a
+`Datum_splatnosti` **ostře menší** než dnešek - faktura splatná dnes ještě
+po splatnosti není. Nikde se neukládá stav „Po splatnosti", je to čistě
+odvozené z dnešního data. **Kdyby se pravidlo někdy měnilo, musí se změnit
+na obou místech naráz**, jinak odznak ukazuje jiné číslo než seznam pod ním.
+
+**Nový režim `jen_pocitadla=1`.** Dashboard je od v4.30 pro běžnou roli
+zamčený („uživatel vidí přijaté, vydané a bank výpisy, víc nic") a plná
+odpověď nese příjmy, výdaje a rozpad po střediscích - tedy čísla, která
+běžná role vidět nemá. Odznak „kolik čeká na vyřízení" ale dává smysl
+každé roli. `dashboard-firmy` proto umí odpovědět osekaně: **jen tři počty
+na firmu a ani jedna částka.** Kdyby se do odpovědi někdy dopisovalo další
+pole, musí se rozmyslet, jestli patří i do téhle větve - výchozí odpověď
+je NE.
+
+**Kdy se odznak přepíše.** Po přihlášení, při každém otevření Dashboardu
+(z jeho vlastní odpovědi, bez dotazu navíc) a po každém zápisu, který může
+některé z čísel změnit. To poslední appka řeší **na jednom místě**, v
+`zavolejApi()` - ne tak, že by si přepočet dopisovala do každé funkce,
+která něco ukládá (schválení dokladu, spárování platby, označení faktury
+za uhrazenou, smazání, nahrání dokladu, import výpisu…). Takový seznam se
+vždycky rozejde s realitou, jakmile někdo přidá jedenáctou akci a na
+přepočet zapomene. Odsud to platí i pro akce, které teprve vzniknou.
+Několik zápisů po sobě (typicky import výpisu) appka slije do jednoho
+dotazu s odkladem 1,2 s.
+
+Drobnosti, které stojí za zapsání:
+
+- **Nula se nezobrazuje vůbec** - tlačítko se vrátí do původní podoby
+  včetně sundání flexu, aby vypadalo přesně jako ostatních sedm.
+- **Nad 99 se ukáže `99+`** - jinak by se odznak na mobilu roztáhl a
+  rozhodil mřížku záložek. Přesné číslo si Jan přečte v seznamu.
+- **Flex appka nedává na `nav.zalozky button` plošně**, jen na tlačítka,
+  která odznak opravdu mají (třída `.ma-pocitadlo`). Mřížka záložek je od
+  v4.30 vyladěná na 10 stejných tlačítek napříč rolemi a plošná změna by
+  se dotkla i sedmi tlačítek, která s počítadly nemají nic společného -
+  včetně ikony zámku `::before` u zamčené záložky, ze které by se rázem
+  stala samostatná flex položka s mezerou navíc.
+- **Barva odznaku je natvrdo `#d0342c`, ne `var(--barva-chyba)`.** Tmavý
+  motiv si `--barva-chyba` přesvětluje na `#f16a62`, což je barva pro
+  červený *text* na tmavém pozadí; jako podklad pod bílou číslici má
+  kontrast kolem 2,6:1, tedy nečitelně. Odznak proto drží jednu tmavší
+  červenou ve všech motivech i skinech (bílá číslice na ní má přes 4,9:1).
+- **Odznak nepoužívá `title`** - ten na tlačítkách záložek patří hlášce o
+  zámku (`nastavZamekZalozky`) a přepisovaly by si ho navzájem. Pro
+  odečítačky obrazovky má odznak `aria-label` („7 ke schválení").
+- Chyba při načítání počítadel se **polyká potichu** - je to doplňková
+  informace a hláška kvůli ní (typicky při výpadku sítě) by Jana jen
+  vyděsila uprostřed jiné práce.
+
+**Ověření:** logika backendu proti **skutečnému** handleru
+`dashboard-firmy.js` (Google podstrčený, data vymyšlená) - faktura splatná
+dnes se nepočítá, uhrazená se nepočítá, faktura bez data splatnosti se
+nepočítá, faktura cizí firmy nepřeteče, běžná role vidí jen své firmy,
+`jen_pocitadla=1` nevrací ani jedno pole s částkou, appka bez listu
+`Vydane_faktury` nespadne. Vykreslení proti **skutečnému** `index.html`,
+`style.css` i `app.js` (harness volá přímo `vykresliPocitadla()`) ve
+**20 kombinacích** (skin Gold i Navy × světlý i tmavý režim × šířky
+320 / 360 / 390 / 768 / 1180 px): odznaky přesně na třech tlačítkách,
+**0 px přetečení** tlačítka z mřížky i odznaku z tlačítka, tělo stránky
+přesně na šířku okna a mřížka záložek pořád zarovnaná do sloupců.
+
+Změněné soubory: `netlify/functions/dashboard-firmy.js`, `public/app.js`,
+`public/style.css`, `public/sw.js`.
+
+`APP_VERZE` appka zvýšila na `v4.48 – 2026-08-02`, `VERZE` v `sw.js`
+na `v4.48`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

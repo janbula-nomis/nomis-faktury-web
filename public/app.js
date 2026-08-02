@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.47 – 2026-08-02';
+const APP_VERZE = 'v4.48 – 2026-08-02';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -173,7 +173,42 @@ async function zavolejApi(cesta, moznosti) {
     chyba.data = data; // appka občas potřebuje i další pole z chybové odpovědi (viz např. import bankovního výpisu)
     throw chyba;
   }
+  // (v4.48) Počítadla na tlačítkách menu (viz vykresliPocitadla() níž) musí
+  // po každé změně dat ukázat nové číslo. Appka to schválně řeší tady, na
+  // jednom místě, a ne tak, že by si přepočet dopisovala do každé funkce,
+  // která něco ukládá (schválení dokladu, spárování platby, označení faktury
+  // za uhrazenou, smazání, nahrání dokladu, hromadný import výpisu…) - takový
+  // seznam se vždycky rozejde s realitou, jakmile někdo přidá jedenáctou
+  // akci a na přepočet zapomene. Odsud to platí i pro akce, které teprve
+  // vzniknou. Pozor, ať se historie neopakuje.
+  ohlasZmenuProPocitadla(cesta, (opts.method || 'GET').toUpperCase());
   return data;
+}
+
+// Endpointy, jejichž zápis může některým ze tří počítadel změnit číslo.
+// Seznam je tu jen jako filtr proti zbytečnému dotazu navíc (přepočet čte
+// šest listů ze Sheetů, takže ho appka nechce spouštět třeba po uložení
+// nastavení skinu) - když se sem někdy zapomene doplnit nový endpoint,
+// počítadlo se prostě přepíše až při dalším otevření Dashboardu nebo při
+// dalším přihlášení, tedy nic se nerozbije.
+const POCITADLA_ENDPOINTY = [
+  '/doklady',                        // schválení, změna, smazání přijaté faktury
+  '/upload-dokoncit',                // dokončené nahrání dokladu = nový doklad ke schválení
+  '/banka',                          // import výpisu i spárování pohybu
+  '/vydaneFaktury',                  // vystavení/uhrazení/smazání vydané faktury
+  '/vydane-faktury-upload-dokoncit', // nahraná vydaná faktura
+];
+let pocitadlaCasovac = null;
+
+function ohlasZmenuProPocitadla(cesta, metoda) {
+  if (metoda === 'GET') return;
+  if (!POCITADLA_ENDPOINTY.some((p) => cesta === p || cesta.indexOf(p + '?') === 0 || cesta.indexOf(p + '/') === 0)) return;
+  // Jedna Janova akce občas znamená několik zápisů za sebou (typicky import
+  // výpisu nebo hromadné spárování) - appka proto přepočet odloží a případné
+  // další volání během té chvilky ho jen posune, takže se dotaz pošle jednou,
+  // až se to uklidní.
+  clearTimeout(pocitadlaCasovac);
+  pocitadlaCasovac = setTimeout(() => obnovPocitadla(), 1200);
 }
 
 // ---------- PŘIHLÁŠENÍ ----------
@@ -386,6 +421,11 @@ function zobrazApp() {
   // záložku, proto mu appka místo toho naskočí na Přijaté faktury (jediná
   // hlavní pracovní záložka bez zámku pro tuhle roli).
   prepniZalozku(jeUcetniNeboAdmin ? 'dashboard' : 'doklady');
+  // (v4.48) Počítadla na tlačítkách menu appka natáhne hned po přihlášení,
+  // ale JEN běžné roli - adminovi/účetní o řádek výš naskočí Dashboard, a ten
+  // si čísla vezme rovnou ze své vlastní odpovědi (viz nactiDashboard), takže
+  // dotaz odsud by byl jen druhé volání téhož endpointu během jedné vteřiny.
+  if (!jeUcetniNeboAdmin) obnovPocitadla();
   spustIdleSledovani();
 }
 
@@ -536,7 +576,15 @@ function zmensiObrazek(soubor, maxRozmer, kvalita) {
     const img = new Image();
     const url = URL.createObjectURL(soubor);
     img.onload = () => {
-      let { width, height } = img;
+      // (v4.48) Než appka obrázek zmenší, zkusí z fotky vyříznout samotný
+      // doklad - viz najdiDokladNaFotce() níž. Když si detekce není jistá,
+      // vrátí null a appka zpracuje fotku celou jako dřív.
+      const vyrez = najdiDokladNaFotce(img);
+
+      const zdrojS = vyrez ? vyrez.sirka : img.width;
+      const zdrojV = vyrez ? vyrez.vyska : img.height;
+      let width = zdrojS;
+      let height = zdrojV;
       if (width > maxRozmer || height > maxRozmer) {
         const pomer = Math.min(maxRozmer / width, maxRozmer / height);
         width = Math.round(width * pomer);
@@ -545,7 +593,20 @@ function zmensiObrazek(soubor, maxRozmer, kvalita) {
       const canvas = document.createElement('canvas');
       canvas.width = width;
       canvas.height = height;
-      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      const ctx = canvas.getContext('2d');
+      if (vyrez) {
+        // Appka kreslí OTOČENĚ: posune počátek do středu výřezu, otočí
+        // plátno o zjištěný úhel a nakreslí celou fotku tak, aby střed
+        // výřezu padl doprostřed plátna. Tím se zároveň ořízne i srovná
+        // natočení, v jednom kroku a bez mezikroků navíc.
+        const meritko = width / zdrojS;
+        ctx.translate(width / 2, height / 2);
+        ctx.rotate(-vyrez.uhel);
+        ctx.scale(meritko, meritko);
+        ctx.drawImage(img, -vyrez.stredX, -vyrez.stredY);
+      } else {
+        ctx.drawImage(img, 0, 0, width, height);
+      }
       URL.revokeObjectURL(url);
 
       const dataUrl = canvas.toDataURL('image/jpeg', kvalita);
@@ -557,6 +618,354 @@ function zmensiObrazek(soubor, maxRozmer, kvalita) {
     };
     img.src = url;
   });
+}
+
+// ---------- AUTOMATICKÝ OŘEZ DOKLADU Z FOTKY (v4.48) ----------
+//
+// Jan (2026-08-02): "dokážeme udelat ořezání scanu z fotografie?" Ze tří
+// nabídnutých cest si vybral "Jen automatický, bez ptaní" - appka tedy
+// NIKDE neukazuje náhled s rohy k doladění, ořízne sama a rovnou nahraje.
+// Důvody uvedl tři najednou: ať AI líp vytěží údaje, ať uložený sken vypadá
+// jako sken (ne jako fotka na stole) a ať jsou soubory menší.
+//
+// Protože Jan ořez nekontroluje, je celá tahle část postavená obráceně, než
+// je u detekce obvyklé: NEsnaží se uspět za každou cenu. Každý krok má
+// pojistku a jakmile jedna neprojde, funkce vrátí null a appka nahraje fotku
+// celou, jako to dělala do v4.47. Křivě oříznutý doklad by si totiž Jan
+// všiml až v Drive, kdy je originál dávno pryč - kdežto neoříznutá fotka je
+// přesně to, co měl předtím, tedy žádná ztráta.
+//
+// Nezkoušet znovu: OpenCV.js (obvyklá volba na tenhle úkol) má přes 8 MB.
+// Appka nemá build krok, servíruje se jako PWA a Jan ji používá na mobilních
+// datech - stahovat 8 MB knihovnu kvůli ořezu jedné účtenky nedává smysl.
+// Všechno níž je proto obyčejný JavaScript nad <canvas>, bez závislostí.
+//
+// Postup: fotka se zmenší na ~480 px (detekce nepotřebuje detail a na plném
+// rozlišení by na mobilu trvala vteřiny), převede na šedou a zkusí se
+// DVĚ nezávislé metody, v tomhle pořadí:
+//   1. SVĚTLÁ PLOCHA (Otsu práh + největší souvislá oblast). Funguje, když
+//      je papír světlejší než podklad - stůl, koberec, palubní deska. Umí
+//      i srovnat natočení, protože kolem oblasti hledá nejmenší opsaný
+//      obdélník.
+//   2. HUSTOTA HRAN (Sobel). Nastoupí, když první metoda neprojde - typicky
+//      bílá účtenka na bílém stole, kde práh nemá co oddělit. Hledá jen
+//      obdélník, ve kterém leží drtivá většina "kresby", takže nesrovnává
+//      natočení, zato nezávisí na barvě podkladu.
+// Když neprojde ani jedna, vrací null.
+const OREZ_ANALYZA_PX = 480;      // delší strana pracovní kopie
+const OREZ_MIN_PODIL = 0.10;      // doklad musí zabírat aspoň 10 % fotky
+const OREZ_MAX_PODIL = 0.92;      // a nejvýš 92 % (jinak není co ořezávat)
+// Výplň 0.86 není opatrnost navíc, ale konkrétní pojistka: kruhový odlesk
+// stolu vyplní svůj opsaný obdélník přesně z pi/4, tedy 78,5 %, a při nižším
+// prahu by appka ořízla fotku na odlesk (ověřeno případem "jen_odlesk" v
+// testech). Papír focený mobilem vyplní opsaný obdélník přes 95 %, i když je
+// mírně v perspektivě, takže tenhle práh nic reálného neodmítne.
+const OREZ_MIN_VYPLN = 0.86;      // oblast musí vyplnit aspoň 86 % svého obdélníku
+const OREZ_MAX_UHEL = 15;         // větší natočení = nejspíš špatná detekce
+const OREZ_MRTVY_UHEL = 1.2;      // pod tímhle úhlem se neotáčí vůbec
+const OREZ_MIN_ZISK = 0.04;       // ořez musí ubrat aspoň 4 % plochy, jinak nemá smysl
+const OREZ_LEM = 0.015;           // lem kolem dokladu, ať se neuřízne okraj papíru
+
+function najdiDokladNaFotce(img) {
+  try {
+    const plne = { s: img.width, v: img.height };
+    if (!plne.s || !plne.v || plne.s * plne.v < 200 * 200) return null;
+
+    const pomer = Math.min(1, OREZ_ANALYZA_PX / Math.max(plne.s, plne.v));
+    const s = Math.max(1, Math.round(plne.s * pomer));
+    const v = Math.max(1, Math.round(plne.v * pomer));
+
+    const plat = document.createElement('canvas');
+    plat.width = s;
+    plat.height = v;
+    plat.getContext('2d').drawImage(img, 0, 0, s, v);
+    const px = plat.getContext('2d').getImageData(0, 0, s, v).data;
+
+    const sed = new Uint8ClampedArray(s * v);
+    for (let i = 0, j = 0; j < sed.length; i += 4, j += 1) {
+      sed[j] = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000;
+    }
+
+    const obdelnik = orezPodleSvetlePlochy(sed, s, v) || orezPodleHran(sed, s, v);
+    if (!obdelnik) return null;
+
+    // Přepočet z pracovní kopie zpět na plné rozlišení + lem.
+    const meritko = 1 / pomer;
+    const lem = 1 + OREZ_LEM * 2;
+    const sirka = Math.round(obdelnik.sirka * meritko * lem);
+    const vyska = Math.round(obdelnik.vyska * meritko * lem);
+    if (sirka < 80 || vyska < 80) return null;
+
+    // Poslední pojistka: ořez musí opravdu něco ubrat.
+    if ((sirka * vyska) / (plne.s * plne.v) > 1 - OREZ_MIN_ZISK) return null;
+
+    return {
+      sirka,
+      vyska,
+      stredX: obdelnik.stredX * meritko,
+      stredY: obdelnik.stredY * meritko,
+      uhel: obdelnik.uhel,
+    };
+  } catch (e) {
+    // Detekce nesmí nikdy shodit nahrávání - když cokoli selže (starý
+    // prohlížeč, tainted canvas, málo paměti), appka prostě neořízne.
+    return null;
+  }
+}
+
+// --- Metoda 1: největší souvislá světlá plocha -------------------------
+
+function orezPodleSvetlePlochy(sed, s, v) {
+  const prah = otsuPrah(sed);
+  const maska = new Uint8Array(s * v);
+  for (let i = 0; i < sed.length; i += 1) maska[i] = sed[i] > prah ? 1 : 0;
+
+  const oblast = najvetsiOblast(maska, s, v);
+  if (!oblast) return null;
+
+  const podil = oblast.body.length / (s * v);
+  if (podil < OREZ_MIN_PODIL || podil > OREZ_MAX_PODIL) return null;
+
+  // Doklad focený mobilem je vždycky zhruba uprostřed záběru. Když největší
+  // světlá plocha střed fotky neobsahuje, je to skoro jistě odlesk stolu
+  // nebo okno v pozadí, ne doklad.
+  const stred = Math.floor(v / 2) * s + Math.floor(s / 2);
+  if (!oblast.maska[stred]) return null;
+
+  const obal = konvexniObal(oblast.obrys);
+  if (obal.length < 3) return null;
+
+  const obdelnik = nejmensiObdelnik(obal);
+  if (!obdelnik) return null;
+
+  // Oblast musí být opravdu zhruba obdélníková. Kdyby detekce chytila
+  // třeba ruku držící účtenku, výplň spadne a appka radši neořízne.
+  if (oblast.body.length / (obdelnik.sirka * obdelnik.vyska) < OREZ_MIN_VYPLN) return null;
+
+  const uhelStupne = Math.abs((obdelnik.uhel * 180) / Math.PI);
+  if (uhelStupne > OREZ_MAX_UHEL) return null;
+  if (uhelStupne < OREZ_MRTVY_UHEL) obdelnik.uhel = 0;
+
+  if (obdelnik.sirka < s * 0.15 || obdelnik.vyska < v * 0.15) return null;
+  return obdelnik;
+}
+
+function otsuPrah(sed) {
+  const hist = new Float64Array(256);
+  for (let i = 0; i < sed.length; i += 1) hist[sed[i]] += 1;
+  const celkem = sed.length;
+  let soucet = 0;
+  for (let t = 0; t < 256; t += 1) soucet += t * hist[t];
+
+  let soucetB = 0;
+  let vahaB = 0;
+  let nejlepsi = 0;
+  let prah = 128;
+  for (let t = 0; t < 256; t += 1) {
+    vahaB += hist[t];
+    if (vahaB === 0) continue;
+    const vahaF = celkem - vahaB;
+    if (vahaF === 0) break;
+    soucetB += t * hist[t];
+    const prumerB = soucetB / vahaB;
+    const prumerF = (soucet - soucetB) / vahaF;
+    const rozptyl = vahaB * vahaF * (prumerB - prumerF) * (prumerB - prumerF);
+    if (rozptyl > nejlepsi) {
+      nejlepsi = rozptyl;
+      prah = t;
+    }
+  }
+  return prah;
+}
+
+// Souvislé oblasti appka hledá iterativně přes vlastní zásobník, ne
+// rekurzí - u fotky 480x640 je oblast klidně 200 000 pixelů a rekurze by
+// v prohlížeči přetekla zásobník.
+function najvetsiOblast(maska, s, v) {
+  const znacky = new Int32Array(s * v).fill(-1);
+  const zasobnik = new Int32Array(s * v);
+  let nejlepsi = null;
+
+  for (let start = 0; start < maska.length; start += 1) {
+    if (!maska[start] || znacky[start] !== -1) continue;
+    let vrch = 0;
+    zasobnik[vrch++] = start;
+    znacky[start] = start;
+    const body = [];
+    while (vrch > 0) {
+      const i = zasobnik[--vrch];
+      body.push(i);
+      const x = i % s;
+      const y = (i / s) | 0;
+      if (x > 0 && maska[i - 1] && znacky[i - 1] === -1) { znacky[i - 1] = start; zasobnik[vrch++] = i - 1; }
+      if (x < s - 1 && maska[i + 1] && znacky[i + 1] === -1) { znacky[i + 1] = start; zasobnik[vrch++] = i + 1; }
+      if (y > 0 && maska[i - s] && znacky[i - s] === -1) { znacky[i - s] = start; zasobnik[vrch++] = i - s; }
+      if (y < v - 1 && maska[i + s] && znacky[i + s] === -1) { znacky[i + s] = start; zasobnik[vrch++] = i + s; }
+    }
+    if (!nejlepsi || body.length > nejlepsi.body.length) nejlepsi = { znacka: start, body };
+  }
+  if (!nejlepsi) return null;
+
+  // Z nalezené oblasti si appka nechá jen krajní body každého řádku - na
+  // konvexní obal víc nepotřebuje a je jich řádově míň.
+  const vlastni = new Uint8Array(s * v);
+  const minX = new Int32Array(v).fill(-1);
+  const maxX = new Int32Array(v).fill(-1);
+  nejlepsi.body.forEach((i) => {
+    vlastni[i] = 1;
+    const x = i % s;
+    const y = (i / s) | 0;
+    if (minX[y] === -1 || x < minX[y]) minX[y] = x;
+    if (maxX[y] === -1 || x > maxX[y]) maxX[y] = x;
+  });
+  const obrys = [];
+  for (let y = 0; y < v; y += 1) {
+    if (minX[y] === -1) continue;
+    obrys.push([minX[y], y]);
+    if (maxX[y] !== minX[y]) obrys.push([maxX[y], y]);
+  }
+  return { body: nejlepsi.body, maska: vlastni, obrys };
+}
+
+// Andrewův monotónní řetězec.
+function konvexniObal(body) {
+  if (body.length < 3) return body.slice();
+  const b = body.slice().sort((p, q) => (p[0] - q[0]) || (p[1] - q[1]));
+  const kriz = (o, a, c) => (a[0] - o[0]) * (c[1] - o[1]) - (a[1] - o[1]) * (c[0] - o[0]);
+  const dolni = [];
+  b.forEach((p) => {
+    while (dolni.length >= 2 && kriz(dolni[dolni.length - 2], dolni[dolni.length - 1], p) <= 0) dolni.pop();
+    dolni.push(p);
+  });
+  const horni = [];
+  for (let i = b.length - 1; i >= 0; i -= 1) {
+    const p = b[i];
+    while (horni.length >= 2 && kriz(horni[horni.length - 2], horni[horni.length - 1], p) <= 0) horni.pop();
+    horni.push(p);
+  }
+  dolni.pop();
+  horni.pop();
+  return dolni.concat(horni);
+}
+
+// Rotující posuvné měřítko: nejmenší opsaný obdélník má vždycky jednu stranu
+// položenou na některé hraně konvexního obalu, takže stačí projít hrany.
+function nejmensiObdelnik(obal) {
+  let nej = null;
+  for (let i = 0; i < obal.length; i += 1) {
+    const a = obal[i];
+    const c = obal[(i + 1) % obal.length];
+    const uhel = Math.atan2(c[1] - a[1], c[0] - a[0]);
+    const cos = Math.cos(-uhel);
+    const sin = Math.sin(-uhel);
+    let minX = Infinity; let maxX = -Infinity; let minY = Infinity; let maxY = -Infinity;
+    obal.forEach((p) => {
+      const x = p[0] * cos - p[1] * sin;
+      const y = p[0] * sin + p[1] * cos;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    });
+    const sirka = maxX - minX;
+    const vyska = maxY - minY;
+    const plocha = sirka * vyska;
+    if (plocha <= 0) continue;
+    if (!nej || plocha < nej.plocha) {
+      const sx = (minX + maxX) / 2;
+      const sy = (minY + maxY) / 2;
+      nej = {
+        plocha,
+        sirka,
+        vyska,
+        uhel,
+        // střed zpátky do souřadnic fotky (opačná rotace)
+        stredX: sx * cos + sy * sin,
+        stredY: -sx * sin + sy * cos,
+      };
+    }
+  }
+  if (!nej) return null;
+
+  // Doklad focený nastojato je vysoký, ne ležatý. Když nejmenší obdélník
+  // vyjde otočený o skoro 90 stupňů, je to tentýž obdélník popsaný jinak -
+  // appka úhel srovná do intervalu (-45, 45>, ať pojistka na maximální
+  // natočení měří to, co má.
+  let u = nej.uhel;
+  while (u <= -Math.PI / 4) u += Math.PI / 2;
+  while (u > Math.PI / 4) u -= Math.PI / 2;
+  if (Math.abs(u - nej.uhel) > 1e-9) {
+    const prohozeno = Math.abs(Math.round((nej.uhel - u) / (Math.PI / 2))) % 2 === 1;
+    if (prohozeno) {
+      const p = nej.sirka;
+      nej.sirka = nej.vyska;
+      nej.vyska = p;
+    }
+    nej.uhel = u;
+  }
+  return nej;
+}
+
+// --- Metoda 2: hustota hran (záloha pro bílý doklad na bílém stole) -----
+
+function orezPodleHran(sed, s, v) {
+  const hrany = new Float64Array(s * v);
+  let celkem = 0;
+  for (let y = 1; y < v - 1; y += 1) {
+    for (let x = 1; x < s - 1; x += 1) {
+      const i = y * s + x;
+      const gx = sed[i - s + 1] + 2 * sed[i + 1] + sed[i + s + 1]
+               - sed[i - s - 1] - 2 * sed[i - 1] - sed[i + s - 1];
+      const gy = sed[i + s - 1] + 2 * sed[i + s] + sed[i + s + 1]
+               - sed[i - s - 1] - 2 * sed[i - s] - sed[i - s + 1];
+      const g = Math.abs(gx) + Math.abs(gy);
+      // Slabé přechody (stín, textura stolu, šum) appka zahazuje - jinak
+      // by "kresba" byla rozprostřená po celé fotce a ořez by nic neubral.
+      const val = g > 90 ? g : 0;
+      hrany[i] = val;
+      celkem += val;
+    }
+  }
+  if (celkem <= 0) return null;
+
+  const poSloupcich = new Float64Array(s);
+  const poRadcich = new Float64Array(v);
+  for (let y = 0; y < v; y += 1) {
+    for (let x = 0; x < s; x += 1) {
+      const val = hrany[y * s + x];
+      poSloupcich[x] += val;
+      poRadcich[y] += val;
+    }
+  }
+
+  // Z každé strany appka odkrajuje, dokud neukousne 0,6 % celkové "kresby".
+  // Původně 1,5 %, ale u bílé účtenky na bílém stole (kde okraj papíru není
+  // vidět a odkrajuje se fakticky k textu) to ubíralo i kus potištěné plochy.
+  const orez = (proj, delka) => {
+    const limit = celkem * 0.006;
+    let od = 0;
+    let sum = 0;
+    while (od < delka - 1 && sum + proj[od] < limit) { sum += proj[od]; od += 1; }
+    let doIndex = delka - 1;
+    sum = 0;
+    while (doIndex > od && sum + proj[doIndex] < limit) { sum += proj[doIndex]; doIndex -= 1; }
+    return [od, doIndex];
+  };
+  const [x1, x2] = orez(poSloupcich, s);
+  const [y1, y2] = orez(poRadcich, v);
+
+  const sirka = x2 - x1 + 1;
+  const vyska = y2 - y1 + 1;
+  if (sirka < s * 0.25 || vyska < v * 0.25) return null;
+  if ((sirka * vyska) / (s * v) > OREZ_MAX_PODIL) return null;
+
+  return {
+    sirka,
+    vyska,
+    stredX: x1 + sirka / 2,
+    stredY: y1 + vyska / 2,
+    uhel: 0,
+  };
 }
 
 // Nahrání dokladu je od v3.9 rozdělené na dvě fáze (viz netlify/functions/
@@ -1814,6 +2223,10 @@ async function nactiDashboard() {
     obsah.classList.remove('skryto');
     obsah.innerHTML = '';
     const firmy = data.firmy || [];
+    // Odpověď Dashboardu nese i čísla pro počítadla na tlačítkách menu -
+    // appka je z ní rovnou přepíše, ať kvůli nim nevolá stejný endpoint
+    // podruhé (viz obnovPocitadla() níž).
+    vykresliPocitadla(firmy);
     if (firmy.length === 0 && !data.googleAuthVarovani) {
       obsah.innerHTML = '<div class="nacitani">Zatím žádná viditelná firma.</div>';
       return;
@@ -1821,6 +2234,90 @@ async function nactiDashboard() {
     firmy.forEach((f) => obsah.appendChild(vytvorDashFirmaKarta(f)));
   } catch (e) {
     nacitani.textContent = 'Nepodařilo se načíst Dashboard: ' + e.message;
+  }
+}
+
+// ---------- POČÍTADLA NA TLAČÍTKÁCH MENU (v4.48) ----------
+//
+// Jan (2026-08-02): "a na dashboard zobrazit v tlačítku kolik čeká na
+// vyřízení?" - a v navazujícím dotazu si vybral, že čísla mají být "na
+// tlačítkách hlavního menu" (ne jako dlaždice na Dashboardu) a že se mají
+// počítat tři věci: doklady ke schválení, nespárované bankovní pohyby a
+// vydané faktury po splatnosti.
+//
+// Odkud čísla appka bere: ze STEJNÉ odpovědi, ze které se skládá Dashboard
+// (/dashboard-firmy). Appka si kvůli počítadlům schválně nezakládá vlastní
+// endpoint ani si nic nepočítá z lokálních seznamů - Dashboard už všechny tři
+// hodnoty umí spočítat po firmách a se správným scopem na role (uživatel
+// vidí jen své firmy), takže vlastní cesta by znamenala druhé místo, kde se
+// stejné pravidlo počítá jinak. Čísla appka sečte přes všechny firmy, které
+// uživatel vidí - odznak odpovídá tomu, co uvidí po kliknutí v seznamu.
+//
+// Proč se to nepočítá z lokálních seznamů: odznak musí být správně i ve
+// chvíli, kdy Jan po přihlášení příslušnou záložku vůbec neotevřel, takže
+// appka nemá co sčítat - žádný seznam ještě není načtený.
+const POCITADLA_TLACITKA = [
+  { zalozka: 'doklady', pole: 'dokladyKeSchvaleni', popis: 'ke schválení' },
+  { zalozka: 'vydane-faktury', pole: 'fakturyPoSplatnosti', popis: 'po splatnosti' },
+  { zalozka: 'banka', pole: 'pohybyNesparovane', popis: 'nespárováno' },
+];
+
+function vykresliPocitadla(firmy) {
+  POCITADLA_TLACITKA.forEach((def) => {
+    const tlacitko = document.querySelector('nav.zalozky [data-zalozka="' + def.zalozka + '"]');
+    if (!tlacitko) return;
+    const pocet = (firmy || []).reduce((soucet, f) => soucet + (Number(f[def.pole]) || 0), 0);
+    let odznak = tlacitko.querySelector('.pocitadlo');
+
+    if (pocet <= 0) {
+      // Nula se nezobrazuje vůbec - tlačítko se vrátí do původní podoby
+      // (včetně sundání .ma-pocitadlo, tedy i flexu), aby vypadalo přesně
+      // jako ostatních sedm.
+      if (odznak) odznak.remove();
+      tlacitko.classList.remove('ma-pocitadlo');
+      return;
+    }
+
+    if (!odznak) {
+      odznak = document.createElement('span');
+      odznak.className = 'pocitadlo';
+      // Popisek tlačítka appka schválně nechává jako holý textový uzel a
+      // odznak přidává za něj - kdyby ho appka obalovala do <span>, musela
+      // by kvůli tomu sahat na innerHTML tlačítka, a tím by si při každém
+      // přepsání shodila i případný `disabled`/třídy nastavené jinde
+      // (nastavZamekZalozky). Holý text se ve flexu chová jako anonymní
+      // položka a zalomí se stejně, jako se zalomil na maketě.
+      tlacitko.appendChild(odznak);
+    }
+    // Nad 99 by se odznak na mobilu roztáhl a rozhodil mřížku záložek -
+    // přesné číslo si Jan stejně přečte v seznamu.
+    odznak.textContent = pocet > 99 ? '99+' : String(pocet);
+    // Odečítačkám obrazovky by samotná číslice nic neřekla. `title` appka
+    // schválně nepoužívá - ten na tlačítkách záložek patří hlášce o zámku
+    // (nastavZamekZalozky) a přepisovaly by si ho navzájem.
+    odznak.setAttribute('aria-label', pocet + ' ' + def.popis);
+    tlacitko.classList.add('ma-pocitadlo');
+  });
+}
+
+// Přepočet počítadel bez ohledu na to, jestli je zrovna vidět Dashboard.
+// Chyba se schválně polyká: počítadlo je doplňková informace a rozbitá
+// hláška kvůli němu (typicky při výpadku sítě) by Jana jen vyděsila
+// uprostřed jiné práce.
+let pocitadlaBezi = false;
+async function obnovPocitadla() {
+  if (!stav || !stav.token || pocitadlaBezi) return;
+  pocitadlaBezi = true;
+  try {
+    // `jen_pocitadla=1` - odpověď bez jediné částky. Běžná role má Dashboard
+    // zamčený a příjmy/výdaje vidět nemá, odznak "kolik čeká" ale ano; viz
+    // netlify/functions/dashboard-firmy.js.
+    const data = await zavolejApi('/dashboard-firmy?jen_pocitadla=1', { method: 'GET' });
+    vykresliPocitadla(data.firmy || []);
+  } catch (e) {
+    /* ticho - viz komentář výš */
+  } finally {
+    pocitadlaBezi = false;
   }
 }
 

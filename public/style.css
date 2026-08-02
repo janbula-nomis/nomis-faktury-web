@@ -168,6 +168,51 @@ nav.zalozky button.zamcena-zalozka {
 nav.zalozky button.zamcena-zalozka::before { content: "🔒 "; }
 nav.zalozky button.zamcena-zalozka:hover { background: var(--barva-karta); }
 
+/* Počítadlo na tlačítku menu (v4.48) - Jan: "a na dashboard zobrazit v
+   tlačítku kolik čeká na vyřízení?". Appka Janovi vykreslila čtyři varianty
+   ve 320 px (kolečko v rohu / číslo za názvem / číslo vlevo ve sloupci /
+   drobný text pod názvem) a Jan si vybral "B - číslo hned za názvem", tedy
+   odznak stojící v JEDNOM řádku s popiskem. Jan u toho výslovně věděl a
+   přijal, že se dlouhý popisek ("Bankovní výpisy") na mobilu zalomí na dva
+   řádky - kdyby to appka někdy "opravovala" zmenšením písma nebo zkrácením
+   názvu, jde proti tomu, co si Jan vybral. Pozor, ať se historie neopakuje.
+
+   Flex appka NEDÁVÁ na `nav.zalozky button` plošně, ale jen na tlačítka,
+   která odznak opravdu mají (třídu `.ma-pocitadlo` nasazuje a sundává
+   vykresliPocitadla() v public/app.js). Důvod je čistě opatrnický: mřížka
+   záložek je od v4.30 přesně vyladěná na 10 stejných tlačítek napříč rolemi
+   (viz komentář výš) a plošná změna display na flex by se dotkla i sedmi
+   tlačítek, která s počítadly nemají nic společného - včetně ikony zámku
+   `::before` u zamčené záložky, ze které by se rázem stala samostatná
+   flex položka s mezerou navíc.
+
+   Barva odznaku je natvrdo #d0342c, ne `var(--barva-chyba)`, a to schválně:
+   tmavý motiv si `--barva-chyba` přesvětluje na #f16a62 (viz :root
+   [data-motiv="tmavy"] níž), což je barva určená pro červený TEXT na tmavém
+   pozadí - jako podklad pod bílou číslici má ale kontrast kolem 2,6:1, tedy
+   nečitelně. Odznak proto drží jednu tmavší červenou ve všech motivech i
+   skinech; bílá číslice na ní má přes 4,9:1 a je to přesně ta podoba, kterou
+   si Jan na maketě vybral. Odznak zůstává červený i na aktivním (modrém/
+   zlatém) tlačítku - má být vidět bez ohledu na to, kde Jan zrovna stojí. */
+nav.zalozky button.ma-pocitadlo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+nav.zalozky button .pocitadlo {
+  flex: none;
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #d0342c;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+}
+
 /* Jan (2026-07-18): "Nahrát doklady" má být vizuálně odlišené od
    ostatních záložek (červené pozadí, i „Novinky v4.5"). Appka to řešila
    dvakrát přímo uvnitř nav.zalozky (barva pozadí v4.5, pak 2x velikost
