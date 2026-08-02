@@ -1227,26 +1227,51 @@ input[type="file"] { margin-top: 8px; }
    zmizely a karta by měla prázdný druhý řádek. (Stejná past už jednou
    appku dostala ve v4.37, viz komentář u `.banka-radek-hlava` výš.) */
 
-/* Souhrn nad bankovními pohyby je v DOM dvakrát (viz vykresliBankovniPohyby
-   v public/app.js): jako věta a jako dlaždice. Ve výchozím stavu (desktop)
-   je vidět věta, dlaždice appka drží schované - přepnutí řeší @media blok
-   níž. Tyhle základní deklarace musí zůstat PŘED tím blokem, jinak by
-   pozdější `display: none` přebilo `display: flex` z media query. */
-.souhrn-dlazdice { display: none; flex-wrap: wrap; gap: 6px; }
-.souhrn-dlazdice-polozka {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
+/* --- SOUHRN NAD SEZNAMEM: "nejdřív co čeká" (v4.50) ---------------------
+   Sdílené Bankovními výpisy i Vydanými fakturami. Nahoře jsou stavy, které
+   po Janovi něco chtějí - velké, klikací, a klepnutí rovnou profiltruje
+   seznam pod nimi. Všechno vyřízené je pod tím jedna tlumená věta.
+
+   Historie, ať se neopakuje: do v4.49 tu byla řada kulatých dlaždic
+   (`.souhrn-dlazdice`), jedna na každý z jedenácti stavů. Na Janových
+   320 px se zalomily do schodů s dírami na koncích řádků, čísla nebyla
+   pod sebou, "203 celkem" mělo stejnou váhu jako "6 Chybí" a hlavně: nic
+   z toho nešlo zmáčknout, i když "126 Bez dokladu" je přesně to, na co
+   chce člověk klepnout (Jan 2026-08-02: "tohle nevypadá dobře"). Filtr
+   na to byl zvlášť, jako holá lupa 🔎 bez popisku - její jediné vysvětlení
+   byla `title` bublina, která se na dotykovém displeji nikdy neukáže
+   ("a k čemu je ta lupa ?"). Nevracet dlaždice ani ikonu bez textu.
+
+   Tenhle blok je schválně JEDEN pro všechny šířky - žádné přepínání
+   věta/dlaždice podle @media. Předchozí řešení mělo dvě podoby v DOM
+   naráz a přepínalo je CSS, což se ukázalo jako past (viz komentář
+   u @media bloku níž). Dvě dlaždice vedle sebe se vejdou i na 320 px. */
+.souhrn-akce { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-width: 420px; }
+.souhrn-akce-tlacitko {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 9px 10px;
+  text-align: left;
   border: 1px solid var(--barva-hranice);
-  border-radius: 999px;
-  padding: 3px 10px;
-  font-size: 11.5px;
-  color: var(--barva-text-tlumena);
+  border-radius: var(--radius-sm);
+  background: var(--barva-pozadi);
+  color: var(--barva-text);
 }
-.souhrn-dlazdice-polozka b { font-size: 13px; color: var(--barva-text); }
-/* Celkový počet je jen orientační kotva, ne stav k vyřízení - appka ho
-   tlumí, ať nesoupeří s dlaždicemi, které vyžadují akci. */
-.souhrn-dlazdice-polozka.souhrn-dlazdice-celkem { opacity: 0.75; }
+.souhrn-akce-tlacitko .cislo {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.souhrn-akce-tlacitko .stav { display: block; font-size: 11px; color: var(--barva-text-tlumena); margin-top: 1px; }
+/* Zapnutý filtr - `aria-pressed`, ne třída, ať to čte i odečítač obrazovky. */
+.souhrn-akce-tlacitko[aria-pressed="true"] { border-color: var(--barva-primarni); background: rgba(36, 84, 255, 0.08); }
+.souhrn-akce-tlacitko[aria-pressed="true"] .cislo { color: var(--barva-primarni); }
+.souhrn-zbytek { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--barva-text-tlumena); }
+.souhrn-zbytek b { color: var(--barva-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.souhrn-vse-hotovo { color: var(--barva-uspech); font-weight: 600; }
 
 @media (max-width: 560px) {
   /* Tlačítka „Aktualizovat" a „Stáhnout Excel" v Bankovních výpisech sedí
@@ -1255,30 +1280,20 @@ input[type="file"] { margin-top: 8px; }
      na Janově snímku jinou šířku. Appka je tu srovná zvlášť podle id. */
   #tlacitko-banka-aktualizovat, #tlacitko-export-excel-banka { width: 100%; }
 
-  /* Souhrn: věta ven, dlaždice dovnitř. Filtr „jen chybějící" (lupa) appka
-     drží vedle dlaždic vpravo nahoře - `.banka-souhrn-radek` je flexbox
-     s `flex-wrap: wrap`, takže by ho dlaždice na svoji šířku vytlačily na
-     vlastní řádek pod sebe a lupa by osiřela uprostřed obrazovky. */
-  .souhrn-text { display: none; }
-  .souhrn-dlazdice { display: flex; }
-  /* Dlaždice dostanou celý zbytek řádku (`flex: 1` + `min-width: 0`, aby se
-     směly zúžit pod šířku svého obsahu a zalomit se dovnitř místo toho, aby
-     vytlačily lupu na vlastní řádek pod sebe). Lupa se drží nahoře u prvního
-     řádku dlaždic, ne uprostřed jejich výšky.
+  /* Souhrn nad pohyby (věta + dlaždice + lupa) tady míval vlastní mobilní
+     rozložení. Od v4.50 je souhrn jedno rozložení pro všechny šířky
+     (`.souhrn-akce` / `.souhrn-zbytek` výš), takže tu nezbylo co přepínat.
 
-     POZOR: obojí je schválně zapsané přes id, ne přes třídu - základní
-     pravidla `.banka-souhrn-radek` / `.prepinac-ikona` jsou v souboru AŽ
-     ZA tímhle blokem, takže při shodné specificitě by vyhrála ona.
-
-     A druhá past, na kterou appka jednou doplatila: tenhle komentář musí mít
-     opravdu i otevírací značku (lomítko-hvězdička), ne jen tu ukončovací.
-     Když se při jedné úpravě otevírací značka ztratila, prohlížeč začal text
-     komentáře číst jako selektor a spolkl i pravidlo
-     `.banka-souhrn-radek #banka-souhrn` hned za ním - dlaždice pak neměly
-     `flex: 1` a lupa opravdu spadla na vlastní třetí řádek. Na Janově
-     snímku to vypadalo přesně takhle. */
-  .banka-souhrn-radek #banka-souhrn { flex: 1; min-width: 0; }
-  #banka-jen-chybejici { align-self: flex-start; flex: 0 0 auto; }
+     POZOR, ať se historie neopakuje - dvě pasti, které tenhle blok už
+     jednou nachystal a které platí pro cokoli, co se sem doplní:
+     1) Pravidla se sem psala schválně přes id, ne přes třídu: základní
+        `.banka-souhrn-radek` / `.prepinac-ikona` jsou v souboru AŽ ZA tímhle
+        blokem, takže při shodné specificitě by vyhrála ona.
+     2) Komentář tu musí mít opravdu i otevírací značku (lomítko-hvězdička),
+        ne jen ukončovací. Když se při jedné úpravě otevírací značka
+        ztratila, prohlížeč začal text komentáře číst jako selektor a spolkl
+        i pravidlo hned za ním - a na Janově snímku pak filtr spadl na
+        vlastní třetí řádek. */
 
   /* --- BANKOVNÍ VÝPISY: řádek jako karta --- */
   /* Hlavička sloupců nedává u karet smysl (nad kartou by stály popisky

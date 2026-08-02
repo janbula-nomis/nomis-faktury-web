@@ -544,9 +544,12 @@
         <div id="banka-export-excel-zprava" class="zprava skryto" style="margin-top:8px"></div>
       </div>
 
+      <!-- Souhrn pohybů (v4.50): dlaždice "co čeká" jsou zároveň filtr
+           seznamu, vykresluje je vykresliBankovniPohyby v public/app.js.
+           Samostatné tlačítko s lupou tu bývalo do v4.49 - nahradily ho
+           právě ty dlaždice, viz komentář v public/style.css. -->
       <div class="banka-souhrn-radek" style="margin-top:16px">
         <div id="banka-souhrn" class="popis"></div>
-        <button type="button" id="banka-jen-chybejici" class="prepinac-ikona" title="Zobrazit jen chybějící/navržené doklady" aria-pressed="false">🔎</button>
       </div>
 
       <div id="banka-nacitani" class="nacitani" style="margin-top:12px">Vyberte firmu…</div>

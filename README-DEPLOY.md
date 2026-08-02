@@ -5188,6 +5188,67 @@ Změněné soubory: `lib/evidencniCislo.js`, `netlify/functions/precislovani.js`
 `APP_VERZE` appka zvýšila na `v4.49 – 2026-08-02`, `VERZE` v `sw.js`
 na `v4.49`.
 
+## 92. Souhrn nad seznamem: „nejdřív co čeká" (v4.50)
+
+Jan (2026-08-02, k snímku souhrnu bankovních pohybů na iPhonu): *„tohle nevypadá dobře a k čemu je ta lupa ? dej mi nápady"*. Appka na návrh poslala tři varianty vykreslené na skutečných 320 px, Jan vybral variantu **B – nejdřív co čeká**. Tahle sekce popisuje, co se změnilo a proč se to nemá vracet zpátky.
+
+### 92.1 Co bylo špatně
+
+Souhrn nad bankovními pohyby appka od v4.46 vykreslovala do stejného místa **dvakrát**: jako větu (`.souhrn-text`, pro desktop) a jako řadu kulatých dlaždic (`.souhrn-dlazdice`, pro mobil). Který z nich je vidět, rozhodovalo čistě CSS podle šířky okna.
+
+Na mobilu z toho vzniklo pět problémů naráz:
+
+1. **Dlaždic bylo až jedenáct**, každá jinak široká, v obyčejné zalamovací řadě (`flex-wrap` + `gap: 6px`). Poskládaly se do schodů s velkými dírami na koncích řádků – přesně to, co Jan vyfotil.
+2. **Čísla nebyla pod sebou**, takže se nedala porovnat pohledem.
+3. **„203 celkem" mělo stejnou váhu** jako „6 Chybí", i když jedno je jen orientační kotva a druhé práce k udělání.
+4. **Nešlo na ně klepnout**, přestože „126 Bez dokladu" je přesně to, na co chce člověk klepnout.
+5. **Filtr byl zvlášť, jako holá lupa 🔎 bez popisku.** Jediné vysvětlení, co dělá, byla `title` bublina – ta se na dotykovém displeji nikdy neukáže. Odtud Janova otázka „k čemu je ta lupa ?". Nebyl to jeho přehlédnutý detail, ale chyba návrhu.
+
+### 92.2 Jak to vypadá teď
+
+Nahoře jsou **velké dlaždice se stavy, které po Janovi něco chtějí**, a klepnutí na dlaždici rovnou profiltruje seznam pod ní. Pod nimi je **jedna tlumená věta se vším vyřízeným** a celkovým počtem.
+
+U bankovních pohybů jsou dlaždice dvě:
+
+- **„čeká na kontrolu"** – všechny stavy `Navrženo …` (appka má tip, stačí ho potvrdit nebo zamítnout),
+- **„chybí doklad"** – stav `Nespárováno` (appka nenašla nic).
+
+`Bez dokladu` mezi ně **nepatří** – to je stav, kterým Jan sám řekl, že pohyb doklad mít nemá, takže je to hotová věc a patří do věty dole.
+
+U vydaných faktur jsou dlaždice taky dvě: **„po splatnosti"** a **„čeká na platbu"**. Faktura po splatnosti se do „čeká na platbu" schválně **nepočítá dvakrát**, jinak by čísla nedávala součet.
+
+**Filtry se dají kombinovat.** Žádná zapnutá dlaždice = celý seznam. Obě zapnuté = přesně to, co uměla stará lupa. Druhé klepnutí filtr vypne.
+
+**Dlaždice s nulou se nezobrazuje** a zároveň zhasne i svůj filtr – jinak by po vyřízení posledního pohybu zůstal zapnutý filtr bez tlačítka, kterým by se dal vypnout. Když nezbude žádná dlaždice, věta začíná zeleným „Všechno vyřízeno." (u faktur „Všechno uhrazeno.").
+
+Do věty appka nulové stavy nepíše: „0 navrženo k nájmu" nenese žádnou informaci a jen prodlužuje řádek, kterého je na telefonu škoda. Čísla ve větě skloňuje pomocník `tvarPodlePoctu(pocet, tvary)` – trojice `[1, 2-4, 5 a víc]`; „1 daňových plateb" vypadalo blbě.
+
+### 92.3 Jedno rozložení pro všechny šířky
+
+Souhrn už **není v DOM dvakrát** a nepřepíná se přes `@media`. Dvě dlaždice vedle sebe se vejdou i na 320 px (ověřeno), takže dvojí podoba nemá důvod existovat. `.souhrn-akce` má `max-width: 420px`, aby se na širokém monitoru neroztáhly přes celou obrazovku.
+
+**Pozor, ať se historie neopakuje:** ten `@media` blok byl past hned dvakrát. Poprvé kvůli specificitě – pravidla se tam musela psát přes `#id`, protože základní `.banka-souhrn-radek` / `.prepinac-ikona` jsou v souboru **až za** ním a při shodné specificitě by vyhrála ona. Podruhé kvůli komentáři, kterému se při jedné úpravě ztratila otevírací značka: prohlížeč pak text komentáře četl jako selektor a spolkl i pravidlo hned za ním, takže lupa spadla na vlastní třetí řádek. Obojí je v CSS pořád popsané, kdyby se do toho bloku někdy něco doplňovalo.
+
+### 92.4 Kde stav filtru žije
+
+V proměnných `bankaFiltr` a `vfFiltr` v `public/app.js`, ne v atributu v DOM. Souhrn se překresluje přes `innerHTML`, takže `aria-pressed` by se při každém překreslení ztratilo. Ze stejného důvodu posluchač klepnutí visí na **obalu** (`#banka-souhrn`, `#vf-souhrn`) a tlačítko hledá přes `closest` – tlačítka po překreslení zanikají a posluchač přímo na nich by zanikl s nimi. Cílem kliknutí navíc bývá vnitřní `<span>` s číslem, ne samo tlačítko.
+
+### 92.5 Přijaté doklady
+
+Souhrn tam **nepřibyl** a nebylo potřeba: přijaté doklady mají nad seznamem přepínač **„Ke schválení (N)" / „Schválené (N)"** už od dřívějška a ten dělá přesně totéž co nové dlaždice – ukazuje počet a klepnutím filtruje. Přidávat vedle něj ještě dlaždice by znamenalo dva filtry nad jedním seznamem.
+
+### 92.6 Ověřeno
+
+Dvěma harnessy nad **skutečným** `index.html`, `style.css` i `app.js`:
+
+- **bankovní pohyby** (`souhrn.py`, 45 kontrol): rozložení stavů podle Janova snímku (203 pohybů) na 320 / 390 / 1180 px ve světlém i tmavém motivu – žádná chyba JS, dlaždice sedí, lupa je pryč, nic nevyčnívá ze souhrnu, klepnutí profiltruje na 6 řádků a druhé klepnutí filtr vypne; k tomu mezní případy (všechno vyřízeno, jen navržené, obojí, prázdný seznam) a kontrola, že dvě dlaždice jsou na 320 px opravdu vedle sebe, ne pod sebou;
+- **vydané faktury** (`souhrn-vf.py`, 29 kontrol): vzorek 11 faktur (3 po splatnosti, 2 neuhrazené v termínu, 1 částečně, 4 uhrazené, 1 se zpracovává) na 320 a 1180 px – dlaždice, kombinace obou filtrů (6 řádků), návrat na plný seznam, nezaplacená částka ve větě, mezní případy.
+
+Změněné soubory: `public/index.html`, `public/app.js`, `public/style.css`, `public/sw.js`.
+
+`APP_VERZE` appka zvýšila na `v4.50 – 2026-08-02`, `VERZE` v `sw.js` na `v4.50`.
+
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

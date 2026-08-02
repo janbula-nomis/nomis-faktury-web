@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.49 – 2026-08-02';
+const APP_VERZE = 'v4.50 – 2026-08-02';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -2650,6 +2650,18 @@ function parsujCastkuZListu(hodnota) {
 // "celokorunové" varianty (formatCastkaCele/formatCastkaCeleSMenou, zavedené
 // v4.0 na Janovo přání appku tam zaokrouhlovat) - appka je od v4.26 zrušila,
 // Dashboard teď používá stejné funkce jako zbytek appky.
+// (v4.50) Český tvar slova podle počtu. Souhrny nad seznamy skládají věty
+// z čísel ("1 daňových plateb" vypadalo blbě), proto tenhle malý pomocník.
+// `tvary` je trojice [1, 2-4, 5 a víc]; když se předá jen řetězec, appka
+// ho vrátí beze změny (slova jako "potvrzeno" nebo "bez dokladu" se
+// neskloňují).
+function tvarPodlePoctu(pocet, tvary) {
+  if (!Array.isArray(tvary)) return tvary;
+  if (pocet === 1) return tvary[0];
+  if (pocet >= 2 && pocet <= 4) return tvary[1];
+  return tvary[2];
+}
+
 function formatCastka(hodnota) {
   return (
     new Intl.NumberFormat('cs-CZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
@@ -2814,6 +2826,10 @@ function vykresliPrehledExport() {
 
 let vfFirmySeznam = [];
 let vfFakturySeznam = [];
+// (v4.50) Filtr seznamu vydaných faktur - dlaždice souhrnu, stejný vzor
+// jako `bankaFiltr` u bankovních pohybů (proměnná, ne atribut v DOM:
+// souhrn se překresluje přes innerHTML).
+let vfFiltr = { poSplatnosti: false, ceka: false };
 
 async function inicializujZalozkuVydaneFaktury() {
   // Export do Money S3 appka omezuje na admina/účetní - stejný důvod jako
@@ -2940,19 +2956,84 @@ function vykresliVydaneFaktury() {
   const castecne = zpracovane.filter((f) => f.Stav === 'Částečně uhrazeno').length;
   const poSplatnosti = zpracovane.filter((f) => vfJePoSplatnosti(f)).length;
   const neuhrazeno = zpracovane.length - uhrazeno - castecne - poSplatnosti;
+  const zpracovavaSe = filtrovane.length - zpracovane.length;
   const soucetNeuhrazeno = zpracovane
     .filter((f) => f.Stav !== 'Uhrazeno')
     .reduce((soucet, f) => soucet + parsujCastkuZListu(f.Castka), 0);
-  souhrn.textContent =
-    uhrazeno + ' uhrazeno, ' + castecne + ' částečně uhrazeno, ' + neuhrazeno + ' neuhrazeno, ' +
-    poSplatnosti + ' po splatnosti (nezaplaceno celkem ' + formatCastka(soucetNeuhrazeno) + ')';
 
-  const serazene = filtrovane.slice().sort((a, b) => (b.Datum_vystaveni || '').localeCompare(a.Datum_vystaveni || ''));
+  // (v4.50) Stejný souhrn "nejdřív co čeká" jako nad bankovními pohyby -
+  // dřív to byla jedna věta se čtyřmi čísly za sebou, ve které se na
+  // telefonu nedalo nic najít (Jan 2026-08-02). Dlaždice jsou zároveň
+  // filtr seznamu; sdílené CSS je `.souhrn-akce` v public/style.css.
+  // "Po splatnosti" je vlastní stav odvozený z data, ne ze sloupce Stav
+  // (viz vfJePoSplatnosti), a faktura po splatnosti se do "čeká na
+  // platbu" schválně NEpočítá - jinak by jedna faktura byla ve dvou
+  // dlaždicích naráz a čísla by nedávala součet.
+  const cekaNaPlatbu = neuhrazeno + castecne;
+  if (poSplatnosti === 0) vfFiltr.poSplatnosti = false;
+  if (cekaNaPlatbu === 0) vfFiltr.ceka = false;
+
+  const dlazdiceAkce = [
+    ['poSplatnosti', poSplatnosti, 'po splatnosti'],
+    ['ceka', cekaNaPlatbu, 'čeká na platbu'],
+  ].filter(([, pocet]) => pocet > 0);
+
+  const hotoveData = [
+    ['uhrazeno', uhrazeno],
+    [['se zpracovává', 'se zpracovávají', 'se zpracovává'], zpracovavaSe],
+  ].filter(([, pocet]) => pocet > 0);
+
+  if (filtrovane.length === 0) {
+    souhrn.innerHTML = '';
+  } else {
+    souhrn.innerHTML =
+      (dlazdiceAkce.length
+        ? '<span class="souhrn-akce">' +
+            dlazdiceAkce
+              .map(
+                ([klic, pocet, popis]) =>
+                  '<button type="button" class="souhrn-akce-tlacitko" data-filtr="' + klic + '"' +
+                  ' aria-pressed="' + (vfFiltr[klic] ? 'true' : 'false') + '">' +
+                  '<span class="cislo">' + pocet + '</span>' +
+                  '<span class="stav">' + escapeHtml(popis) + '</span>' +
+                  '</button>'
+              )
+              .join('') +
+          '</span>'
+        : '') +
+      '<p class="souhrn-zbytek">' +
+        (dlazdiceAkce.length
+          ? (hotoveData.length ? 'Vyřízeno: ' : '')
+          : '<span class="souhrn-vse-hotovo">Všechno uhrazeno.</span> ') +
+        hotoveData
+          .map(([popis, pocet]) => '<b>' + pocet + '</b>&nbsp;' + escapeHtml(tvarPodlePoctu(pocet, popis)))
+          .join(' · ') +
+        (hotoveData.length ? '. ' : '') +
+        'Celkem <b>' + filtrovane.length + '</b>&nbsp;' +
+        tvarPodlePoctu(filtrovane.length, ['faktura', 'faktury', 'faktur']) +
+        (soucetNeuhrazeno ? ', nezaplaceno <b>' + escapeHtml(formatCastka(soucetNeuhrazeno)) + '</b>' : '') +
+        '.' +
+      '</p>';
+  }
+
+  const vfFiltrujeSe = vfFiltr.poSplatnosti || vfFiltr.ceka;
+  const serazene = filtrovane
+    .filter((f) => {
+      if (!vfFiltrujeSe) return true;
+      if (f.Stav === 'Zpracovává se' || f.Stav === 'Uhrazeno') return false;
+      if (vfFiltr.poSplatnosti && vfJePoSplatnosti(f)) return true;
+      if (vfFiltr.ceka && !vfJePoSplatnosti(f)) return true;
+      return false;
+    })
+    .slice()
+    .sort((a, b) => (b.Datum_vystaveni || '').localeCompare(a.Datum_vystaveni || ''));
 
   serazene.forEach((f) => kontejner.appendChild(vytvorRadekVydanaFaktura(f)));
 
   if (serazene.length === 0) {
-    kontejner.innerHTML = '<div class="nacitani">Zatím žádné vydané faktury.</div>';
+    kontejner.innerHTML = '<div class="nacitani">' +
+      (vfFiltrujeSe ? 'Nic k vyřízení.' : 'Zatím žádné vydané faktury.') +
+      '</div>';
   }
 }
 
@@ -3447,6 +3528,14 @@ let bankaSmlouvySeznam = []; // od v3.19 - trvalé příkazy dané firmy
 let bankaUctySeznam = []; // od v3.19 - vlastní účty dané firmy (pro ruční doplnění u příjmů)
 let bankaFakturySeznam = []; // od v3.22 - vydané faktury dané firmy (párování příjmů)
 
+// (v4.50) Filtr seznamu pohybů. Dřív to bylo jedno tlačítko s lupou, které
+// pouštělo dál "chybějící NEBO navržené" naráz; teď jsou to dvě dlaždice
+// v souhrnu, každá zvlášť zapínatelná. Obě zapnuté = to, co uměla lupa.
+// Žádná zapnutá = celý seznam. Stav je schválně tady v proměnné, ne čtený
+// z atributu v DOM: souhrn se překresluje přes innerHTML, takže by se
+// aria-pressed při každém překreslení ztratilo.
+let bankaFiltr = { ceka: false, chybi: false };
+
 // Od v4.26.1 (Jan: "CZK nebo EUR se musí zobrazovat na základě měny
 // bankovních účtů") - appka dřív u pohybu zobrazovala rovnou p.Mena
 // (hodnota odvozená appkou při IMPORTU výpisu ze sloupce/metadat souboru,
@@ -3610,9 +3699,11 @@ function vykresliBankovniPohyby() {
   const navrzeno = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Navrženo').length;
   const chybi = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Nespárováno').length;
   const bezDokladu = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Bez dokladu').length;
-  const trvalePrikazy = bankaPohybySeznam.filter(
-    (p) => p.Stav_parovani === 'Trvalý příkaz' || p.Stav_parovani === 'Navrženo - trvalý příkaz'
-  ).length;
+  // Trvalé příkazy appka dřív počítala dohromady (potvrzené i navržené) -
+  // od v4.50 je musí umět rozdělit: navržený trvalý příkaz je stav, který
+  // ještě čeká na potvrzení, potvrzený je hotová věc.
+  const trvalePrikazyPotvrzene = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Trvalý příkaz').length;
+  const trvalePrikazyNavrzene = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Navrženo - trvalý příkaz').length;
   const prijmyPrirazene = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Příjem přiřazen').length;
   const fakturyNavrzeno = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Navrženo - vydaná faktura').length;
   const fakturySparovano = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Spárováno - vydaná faktura').length;
@@ -3620,62 +3711,87 @@ function vykresliBankovniPohyby() {
   // Od v4.19 - párování PŘÍJMŮ přímo s nájemní Smlouvou.
   const najmyNavrzeno = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Navrženo - nájemní smlouva').length;
   const najmySparovano = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Spárováno - nájemní smlouva').length;
-  // (v4.46) Souhrn appka vykresluje DVAKRÁT do stejného místa: jako větu
-  // (`.souhrn-text`, beze změny - to je to, co appka ukazuje na desktopu)
-  // a jako řadu kulatých dlaždic (`.souhrn-dlazdice`). Který z nich je
-  // vidět, rozhoduje čistě CSS podle šířky okna (viz public/style.css,
-  // blok "MOBILNÍ REŽIM"). Důvod: na telefonu se ta věta rozlila na šest
-  // řádků slepeného textu, ve kterém se nedalo nic najít (Jan 2026-08-02:
-  // "rozhazuje se to a přetéká"). Appka to schválně NEŘEŠÍ v JS podle
-  // šířky okna - jinak by se to muselo přepočítávat při každém otočení
-  // telefonu a při změně velikosti okna na PC.
-  const dlazdiceData = [
-    ['Potvrzeno', potvrzeno],
-    ['Navrženo', navrzeno],
-    ['Chybí', chybi],
-    ['Bez dokladu', bezDokladu],
-    ['Trvalé příkazy', trvalePrikazy],
-    ['Příjmy přiřazené', prijmyPrirazene],
-    ['Návrh k faktuře', fakturyNavrzeno],
-    ['S fakturou', fakturySparovano],
-    ['Návrh k nájmu', najmyNavrzeno],
-    ['S nájmem', najmySparovano],
-    ['Daňové platby', danovePlatby],
-  ];
-  const vetaSouhrnu =
-    potvrzeno + ' potvrzeno, ' + navrzeno + ' navrženo, ' + chybi + ' chybí, ' + bezDokladu +
-    ' bez dokladu, ' + trvalePrikazy + ' trvalých příkazů, ' + prijmyPrirazene + ' příjmů přiřazeno, ' +
-    fakturyNavrzeno + ' navrženo k faktuře, ' + fakturySparovano + ' spárováno s fakturou, ' +
-    najmyNavrzeno + ' navrženo k nájmu, ' + najmySparovano + ' spárováno s nájmem, ' +
-    danovePlatby + ' daňových plateb (celkem ' + bankaPohybySeznam.length + ')';
-  souhrn.innerHTML =
-    '<span class="souhrn-text">' + escapeHtml(vetaSouhrnu) + '</span>' +
-    '<span class="souhrn-dlazdice">' +
-      // Nulové položky appka do dlaždic schválně nedává - na telefonu je
-      // místa málo a "0 navrženo k nájmu" nenese žádnou informaci. Ve větě
-      // pro desktop nuly zůstávají (tam místo je a Jan je na ni zvyklý).
-      dlazdiceData
-        .filter(([, pocet]) => pocet > 0)
-        .map(
-          ([popis, pocet]) =>
-            '<span class="souhrn-dlazdice-polozka"><b>' + pocet + '</b>' + escapeHtml(popis) + '</span>'
-        )
-        .join('') +
-      '<span class="souhrn-dlazdice-polozka souhrn-dlazdice-celkem"><b>' +
-        bankaPohybySeznam.length + '</b>celkem</span>' +
-    '</span>';
+  // (v4.50) Souhrn "nejdřív co čeká". Nahoře dvě velké dlaždice se stavy,
+  // které po Janovi něco chtějí - a klepnutí na ně rovnou profiltruje
+  // seznam pod nimi. Všechno ostatní je pod tím jedna tlumená věta.
+  //
+  // Historie, ať se neopakuje: v4.46 vykreslovala souhrn DVAKRÁT do
+  // stejného místa (věta pro desktop + kulaté dlaždice pro mobil) a
+  // přepínala je čistě CSS podle šířky okna. Jedenáct dlaždic různé šířky
+  // se na Janových 320 px zalomilo do schodů s dírami a nešlo na ně
+  // klepnout, filtr byl zvlášť jako holá lupa bez popisku (Jan 2026-08-02:
+  // "tohle nevypadá dobře a k čemu je ta lupa ?"). Teď je rozložení jedno
+  // pro všechny šířky - dvě dlaždice vedle sebe se vejdou i na 320 px a
+  // odpadá dvojí podoba v DOM i přepínání přes @media.
+  //
+  // "Čeká na kontrolu" jsou všechny stavy "Navrženo …" (appka má tip,
+  // stačí ho potvrdit nebo zamítnout), "Chybí doklad" je "Nespárováno"
+  // (appka nenašla nic). Pozor: "Bez dokladu" mezi ně NEPATŘÍ - to je
+  // stav, kterým Jan sám řekl, že pohyb doklad mít nemá, tedy hotová věc.
+  const ceka = navrzeno + trvalePrikazyNavrzene + fakturyNavrzeno + najmyNavrzeno;
+  // Dlaždici, na kterou nic nezbylo, appka neukazuje - a rovnou zhasne
+  // i její filtr, jinak by po vyřízení posledního pohybu zůstal zapnutý
+  // filtr bez tlačítka, kterým by se dal vypnout.
+  if (ceka === 0) bankaFiltr.ceka = false;
+  if (chybi === 0) bankaFiltr.chybi = false;
 
-  const jenChybejici = document.getElementById('banka-jen-chybejici').getAttribute('aria-pressed') === 'true';
+  const dlazdiceAkce = [
+    ['ceka', ceka, 'čeká na kontrolu'],
+    ['chybi', chybi, 'chybí doklad'],
+  ].filter(([, pocet]) => pocet > 0);
+
+  // Nulové stavy appka do věty nepíše - "0 navrženo k nájmu" nenese žádnou
+  // informaci a jen prodlužuje řádek, kterého je na telefonu škoda.
+  const hotoveData = [
+    ['potvrzeno', potvrzeno],
+    ['bez dokladu', bezDokladu],
+    [['trvalý příkaz', 'trvalé příkazy', 'trvalých příkazů'], trvalePrikazyPotvrzene],
+    [['příjem přiřazen', 'příjmy přiřazeny', 'příjmů přiřazeno'], prijmyPrirazene],
+    ['s fakturou', fakturySparovano],
+    ['s nájmem', najmySparovano],
+    [['daňová platba', 'daňové platby', 'daňových plateb'], danovePlatby],
+  ].filter(([, pocet]) => pocet > 0);
+
+  if (bankaPohybySeznam.length === 0) {
+    souhrn.innerHTML = '';
+  } else {
+    souhrn.innerHTML =
+      (dlazdiceAkce.length
+        ? '<span class="souhrn-akce">' +
+            dlazdiceAkce
+              .map(
+                ([klic, pocet, popis]) =>
+                  '<button type="button" class="souhrn-akce-tlacitko" data-filtr="' + klic + '"' +
+                  ' aria-pressed="' + (bankaFiltr[klic] ? 'true' : 'false') + '">' +
+                  '<span class="cislo">' + pocet + '</span>' +
+                  '<span class="stav">' + escapeHtml(popis) + '</span>' +
+                  '</button>'
+              )
+              .join('') +
+          '</span>'
+        : '') +
+      '<p class="souhrn-zbytek">' +
+        (dlazdiceAkce.length
+          ? (hotoveData.length ? 'Vyřízeno: ' : '')
+          : '<span class="souhrn-vse-hotovo">Všechno vyřízeno.</span> ') +
+        hotoveData
+          .map(([popis, pocet]) => '<b>' + pocet + '</b>&nbsp;' + escapeHtml(tvarPodlePoctu(pocet, popis)))
+          .join(' · ') +
+        (hotoveData.length ? '. ' : '') +
+        'Celkem <b>' + bankaPohybySeznam.length + '</b>&nbsp;' +
+        tvarPodlePoctu(bankaPohybySeznam.length, ['pohyb', 'pohyby', 'pohybů']) + '.' +
+      '</p>';
+  }
+
+  // Filtr: žádná zapnutá dlaždice = celý seznam, jinak sjednocení zapnutých.
+  const filtrujeSe = bankaFiltr.ceka || bankaFiltr.chybi;
   const serazene = bankaPohybySeznam
-    .filter(
-      (p) =>
-        !jenChybejici ||
-        p.Stav_parovani === 'Nespárováno' ||
-        p.Stav_parovani === 'Navrženo' ||
-        p.Stav_parovani === 'Navrženo - trvalý příkaz' ||
-        p.Stav_parovani === 'Navrženo - vydaná faktura' ||
-        p.Stav_parovani === 'Navrženo - nájemní smlouva'
-    )
+    .filter((p) => {
+      if (!filtrujeSe) return true;
+      if (bankaFiltr.chybi && p.Stav_parovani === 'Nespárováno') return true;
+      if (bankaFiltr.ceka && String(p.Stav_parovani || '').startsWith('Navrženo')) return true;
+      return false;
+    })
     .slice()
     .sort((a, b) => {
       // Řazení primárně podle toho, kolik pozornosti pohyb ještě potřebuje
@@ -3693,7 +3809,7 @@ function vykresliBankovniPohyby() {
   if (serazene.length === 0) {
     kontejner.innerHTML =
       '<div class="nacitani">' +
-      (jenChybejici ? 'Nic k doplnění.' : 'Zatím žádné pohyby - nahrajte výpis výše.') +
+      (filtrujeSe ? 'Nic k doplnění.' : 'Zatím žádné pohyby - nahrajte výpis výše.') +
       '</div>';
     return;
   }
@@ -8004,13 +8120,31 @@ document.getElementById('tlacitko-nahrat-vypis').addEventListener('click', () =>
 document.getElementById('pole-vypis').addEventListener('change', (e) => nahratVypis(e.target.files[0]));
 document.getElementById('tlacitko-banka-aktualizovat').addEventListener('click', (e) => aktualizovatBankovniPohyby(e.target));
 document.getElementById('tlacitko-banka-kontrola').addEventListener('click', (e) => spustitKontroluDokladu(e.target));
-document.getElementById('banka-jen-chybejici').addEventListener('click', (e) => {
-  const zapnuto = e.target.getAttribute('aria-pressed') === 'true';
-  e.target.setAttribute('aria-pressed', String(!zapnuto));
+// (v4.50) Dlaždice souhrnu jsou zároveň filtr seznamu. Posluchač visí na
+// obalu, ne na tlačítkách: souhrn se překresluje přes innerHTML, takže
+// tlačítka po každém překreslení zaniknou a posluchač přímo na nich by
+// se ztratil s nimi. Kliknutí appka hledá přes `closest` - cíl bývá
+// vnitřní <span> s číslem, ne samo tlačítko.
+document.getElementById('banka-souhrn').addEventListener('click', (e) => {
+  const tlacitko = e.target.closest('.souhrn-akce-tlacitko');
+  if (!tlacitko) return;
+  const klic = tlacitko.getAttribute('data-filtr');
+  if (!(klic in bankaFiltr)) return;
+  bankaFiltr[klic] = !bankaFiltr[klic];
   vykresliBankovniPohyby();
 });
 document.getElementById('tlacitko-pridat-fakturu').addEventListener('click', pridatVydanouFakturu);
 document.getElementById('vf-filtr-firma').addEventListener('change', vykresliVydaneFaktury);
+// Dlaždice souhrnu vydaných faktur jako filtr - stejná delegace i stejný
+// důvod jako u `banka-souhrn` níž (souhrn se překresluje přes innerHTML).
+document.getElementById('vf-souhrn').addEventListener('click', (e) => {
+  const tlacitko = e.target.closest('.souhrn-akce-tlacitko');
+  if (!tlacitko) return;
+  const klic = tlacitko.getAttribute('data-filtr');
+  if (!(klic in vfFiltr)) return;
+  vfFiltr[klic] = !vfFiltr[klic];
+  vykresliVydaneFaktury();
+});
 document.getElementById('vf-tlacitko-vyfotit').addEventListener('click', () => document.getElementById('vf-pole-foto').click());
 document.getElementById('vf-tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('vf-pole-soubor').click());
 document.getElementById('vf-pole-foto').addEventListener('change', (e) => zpracujVybranySouborVydaneFaktury(e.target.files[0]));
