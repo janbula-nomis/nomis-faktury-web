@@ -183,21 +183,43 @@ nav.zalozky button.zamcena-zalozka:hover { background: var(--barva-karta); }
    "ikonu nechat tak jak je") - appka mu jen ubrala viditelný text ("Nahrát
    doklady" -> jen ⬆, viz index.html), proto appka místo asymetrického
    textového paddingu dává souměrný "ikonkový" padding a o něco větší glyph. */
+/* (v4.45) Jan k snímku appky z plochy telefonu: "rozhozene - nesymetrie".
+   Ikonkové tlačítko přirozené šířky (v4.36) stálo osamocené vlevo mezi
+   hlavičkou a mřížkou záložek - obojí přes celou šířku - a vpravo od něj
+   zůstávala prázdná díra přes půl obrazovky. Appka mu proto dala šířku
+   celého řádku (`width: 100%`), takže levý i pravý okraj lícuje s
+   hlavičkou i se záložkami pod ním.
+   Pozor, tohle NENÍ návrat k v4.14, kterou Jan zamítl ("není proporční",
+   "moc tlustý"): tehdy tlačítko sedělo UVNITŘ mřížky záložek a mělo
+   dvojnásobnou výšku buňky. Teď je pořád mimo mřížku, na vlastním řádku a
+   výškou zhruba na úrovni jednoho tlačítka záložky - roztažená je jen
+   šířka, ne výška.
+   Do tlačítka se s plnou šířkou zase vejde text, takže appka vedle ikony
+   vrací popisek "Nahrát doklady" (viz index.html) - proto zpátky menší
+   `font-size` textového tlačítka a `gap` mezi ikonou a textem. */
 .tlacitko-nahrat-cta {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   background: var(--barva-chyba);
   color: #fff;
   border: 1px solid var(--barva-chyba);
-  font-size: 20px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1;
-  padding: 10px 14px;
+  padding: 11px 14px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  width: auto;
+  width: 100%;
 }
+/* Vložená SVG šipka (v4.45). Do v4.44 tu byl znak ⬆ (U+2B06), jenže iPhone
+   ho kreslí jako BAREVNOU emoji (modrý čtvereček s bílou šipkou) a `color`
+   tlačítka na ni neplatí - na zlatém tlačítku to vypadalo jako cizí prvek.
+   SVG používá `stroke: currentColor` (viz index.html), takže šipka je vždy
+   v barvě textu tlačítka - a to jak v obou skinech, tak v tmavém režimu.
+   `flex: none` drží ikonu v pevné velikosti, ať ji flexbox nesmrskne. */
+.tlacitko-nahrat-cta .ikona-nahrat { flex: none; }
 .tlacitko-nahrat-cta:hover,
 .tlacitko-nahrat-cta.aktivni { background: #b32a23; border-color: #b32a23; }
 

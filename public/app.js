@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.44 – 2026-08-02';
+const APP_VERZE = 'v4.45 – 2026-08-02';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -378,7 +378,9 @@ function zobrazApp() {
 
   // Jan (2026-07-28, v4.36): výchozí obrazovka po přihlášení má být
   // Dashboard (dřív appka vždycky naskočila na "Nahrát doklady", který
-  // appka teď schovává za samotnou ikonu ⬆, viz index.html). Dashboard
+  // appka od v4.36 schovávala za samotnou ikonu; od v4.45 je z něj zase
+  // tlačítko s ikonou i textem, jen přes celý řádek - viz index.html).
+  // Na výchozí záložku to ale žádný vliv nemá. Dashboard
   // je ale zamčený pro běžnou roli (nastavZamekZalozky('nav-dashboard', ...)
   // výš) - běžnému uživateli by appka defaultně ukázala zamčenou/prázdnou
   // záložku, proto mu appka místo toho naskočí na Přijaté faktury (jediná

@@ -110,8 +110,28 @@
          appka nechává tlačítko na STEJNÉM místě/stejné třídě jako dřív
          (Jan: "ikonu nechat tak jak je"), jen mu ubírá viditelný text a
          přidává title/aria-label pro přístupnost. -->
+    <!-- (v4.45) Jan poslal snímek appky spuštěné z plochy telefonu s
+         komentářem "rozhozene - nesymetrie": ikonkové tlačítko přirozené
+         šířky stálo osamocené vlevo mezi hlavičkou a mřížkou záložek -
+         tedy mezi dvěma bloky přes celou šířku - a vpravo od něj zůstávala
+         velká prázdná díra. Appka mu ze čtyř nabídnutých variant podle
+         Janova výběru dala šířku celého řádku (varianta B), takže levý i
+         pravý okraj sedí přesně na hlavičku i na záložky pod ním.
+         Zároveň appka vyměnila znak ⬆ (U+2B06) za vloženou SVG šipku:
+         iPhone totiž U+2B06 vykresluje jako BAREVNOU emoji (modrý čtvereček
+         s bílou šipkou) a `color` tlačítka na ni vůbec neplatí - vložená
+         SVG používá `currentColor`, takže je vždy v barvě textu tlačítka
+         a v obou skinech i v tmavém režimu vypadá stejně. Text "Nahrát
+         doklady" se tím vrací zpátky vedle ikony (na plný řádek se v
+         pohodě vejde), title/aria-label appka pro jistotu nechává. -->
     <div class="radek-nahrat-cta">
-      <button data-zalozka="nahrat" class="tlacitko-nahrat-cta" title="Nahrát doklady" aria-label="Nahrát doklady">⬆</button>
+      <button data-zalozka="nahrat" class="tlacitko-nahrat-cta" title="Nahrát doklady" aria-label="Nahrát doklady">
+        <svg class="ikona-nahrat" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"
+             fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 19V5" /><path d="M5 12l7-7 7 7" />
+        </svg>
+        <span>Nahrát doklady</span>
+      </button>
     </div>
 
     <nav class="zalozky">

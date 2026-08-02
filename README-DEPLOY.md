@@ -4523,6 +4523,72 @@ do šířky.
 
 `APP_VERZE` appka zvýšila na `v4.44 – 2026-08-02`.
 
+## 87. Tlačítko "Nahrát doklady" přes celý řádek a čistá SVG šipka (v4.45)
+
+**Co Jan hlásil.** Poslal snímek appky spuštěné z plochy iPhonu a napsal
+k němu: *"rozhozene - nesymetrie"*.
+
+**Co bylo špatně.** Od v4.36 mělo tlačítko "Nahrát doklady" jen ikonu a
+přirozenou šířku - vyšlo tak na necelých 50 px. Sedělo ale mezi dvěma
+bloky, které jdou přes celou šířku obrazovky (hlavička appky nahoře,
+karta s mřížkou záložek pod ním), takže vlevo lícovalo a vpravo po něm
+zůstávala prázdná díra přes většinu řádku. Na širokém desktopu si toho
+šlo sotva všimnout, na displeji telefonu to bije do očí. K tomu se
+přidávala druhá věc: znak `⬆` (U+2B06) iPhone vykresluje jako **barevnou
+emoji** - modrý čtvereček s bílou šipkou - a vlastnost `color` tlačítka
+na emoji vůbec neplatí, takže uvnitř zlatého tlačítka svítil modrý
+obdélníček v barvě, kterou appka nikde jinde nepoužívá.
+
+**Jak appka vybírala řešení.** Stejně jako u ikony na plochu appka
+nejdřív vykreslila čtyři varianty v rozlišení iPhonu (390x844) a nechala
+Jana vybrat:
+
+| Varianta | Popis | Výsledek |
+| --- | --- | --- |
+| A | nechat umístění, opravit jen šipku | zamítnuto |
+| B | tlačítko přes celý řádek, ikona + text | **vybráno** |
+| C | kolečko v hlavičce vedle Odhlásit | zamítnuto |
+| D | plovoucí kolečko vpravo dole | zamítnuto |
+
+**Co appka změnila.**
+
+- `.tlacitko-nahrat-cta` má `width: 100%` místo `width: auto` - levý i
+  pravý okraj tlačítka lícuje přesně s hlavičkou nad ním i s kartou
+  záložek pod ním.
+- Na plný řádek se zase vejde text, takže se vedle ikony vrací popisek
+  "Nahrát doklady". Tomu odpovídá i menší `font-size` (13 px, jako
+  u ostatních textových tlačítek, místo 20px "ikonkového" glyphu)
+  a `gap: 8px` mezi ikonou a textem.
+- Znak `⬆` nahradila **vložená SVG šipka** s `stroke: currentColor`.
+  Ikona je tím vždy v barvě textu tlačítka - funguje ve skinu Gold
+  (tmavý text na zlaté), ve skinu Navy i ve výchozím červeném tlačítku
+  bez skinu, a stejně tak ve světlém i tmavém režimu. Žádná emoji, žádné
+  cizí barvy.
+- `title` i `aria-label` na tlačítku zůstávají, i když je text zase
+  vidět - čtečka obrazovky si tak vystačí i bez ikony.
+
+**Pozor na jednu věc, ať se historie neopakuje.** Ve v4.14 už jednou
+tlačítko šířku celého řádku mělo a Jan to zamítl (*"není proporční"*,
+*"moc tlustý"*). Tehdy ale sedělo **uvnitř mřížky záložek** a zabíralo
+buňku o dvojnásobné výšce. Teď je pořád mimo mřížku, na vlastním řádku,
+a výškou odpovídá zhruba jednomu tlačítku záložky (42 px proti 38 px) -
+roztažená je jen šířka, ne výška. Kdyby se někdy v budoucnu měnila výška,
+tohle je ta hranice, kterou je dobré nepřekračovat.
+
+**Ověření.** Appka si obrazovku vykreslila z opravdového `index.html`
+a `style.css` (ne z ručně přepsané kopie) v rozlišení iPhonu, ve skinu
+Gold ve světlém režimu i ve skinu Navy v tmavém, a změřila polohu prvků:
+tlačítko sedí na `left: 10 / right: 380`, hlavička i mřížka záložek
+přesně stejně - okraje tedy lícují na pixel. Výška tlačítka 42 px proti
+38 px u záložky. Zkontrolováno i na desktopu (1180 px), kde tlačítko
+lícuje s obsahem širokým 900 px. Obsluha kliknutí se nemusela měnit -
+posluchač visí na `[data-zalozka]`, čte `btn.dataset.zalozka` z prvku,
+na kterém je navěšený, takže klik do vnořené SVG nebo `<span>` mu
+nevadí.
+
+`APP_VERZE` appka zvýšila na `v4.45 – 2026-08-02`, `VERZE` v `sw.js`
+na `v4.45`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by
