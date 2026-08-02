@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.48 – 2026-08-02';
+const APP_VERZE = 'v4.49 – 2026-08-02';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -404,6 +404,22 @@ function zobrazApp() {
   const bankaExcelExport = document.getElementById('banka-excel-export');
   if (bankaExcelExport) bankaExcelExport.classList.toggle('skryto', !jeUcetniNeboAdmin);
 
+  // Srovnání číslování za rok (v4.49) - hromadný úklid evidenčních čísel.
+  // Stejný důvod schování jako u Excel exportu o řádek výš: záložka Přijaté
+  // doklady je otevřená všem rolím, ale přepsat čísla celé firmy za celý rok
+  // smí jen admin/účetní (backend to stejně odmítne, viz precislovani.js -
+  // tohle je jen o tom, aby appka nenabízela tlačítko končící chybou 403).
+  const dokladyCislovani = document.getElementById('doklady-cislovani');
+  if (dokladyCislovani) dokladyCislovani.classList.toggle('skryto', !jeUcetniNeboAdmin);
+  // Obsluhu appka navěsí až tady, ne při načtení skriptu - do zobrazApp()
+  // se dá dostat i podruhé (znovupřihlášení bez reloadu, viz volání na
+  // konci souboru), a bez téhle pojistky by se posluchače přidaly dvakrát
+  // a tlačítko "Srovnat číslování…" by panel otevřelo a hned zase zavřelo.
+  if (jeUcetniNeboAdmin && !cislovaniInicializovano) {
+    inicializujCislovani();
+    cislovaniInicializovano = true;
+  }
+
   // Jan (2026-07-19, v4.11 → zrušeno v4.29): appka dřív běžné roli schovávala
   // přepínač Ke schválení/Schválené (backend jí schválené doklady stejně
   // vůbec nevracel). Jan teď chce, aby běžný uživatel viděl "proces až po
@@ -571,6 +587,43 @@ function souborNaBase64(soubor) {
   });
 }
 
+// (v4.49) Vykreslení výřezu na plátno, vytažené ze zmensiObrazek() ven, aby
+// ho mohl použít i ZPĚTNÝ ořez už nahraného skenu (viz orezniSkenZnovu()
+// níž, Jan: "a je možné nyný dodělat ořezání...?"). Je to schválně jedna
+// jediná funkce: kdyby si zpětný ořez kreslil po svém, dopadl by starý
+// doklad jinak než nově vyfocený, i když by oba prošly stejnou detekcí.
+// `vyrez` může být null - pak appka jen zmenší celou fotku, jako to dělala
+// do v4.47.
+function vykresliOrezDoJpegu(img, vyrez, maxRozmer, kvalita) {
+  const zdrojS = vyrez ? vyrez.sirka : img.width;
+  const zdrojV = vyrez ? vyrez.vyska : img.height;
+  let width = zdrojS;
+  let height = zdrojV;
+  if (width > maxRozmer || height > maxRozmer) {
+    const pomer = Math.min(maxRozmer / width, maxRozmer / height);
+    width = Math.round(width * pomer);
+    height = Math.round(height * pomer);
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (vyrez) {
+    // Appka kreslí OTOČENĚ: posune počátek do středu výřezu, otočí
+    // plátno o zjištěný úhel a nakreslí celou fotku tak, aby střed
+    // výřezu padl doprostřed plátna. Tím se zároveň ořízne i srovná
+    // natočení, v jednom kroku a bez mezikroků navíc.
+    const meritko = width / zdrojS;
+    ctx.translate(width / 2, height / 2);
+    ctx.rotate(-vyrez.uhel);
+    ctx.scale(meritko, meritko);
+    ctx.drawImage(img, -vyrez.stredX, -vyrez.stredY);
+  } else {
+    ctx.drawImage(img, 0, 0, width, height);
+  }
+  return canvas.toDataURL('image/jpeg', kvalita).split(',')[1];
+}
+
 function zmensiObrazek(soubor, maxRozmer, kvalita) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -580,37 +633,9 @@ function zmensiObrazek(soubor, maxRozmer, kvalita) {
       // doklad - viz najdiDokladNaFotce() níž. Když si detekce není jistá,
       // vrátí null a appka zpracuje fotku celou jako dřív.
       const vyrez = najdiDokladNaFotce(img);
-
-      const zdrojS = vyrez ? vyrez.sirka : img.width;
-      const zdrojV = vyrez ? vyrez.vyska : img.height;
-      let width = zdrojS;
-      let height = zdrojV;
-      if (width > maxRozmer || height > maxRozmer) {
-        const pomer = Math.min(maxRozmer / width, maxRozmer / height);
-        width = Math.round(width * pomer);
-        height = Math.round(height * pomer);
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (vyrez) {
-        // Appka kreslí OTOČENĚ: posune počátek do středu výřezu, otočí
-        // plátno o zjištěný úhel a nakreslí celou fotku tak, aby střed
-        // výřezu padl doprostřed plátna. Tím se zároveň ořízne i srovná
-        // natočení, v jednom kroku a bez mezikroků navíc.
-        const meritko = width / zdrojS;
-        ctx.translate(width / 2, height / 2);
-        ctx.rotate(-vyrez.uhel);
-        ctx.scale(meritko, meritko);
-        ctx.drawImage(img, -vyrez.stredX, -vyrez.stredY);
-      } else {
-        ctx.drawImage(img, 0, 0, width, height);
-      }
+      const data = vykresliOrezDoJpegu(img, vyrez, maxRozmer, kvalita);
       URL.revokeObjectURL(url);
-
-      const dataUrl = canvas.toDataURL('image/jpeg', kvalita);
-      resolve({ data: dataUrl.split(',')[1], mimeType: 'image/jpeg', nazev: soubor.name.replace(/\.[^.]+$/, '') + '.jpg' });
+      resolve({ data, mimeType: 'image/jpeg', nazev: soubor.name.replace(/\.[^.]+$/, '') + '.jpg' });
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -1943,6 +1968,23 @@ function vytvorDetailDoklad(d) {
     akce.appendChild(tlacitkoSmazat);
   }
 
+  // Zpětný ořez skenu (v4.49) - Jan (2026-08-02): "a je možné nyný dodělat
+  // ořezání a nebo jde jen u nových?". Automatický ořez z v4.48 běží při
+  // focení, takže dřív nahrané doklady ho neviděly - tímhle tlačítkem se
+  // dá pustit dodatečně (viz orezniSkenZnovu() níž).
+  // Appka ho ukazuje jen tam, kde má co ořezávat: doklad musí mít sken na
+  // Disku. Že je sken fotka a ne PDF, appka pozná až po stažení (v listu
+  // typ souboru nemá) - řekne to pak hláškou, sken se nezmění.
+  // Práva kopírují netlify/functions/orezSkenu.js: schválený doklad je už
+  // podklad pro účetnictví, tam sken vymění jen admin/účetní.
+  if (d.Zdrojovy_soubor_ID && (jeUcetniNeboAdminDoklad || d.Stav !== 'Schváleno')) {
+    const tlacitkoOrez = document.createElement('button');
+    tlacitkoOrez.className = 'maly sekundarni';
+    tlacitkoOrez.textContent = 'Oříznout sken';
+    tlacitkoOrez.onclick = () => orezniSkenZnovu(d.ID, d.Zdrojovy_soubor_ID, tlacitkoOrez);
+    akce.appendChild(tlacitkoOrez);
+  }
+
   wrap.appendChild(akce);
 
   // QR Platba (v4.32, viz lib/qrPlatba.js) - appka QR ukáže jen u
@@ -2004,6 +2046,126 @@ async function ulozZmenu(id, zmeny, tlacitko) {
   } catch (e) {
     alert('Nepodařilo se uložit změnu: ' + e.message);
     tlacitko.disabled = false;
+  }
+}
+
+// ---------- SROVNÁNÍ ČÍSLOVÁNÍ ZA ROK (v4.49) ----------
+//
+// Jan (2026-08-02): "a ted je možné ještě všechny doklady roku 2026 upravit a
+// doplnit číslování, než se to pošle účetní?" Ano - tohle je ten úklid.
+//
+// Appka to schválně dělá na DVĚ kliknutí (náhled → potvrzení) a ne jedním
+// tlačítkem "srovnat". Evidenční číslo je něco, co může být opsané v mailu
+// nebo vytištěné ve složce - Jan má před zápisem vidět, kolika dokladů se to
+// týká a jak se čísla posunou. Když se nemění nic, appka to rovnou napíše a
+// tlačítko k zápisu vůbec nenabídne.
+//
+// Samotné pravidlo (pořadí podle DUZP, zvlášť po firmách, jen schválené
+// doklady) sedí na jednom místě v lib/evidencniCislo.js a počítá ho backend
+// (netlify/functions/precislovani.js) - frontend jen ukazuje, co mu přišlo.
+// Kdyby si počítal vlastní návrh, byla by to druhá verze téhož pravidla a
+// dřív nebo později by ukazoval něco jiného, než co se pak zapíše.
+let cislovaniNavrhAktualni = null;
+// Pojistka proti dvojímu navěšení obsluhy - viz zobrazApp() výš.
+let cislovaniInicializovano = false;
+
+function inicializujCislovani() {
+  const otevrit = document.getElementById('cislovani-otevrit');
+  const panel = document.getElementById('cislovani-panel');
+  const nahled = document.getElementById('cislovani-nahled');
+  const vyberRoku = document.getElementById('cislovani-rok');
+  if (!otevrit || !panel || !nahled || !vyberRoku) return;
+
+  // Nabídka roků: letošek a čtyři roky zpátky. Appka je nebere ze Sheetů -
+  // seznam roků by kvůli tomu musel projít celý list dřív, než Jan vůbec
+  // klikne, a účetní úklid se stejně dělá za rok, který má člověk v hlavě.
+  const letos = new Date().getFullYear();
+  vyberRoku.innerHTML = '';
+  for (let rok = letos; rok > letos - 5; rok -= 1) {
+    const volba = document.createElement('option');
+    volba.value = String(rok);
+    volba.textContent = String(rok);
+    vyberRoku.appendChild(volba);
+  }
+
+  otevrit.addEventListener('click', () => {
+    const skryto = panel.classList.toggle('skryto');
+    otevrit.textContent = skryto ? 'Srovnat číslování…' : 'Skrýt srovnání číslování';
+    if (skryto) document.getElementById('cislovani-vysledek').innerHTML = '';
+  });
+  nahled.addEventListener('click', nactiNahledCislovani);
+}
+
+async function nactiNahledCislovani() {
+  const vysledek = document.getElementById('cislovani-vysledek');
+  const rok = document.getElementById('cislovani-rok').value;
+  const typ = document.getElementById('cislovani-typ').value;
+  vysledek.innerHTML = '<p class="popis">Počítám náhled…</p>';
+  cislovaniNavrhAktualni = null;
+
+  try {
+    const data = await zavolejApi(
+      '/precislovani?rok=' + encodeURIComponent(rok) + '&typ=' + encodeURIComponent(typ),
+      { method: 'GET' }
+    );
+    cislovaniNavrhAktualni = { rok, typ };
+
+    if (!data.celkem) {
+      vysledek.innerHTML = '<p class="popis">Za rok ' + escapeHtml(rok) + ' appka nenašla žádné ' +
+        escapeHtml(data.popisDruhu || 'záznamy') + ', které by se číslovaly.</p>';
+      return;
+    }
+    if (!data.zmen) {
+      vysledek.innerHTML = '<p class="popis">Číslování za rok ' + escapeHtml(rok) + ' je v pořádku – ' +
+        'všech ' + data.celkem + ' záznamů (' + escapeHtml(data.popisDruhu) + ') má číslo, které sedí. ' +
+        'Není co měnit.</p>';
+      return;
+    }
+
+    let html = '<p class="popis"><strong>Změní se ' + data.zmen + ' z ' + data.celkem + '</strong> ' +
+      'záznamů (' + escapeHtml(data.popisDruhu) + ') za rok ' + escapeHtml(rok) +
+      '. Řádky, které zůstávají beze změny, appka neukazuje.</p>';
+    html += '<div class="cislovani-nahled-seznam">';
+    (data.polozky || []).forEach((p) => {
+      html += '<div class="cislovani-nahled-radek">' +
+        '<span class="cislovani-nahled-cislo">' + escapeHtml(p.stare || '(bez čísla)') + '</span>' +
+        '<span class="cislovani-nahled-sipka" aria-hidden="true">→</span>' +
+        '<span class="cislovani-nahled-cislo nove">' + escapeHtml(p.nove) + '</span>' +
+        '<span class="cislovani-nahled-popis">' + escapeHtml(p.datum || '') + ' · ' +
+        escapeHtml(p.firma || '') + ' · ' + escapeHtml(p.popis || '') + '</span>' +
+        '</div>';
+    });
+    html += '</div>';
+    html += '<div class="tlacitka-nahrani" style="margin-top:12px">' +
+      '<button type="button" id="cislovani-potvrdit">Zapsat nová čísla</button></div>';
+    vysledek.innerHTML = html;
+    document.getElementById('cislovani-potvrdit').addEventListener('click', zapisCislovani);
+  } catch (e) {
+    vysledek.innerHTML = '<p class="popis">Náhled se nepodařilo spočítat: ' + escapeHtml(e.message) + '</p>';
+  }
+}
+
+async function zapisCislovani() {
+  if (!cislovaniNavrhAktualni) return;
+  const tlacitko = document.getElementById('cislovani-potvrdit');
+  const vysledek = document.getElementById('cislovani-vysledek');
+  tlacitko.disabled = true;
+  tlacitko.textContent = 'Zapisuji…';
+  try {
+    const data = await zavolejApi('/precislovani', {
+      method: 'POST',
+      body: JSON.stringify(cislovaniNavrhAktualni),
+    });
+    vysledek.innerHTML = '<p class="popis">Hotovo – appka přepsala ' + data.zapsano + ' čísel za rok ' +
+      escapeHtml(String(data.rok)) + '.</p>';
+    cislovaniNavrhAktualni = null;
+    // Seznam dokladů teď ukazuje stará čísla - appka ho natáhne znovu.
+    // Vydané faktury si nová čísla vezmou při dalším otevření té záložky;
+    // sahat odsud do cizího seznamu by znamenalo držet tady pravidlo o tom,
+    // co všechno je zrovna načtené, a to se rozejde s realitou.
+    if (data.typ === 'doklady') nactiDoklady();
+  } catch (e) {
+    vysledek.innerHTML = '<p class="popis">Zápis se nepodařil: ' + escapeHtml(e.message) + '</p>';
   }
 }
 
@@ -7586,6 +7748,142 @@ function zobrazSkenVAppce(blobUrl, typObsahu, nazevSouboru) {
   document.body.classList.add('sken-okno-otevreno');
 }
 
+// (v4.49) Stažení skenu po kusech, vytažené z otevriSken() ven, aby ho mohl
+// použít i zpětný ořez (viz orezniSkenZnovu() níž). Dřív tenhle cyklus seděl
+// natvrdo uvnitř otevriSken() a šel použít jen k zobrazení; kdyby si ho ořez
+// opsal k sobě, byly by dvě kopie stejné logiky slepování a jedna z nich by
+// se dřív nebo později rozešla s netlify/functions/soubor.js.
+// `naPokrok` je nepovinná funkce (staženo, celkem) - appka jí hlásí postup,
+// ať si ho každé volání zobrazí po svém.
+// Odpověď "sken je moc velký" appka nepřevádí na obyčejnou chybu, ale připne
+// k ní `prilisVelky`, protože v prohlížeči na ni navazuje záložní otevření
+// přes Drive (a to je věc volajícího, ne stahování).
+async function stahniSkenPoCastech(souborId, typ, naPokrok) {
+  const hlavicky = {};
+  if (stav && stav.token) hlavicky['Authorization'] = 'Bearer ' + stav.token;
+
+  const casti = [];
+  let stazeno = 0;
+  let celkem = 0;
+  let typObsahu = 'application/octet-stream';
+
+  // Pojistka proti nekonečné smyčce, kdyby server vracel prázdné kusy.
+  for (let kolo = 0; kolo < 24; kolo++) {
+    const odpoved = await fetch(
+      '/api/soubor?id=' + encodeURIComponent(souborId) +
+        (typ ? '&typ=' + encodeURIComponent(typ) : '') +
+        '&od=' + stazeno,
+      { cache: 'no-store', headers: hlavicky }
+    );
+
+    if (!odpoved.ok) {
+      const data = await odpoved.json().catch(() => ({}));
+      const chyba = new Error(data.error || 'Chyba serveru (' + odpoved.status + ')');
+      if (data.prilisVelky) chyba.prilisVelky = true;
+      throw chyba;
+    }
+
+    typObsahu = odpoved.headers.get('Content-Type') || typObsahu;
+    celkem = Number(odpoved.headers.get('X-Sken-Celkem') || 0) || celkem;
+
+    const cast = await odpoved.arrayBuffer();
+    if (!cast.byteLength) break;
+    casti.push(cast);
+    stazeno += cast.byteLength;
+
+    if (odpoved.headers.get('X-Sken-Posledni') === '1') break;
+    if (celkem && stazeno >= celkem) break;
+
+    if (naPokrok && celkem) naPokrok(stazeno, celkem);
+  }
+
+  if (!casti.length) throw new Error('Sken se stáhl prázdný.');
+  return { blob: new Blob(casti, { type: typObsahu }), typObsahu };
+}
+
+// ---------- ZPĚTNÝ OŘEZ UŽ NAHRANÉHO SKENU (v4.49) ----------
+//
+// Jan (2026-08-02): "a je možné nyný dodělat ořezání a nebo jde jen u
+// nových?" Jde to i zpětně - tohle je ono.
+//
+// Celý ořez běží V PROHLÍŽEČI, ne na serveru: appka si sken stáhne přes
+// vlastní proxy (/api/soubor, stejnou cestou jako když ho jde ukázat),
+// pustí na něj úplně stejný najdiDokladNaFotce() + vykresliOrezDoJpegu()
+// jako u nově vyfoceného dokladu a hotový JPEG pošle do
+// netlify/functions/orezSkenu.js. Server tak nepotřebuje žádnou obrázkovou
+// knihovnu a hlavně existuje jen JEDNA implementace ořezu - kdyby byla
+// druhá na serveru, starý doklad by dopadl jinak než nově vyfocený.
+//
+// Když detekce nic nenajde (vrátí null), appka NIC NENAHRÁVÁ a jen to
+// napíše. Nahrát v takové chvíli jen překomprimovanou kopii by znamenalo
+// vyměnit sken za horší bez jakéhokoli užitku.
+//
+// Originál zůstává ležet na Disku (Janova volba "Uložit ořez, originál
+// nechat na Disku") - podrobněji viz komentář v orezSkenu.js.
+async function orezniSkenZnovu(idDokladu, souborId, tlacitko) {
+  const puvodniText = tlacitko.textContent;
+  tlacitko.disabled = true;
+  tlacitko.textContent = 'Stahuji sken…';
+  try {
+    const { blob, typObsahu } = await stahniSkenPoCastech(souborId, 'doklad', (stazeno, celkem) => {
+      tlacitko.textContent = 'Stahuji sken… ' + Math.min(99, Math.round((stazeno / celkem) * 100)) + ' %';
+    });
+
+    // PDF a jiné neobrázky appka neřeže - ořez umí jen fotku. Naskenované
+    // PDF z multifunkce je navíc už oříznuté skenerem, tam není co dělat.
+    if (!String(typObsahu || '').startsWith('image/')) {
+      alert('Tenhle sken není fotka (je to ' + (typObsahu || 'neznámý typ') + '), ořezat ho nejde.');
+      return;
+    }
+
+    tlacitko.textContent = 'Ořezávám…';
+    const orezany = await new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(blob);
+      img.onload = () => {
+        const vyrez = najdiDokladNaFotce(img);
+        const data = vyrez ? vykresliOrezDoJpegu(img, vyrez, 1600, 0.75) : null;
+        URL.revokeObjectURL(url);
+        resolve(data);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Sken se nepodařilo načíst jako obrázek.'));
+      };
+      img.src = url;
+    });
+
+    if (!orezany) {
+      alert('Appka na téhle fotce doklad spolehlivě nenašla – sken nechala beze změny.\n\n' +
+        'Stává se to u fotek focených hodně nakřivo, na světlém stole nebo na tmavém dokladu. ' +
+        'Sken se nijak nepoškodil, jen se neořízl.');
+      return;
+    }
+
+    tlacitko.textContent = 'Ukládám…';
+    const data = await zavolejApi('/orezSkenu', {
+      method: 'POST',
+      body: JSON.stringify({ id: idDokladu, dataBase64: orezany, mimeType: 'image/jpeg' }),
+    });
+
+    // Doklad v načteném seznamu appka přepíše rovnou, ať odkaz na sken
+    // hned ukazuje na ořezanou verzi a Jan si ji může zkontrolovat bez
+    // dalšího načítání celé záložky.
+    const doklad = dokladySeznamAktualni.find((x) => x.ID === idDokladu);
+    if (doklad) {
+      doklad.Zdrojovy_soubor_ID = data.Zdrojovy_soubor_ID;
+      doklad.Zdrojovy_soubor_URL = data.Zdrojovy_soubor_URL;
+    }
+    vykresliDoklady(dokladySeznamAktualni);
+    zobrazZpravuDoklady('Sken oříznut. Původní fotka zůstala na Google Disku.');
+  } catch (e) {
+    alert('Ořez se nepodařil: ' + e.message);
+  } finally {
+    tlacitko.disabled = false;
+    tlacitko.textContent = puvodniText;
+  }
+}
+
 async function otevriSken(prvek, souborId, typ) {
   if (prvek.dataset.nacita === '1') return false;
 
@@ -7602,70 +7900,43 @@ async function otevriSken(prvek, souborId, typ) {
   const panel = vAppce ? null : window.open('', '_blank');
 
   try {
-    const hlavicky = {};
-    if (stav && stav.token) hlavicky['Authorization'] = 'Bearer ' + stav.token;
-
     // (v4.43) Sken si appka bere po kusech - viz netlify/functions/soubor.js.
     // Do jedné odpovědi Netlify funkce se vejde jen cca 4 MB, takže velký
     // sken (běžný scan smlouvy má klidně 8 MB) by dřív skončil chybou a
     // odkazem na Google, kde kolega narazil na "Request access". Teď si
     // appka řekne o `od=0`, pak o `od=<kolik už má>` a kusy slepí do jednoho
     // blobu; uživatel o tom neví, jen vidí procenta.
-    const casti = [];
-    let stazeno = 0;
-    let celkem = 0;
-    let typObsahu = 'application/octet-stream';
-
-    // Pojistka proti nekonečné smyčce, kdyby server vracel prázdné kusy.
-    for (let kolo = 0; kolo < 24; kolo++) {
-      const odpoved = await fetch(
-        '/api/soubor?id=' + encodeURIComponent(souborId) +
-          (typ ? '&typ=' + encodeURIComponent(typ) : '') +
-          '&od=' + stazeno,
-        { cache: 'no-store', headers: hlavicky }
-      );
-
-      if (!odpoved.ok) {
-        const data = await odpoved.json().catch(() => ({}));
-        // Původní Drive odkaz appka nabízí UŽ JEN ADMINOVI. Komukoli jinému
-        // by Google stejně ukázal "Potřebujete přístup" a poslal Janovi
-        // e-mail se žádostí o sdílení - což je přesně ta situace, kvůli
-        // které proxy vznikla. Kolegovi je srozumitelná česká hláška
-        // mnohem užitečnější než cizí přihlašovací obrazovka Googlu.
-        if (data.prilisVelky && zalozniUrl && stav && stav.role === 'admin') {
-          if (panel) {
-            panel.location.href = zalozniUrl;
-          } else {
-            // Režim "appka na ploše": panel appka dopředu neotvírala.
-            // Odkaz na Drive appka pošle systému - tohle je běžná http
-            // adresa, s tou si prohlížeč telefonu poradí (na rozdíl od blob).
-            window.open(zalozniUrl, '_blank');
-          }
-          return false;
-        }
-        throw new Error(data.error || 'Chyba serveru (' + odpoved.status + ')');
-      }
-
-      typObsahu = odpoved.headers.get('Content-Type') || typObsahu;
-      celkem = Number(odpoved.headers.get('X-Sken-Celkem') || 0) || celkem;
-
-      const cast = await odpoved.arrayBuffer();
-      if (!cast.byteLength) break;
-      casti.push(cast);
-      stazeno += cast.byteLength;
-
-      if (odpoved.headers.get('X-Sken-Posledni') === '1') break;
-      if (celkem && stazeno >= celkem) break;
-
-      if (celkem) {
+    // (v4.49) Samotné stahování sedí v stahniSkenPoCastech() výš - sdílí ho
+    // s zpětným ořezem.
+    let blob;
+    let typObsahu;
+    try {
+      const stazene = await stahniSkenPoCastech(souborId, typ, (stazeno, celkem) => {
         prvek.innerHTML = '<span class="odkaz-sken-kolecko"></span>Otevírám sken… ' +
           Math.min(99, Math.round((stazeno / celkem) * 100)) + ' %';
+      });
+      blob = stazene.blob;
+      typObsahu = stazene.typObsahu;
+    } catch (e) {
+      // Původní Drive odkaz appka nabízí UŽ JEN ADMINOVI. Komukoli jinému
+      // by Google stejně ukázal "Potřebujete přístup" a poslal Janovi
+      // e-mail se žádostí o sdílení - což je přesně ta situace, kvůli
+      // které proxy vznikla. Kolegovi je srozumitelná česká hláška
+      // mnohem užitečnější než cizí přihlašovací obrazovka Googlu.
+      if (e.prilisVelky && zalozniUrl && stav && stav.role === 'admin') {
+        if (panel) {
+          panel.location.href = zalozniUrl;
+        } else {
+          // Režim "appka na ploše": panel appka dopředu neotvírala.
+          // Odkaz na Drive appka pošle systému - tohle je běžná http
+          // adresa, s tou si prohlížeč telefonu poradí (na rozdíl od blob).
+          window.open(zalozniUrl, '_blank');
+        }
+        return false;
       }
+      throw e;
     }
 
-    if (!casti.length) throw new Error('Sken se stáhl prázdný.');
-
-    const blob = new Blob(casti, { type: typObsahu });
     const blobUrl = URL.createObjectURL(blob);
     if (panel) {
       panel.location.href = blobUrl;

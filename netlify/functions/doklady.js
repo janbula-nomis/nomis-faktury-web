@@ -41,7 +41,7 @@ const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
-const { dalsiEvidencniCislo } = require('../../lib/evidencniCislo');
+const { dalsiEvidencniCislo, precislujPriPresunu } = require('../../lib/evidencniCislo');
 const { json } = require('../../lib/http');
 
 function ziskejFirmuDokladu(d) {
@@ -143,15 +143,33 @@ exports.handler = async (event) => {
       // lib/evidencniCislo.js pro plné zdůvodnění), a jen JEDNOU (appka
       // nepřepisuje existující číslo při dalších úpravách už schváleného
       // dokladu).
+      const firmaPoUprave = ziskejFirmuDokladu(aktualizovany);
+      const rokPoUprave = String(aktualizovany.DUZP || aktualizovany.Datum_dokladu || '').slice(0, 4) ||
+        String(new Date().getFullYear());
+
       if (
         doklad.Stav !== 'Schváleno' &&
         aktualizovany.Stav === 'Schváleno' &&
         !aktualizovany.Evidencni_cislo
       ) {
-        const firma = ziskejFirmuDokladu(aktualizovany);
-        const rok = String(aktualizovany.DUZP || aktualizovany.Datum_dokladu || '').slice(0, 4) ||
-          String(new Date().getFullYear());
-        aktualizovany.Evidencni_cislo = dalsiEvidencniCislo(rows, 'FP', firma, rok, ziskejFirmuDokladu);
+        aktualizovany.Evidencni_cislo = dalsiEvidencniCislo(rows, 'FP', firmaPoUprave, rokPoUprave, ziskejFirmuDokladu);
+      } else {
+        // (v4.49) Jan: "po změně roku na dokladu při opravě přeindexuj
+        // označení, aby to pasovalo např. na rok 2026." Doklad, který se
+        // opravou přestěhoval do jiné řady (jiný rok DUZP, případně jiná
+        // firma), dostane číslo z TÉ řady - viz precislujPriPresunu() v
+        // lib/evidencniCislo.js pro plné zdůvodnění včetně toho, proč po
+        // něm v původním roce zůstane mezera.
+        //
+        // Pozor na pořadí: tahle větev schválně běží až jako `else`, aby se
+        // doklad při schvalování nečísloval dvakrát. Číslo se počítá z
+        // `rows`, tedy z toho, co je v listu PŘED zápisem - doklad sám tam
+        // ještě sedí se starou firmou/rokem, takže si vlastní číslo do nové
+        // řady nezapočítá.
+        const preindexovane = precislujPriPresunu(
+          doklad, rows, 'FP', firmaPoUprave, rokPoUprave, ziskejFirmuDokladu
+        );
+        if (preindexovane) aktualizovany.Evidencni_cislo = preindexovane;
       }
 
       await updateRow(

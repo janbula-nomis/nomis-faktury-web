@@ -569,6 +569,35 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 .cislo-evid { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 11.5px; color: var(--barva-text-tlumena); font-variant-numeric: tabular-nums; }
 .cislo-evid.cislo-evid-prazdne { color: #c3c8d1; }
 
+/* Náhled srovnání číslování za rok (v4.49) - Jan: "je možné ještě všechny
+   doklady roku 2026 upravit a doplnit číslování, než se to pošle účetní?".
+   Seznam "staré číslo → nové číslo", který appka ukáže PŘED zápisem
+   (viz nactiNahledCislovani() v public/app.js a netlify/functions/
+   precislovani.js).
+
+   Řádek je schválně `flex` se `wrap`, ne mřížka: Janův iPhone kreslí appku
+   na cca 320 CSS px (má zvětšené systémové písmo), a tam se dvojice čísel
+   se šipkou a k tomu ještě datum + firma + dodavatel na jeden řádek nikdy
+   nevejde. Popis má proto `flex-basis: 100%`, takže se VŽDYCKY zalomí pod
+   čísla - i na širokém okně. Vypadá to tak stejně všude a hlavně se čísla
+   nad sebou zarovnají (číslo má `tabular-nums` a monospace font, stejně
+   jako .cislo-evid výš), což je při kontrole souvislé řady to jediné, na
+   čem záleží. Pozor, ať se historie neopakuje: zkoušet to natlačit na
+   jeden řádek nemá cenu, na 320px to jen přeteče.
+
+   Seznam má `max-height` + vlastní posuvník - úklid za celý rok může mít
+   klidně stovku řádků a bez toho by tlačítko "Zapsat nová čísla" skončilo
+   kdesi dole mimo obrazovku a Jan by ho nenašel. */
+.cislovani-nahled-seznam { max-height: 320px; overflow-y: auto; border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); padding: 4px; }
+.cislovani-nahled-radek { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 6px; border-bottom: 1px solid var(--barva-hranice); }
+.cislovani-nahled-radek:last-child { border-bottom: none; }
+.cislovani-nahled-cislo { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--barva-text-tlumena); white-space: nowrap; }
+/* Nové číslo appka zvýrazní - je to jediná hodnota, kterou zápis opravdu
+   změní, a Jan podle ní kontroluje, jestli řada sedí. */
+.cislovani-nahled-cislo.nove { color: var(--barva-primarni); font-weight: 600; }
+.cislovani-nahled-sipka { color: var(--barva-text-tlumena); font-size: 12px; }
+.cislovani-nahled-popis { flex-basis: 100%; font-size: 11px; color: var(--barva-text-tlumena); overflow-wrap: anywhere; }
+
 /* Středisko/Předkontace u spárovaného bankovního pohybu (v4.34) - appka
    chybějící zařazení zvýrazní, ať je vidět, kde ho ještě doplnit. */
 .chybi-vyplneni { color: var(--barva-varovani); font-weight: 600; }

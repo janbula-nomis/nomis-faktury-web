@@ -54,7 +54,7 @@ const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects, appendRow, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const { VYDANE_FAKTURY_HEADERS } = require('../../lib/vydaneFakturySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
-const { dalsiEvidencniCislo } = require('../../lib/evidencniCislo');
+const { dalsiEvidencniCislo, precislujPriPresunu } = require('../../lib/evidencniCislo');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
 
@@ -193,6 +193,23 @@ exports.handler = async (event) => {
       // u většiny PATCH volání (běžná oprava údajů) `doplnEvidencniCisloPokudChybi`
       // nic nedělá, protože faktura evidenční číslo už dávno má.
       aktualizovana = doplnEvidencniCisloPokudChybi(aktualizovana, rows);
+      // (v4.49) Faktura, kterou oprava přestěhovala do jiné řady (jiný rok
+      // DUZP/vystavení, případně jiná firma), dostane číslo z té nové řady -
+      // stejné pravidlo, jaké Jan zadal pro přijaté doklady ("po změně roku
+      // na dokladu při opravě přeindexuj označení"). Appka ho drží i tady,
+      // aby se obě složky, které dostane účetní, chovaly stejně - jinak by
+      // se rok v označení rozešel s rokem faktury zrovna na té straně, kde
+      // si toho nikdo nevšimne.
+      const precislovana = precislujPriPresunu(
+        faktura,
+        rows,
+        'FV',
+        ziskejFirmuFaktury(aktualizovana),
+        String(aktualizovana.DUZP || aktualizovana.Datum_vystaveni || '').slice(0, 4) ||
+          String(new Date().getFullYear()),
+        ziskejFirmuFaktury
+      );
+      if (precislovana) aktualizovana.Evidencni_cislo = precislovana;
       await updateRow(sheets, spreadsheetId, 'Vydane_faktury', VYDANE_FAKTURY_HEADERS, faktura._row, aktualizovana);
 
       return json(200, { ok: true, faktura: aktualizovana });

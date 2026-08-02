@@ -5005,6 +5005,189 @@ Změněné soubory: `netlify/functions/dashboard-firmy.js`, `public/app.js`,
 `APP_VERZE` appka zvýšila na `v4.48 – 2026-08-02`, `VERZE` v `sw.js`
 na `v4.48`.
 
+## 91. Přečíslování při opravě, srovnání číslování za rok a zpětný ořez skenu (v4.49)
+
+Jan (2026-08-02): *„po změně roku na dokladu při opravě přeindexuj označení,
+aby to pasovalo např. na rok 2026, a ted je možné ještě všechny doklady roku
+2026 upravit a doplnit číslování, než se to pošle účetní, napiš jestli to jde?
+a je možné nyný dodělat ořezání a nebo jde jen u nových?"* Tři věci, které
+spolu souvisí přes evidenční číslo (`Evidencni_cislo`, formát `FP 007-2025` /
+`FV 007-2025`, zavedeno ve v4.34) a přes ořez fotky (v4.48) – všechny tři
+odpovědi zněly „jde to" a appka je má hotové.
+
+### 91.1 Oprava, která přestěhuje doklad do jiného roku, ho i přečísluje
+
+Do v4.48 platilo, že číslo appka přidělí jednou – přijatému dokladu při
+schválení, vydané faktuře při potvrzení stavu – a dál na něj nesahá. Když pak
+Jan při opravě přepsal DUZP z prosince na leden, doklad zůstal viset s číslem
+z minulého roku (`FP 041-2025` na dokladu, který patří do roku 2026). V účetní
+řadě je to cizí těleso: číslo říká jeden rok, doklad druhý.
+
+Nově appka po každé opravě zkontroluje, jestli doklad pořád patří do řady,
+ze které má číslo. Řada je daná dvojicí **firma + rok** (rok z DUZP, jinak
+z data dokladu / vystavení). Když se kterákoli půlka změnila, doklad dostane
+**další volné číslo v nové řadě**. Pravidlo sedí na jednom místě, ve funkci
+`precislujPriPresunu()` v `lib/evidencniCislo.js`, a volají ho oba PATCH
+handlery – `netlify/functions/doklady.js` (FP) i
+`netlify/functions/vydaneFaktury.js` (FV).
+
+Dvě věci, které jsou tak schválně a stojí za zapamatování:
+
+**V původním roce po dokladu zůstane mezera.** Janova výslovná volba
+(AskUserQuestion, varianta „Dát nové číslo v novém roce"). Alternativa –
+sesypat zbytek roku o jedničku dolů, aby řada byla souvislá – by změnila čísla
+dokladů, kterých se oprava vůbec netýkala a které už můžou být vytištěné nebo
+opsané v mailu. Jedna mezera v řadě je menší zlo než deset přečíslovaných
+cizích dokladů. Kdo chce mít rok srovnaný do souvislé řady, má na to úklid
+z 91.2 – ten je vědomý a s náhledem.
+
+**Přečíslování běží jako `else` k přidělení čísla při schválení**, aby si
+doklad při schvalování nesáhl pro číslo dvakrát. A číslo se počítá z toho, co
+je v listu **před** zápisem, kde doklad ještě sedí se starou firmou/rokem –
+takže si vlastní staré číslo do nové řady nezapočítá.
+
+Pozor na typ: `vytezPoradiARok()` vrací `rok` jako **řetězec** (je to zachycená
+skupina z regulárního výrazu) a všichni volající posílají taky řetězec.
+Kdyby to někdo „opravil" na číslo, `precislujPriPresunu()` by přestalo poznat,
+že doklad zůstal ve své řadě, a přečíslovalo by ho při každé sebemenší úpravě.
+
+### 91.2 Srovnání číslování za celý rok – jednorázový úklid před předáním účetní
+
+Nová funkce `netlify/functions/precislovani.js` a nový blok **„Srovnat
+číslování…"** nad seznamem přijatých dokladů. Srovná evidenční čísla za vybraný
+rok do souvislé řady, zvlášť pro každou firmu, a doplní i čísla, která chybí
+úplně (záznamy z doby před v4.34 je nemají).
+
+**Pořadí je podle účetního data** (DUZP, jinak datum dokladu / vystavení),
+tedy chronologicky – Janova volba přes AskUserQuestion. Běžný chod se tím
+**nemění**: nové doklady se dál číslují při schválení, tedy podle pořadí
+přidání (pravidlo z v4.34). Jsou to dvě různá pravidla schválně, ne
+nedopatřením – kdyby se sem někdy sahalo, tohle je ten rozdíl, který stojí
+za zapamatování.
+
+**Vždycky dvoukrokově.** GET spočítá náhled a nezapisuje nic; teprve POST
+zapisuje. Náhled ukáže, kolika záznamů se to týká (`Změní se 4 z 12`) a u
+každého starou i novou podobu čísla, včetně data, firmy a dodavatele –
+řádky, které zůstávají beze změny, appka neukazuje, jinak by se v seznamu
+za celý rok nedalo nic najít. Chybějící staré číslo appka píše jako
+`(bez čísla)`, ne jako prázdno. Když se nemění nic, appka to rovnou napíše
+a tlačítko k zápisu vůbec nenabídne.
+
+Co se do řady **nepočítá**: přijaté doklady, které ještě čekají na schválení
+(číslo dostanou až při něm – jinak by v řadě zabraly místo, i kdyby nakonec
+skončily jako zamítnuté nebo duplicita), a vydané faktury ve stavu
+„Zpracovává se" nebo „Možná duplicita".
+
+**Práva: jen admin a účetní.** Běžná role smí opravovat údaje na svých
+dokladech, ale hromadné přepsání číslování celé firmy za celý rok je zásah
+do podkladů pro účetnictví. Frontend blok běžné roli schová, backend ho
+stejně odmítne 403. Admin srovnává všechny firmy, účetní jen ty svoje –
+a scope se uplatní **před** výpočtem, aby účetní nedostala čísla spočítaná
+z dokladů, na které nevidí.
+
+Zápis jde **řádek po řádku** (`updateRow`), ne hromadným přepisem listu. Je to
+pomalejší, ale když volání spadne v půlce, list zůstane konzistentní – část
+záznamů má nová čísla, část stará, a druhé spuštění to dorovná. Hromadný
+přepis by při chybě uprostřed mohl poškodit list celý.
+
+Riziko celé operace je malé i proto, že `Evidencni_cislo` je **jen pro
+zobrazení** – v exportech (`export-money-s3.js`, `export-excel.js`) není,
+takže se přečíslováním nerozejde nic, co už účetní dostala.
+
+### 91.3 Zpětný ořez skenu u dokladů nahraných dřív
+
+Automatický ořez fotky (v4.48, `najdiDokladNaFotce()` v `public/app.js`) běží
+v prohlížeči **před** nahráním – doklady nahrané dřív ho tedy nikdy neviděly.
+Odpověď na Janovu otázku je tedy: ano, jde to dodělat i zpětně, a v detailu
+dokladu na to teď je tlačítko **„Oříznout sken"**.
+
+Co se stane po kliknutí: appka sken stáhne přes `/api/soubor` (po částech,
+stejně jako prohlížeč skenu z v4.43), pustí na něj **úplně stejný ořez** jako
+při novém nahrání a výsledek pošle do nové funkce
+`netlify/functions/orezSkenu.js`. Ta ho nahraje na Disk jako **nový soubor**
+a doklad na něj přepne (`Zdrojovy_soubor_ID` / `_URL`).
+
+**Originál appka nemaže** – Janova výslovná volba (AskUserQuestion, varianta
+„Uložit ořez, originál nechat na Disku"). Ořez je odhad; když se algoritmus
+splete a ukousne půlku dokladu, musí být pořád kam se vrátit. Na Disku tak po
+zpětném ořezu zůstanou dva soubory a ten původní už v appce nikdo neuvidí.
+Pozor, ať se historie neopakuje: nepřidávat „úklid starých souborů", dokud si
+to Jan výslovně neřekne – smazaná fotka dokladu je nevratná. Ze stejného
+důvodu appka nahrává nový soubor a nepřepisuje obsah toho původního
+(`files.update` s novým médiem) – tím by byl ořez nevratný i s originálem.
+
+**Ořez samotný se počítá v prohlížeči, ne na serveru.** Je to schválně:
+kód ořezu zůstává jeden jediný (`vykresliOrezDoJpegu()` v `public/app.js`,
+vytažené z `zmensiObrazek()` právě kvůli tomuhle), takže se zpětný a nový ořez
+nemůžou rozejít. Druhá implementace na serveru by se dřív nebo později chovala
+jinak než ta, kterou Jan vidí při focení. A Netlify Function nemá canvas ani
+žádnou obrázkovou knihovnu – musela by se dotáhnout (sharp ~30 MB), což je
+stejná úvaha jako u OpenCV.js ve v4.48, kde appka 8 MB WASM taky zavrhla.
+**Nezkoušet znovu.**
+
+Kdy appka **nenahraje nic**: když na fotce doklad spolehlivě nenajde. Nahrát
+pouze překomprimovanou kopii by sken jen zhoršilo a nic nezískalo – appka to
+řekne hláškou a sken nechá být. Když sken není obrázek (PDF), pozná to až po
+stažení (v listu typ souboru není) a taky to jen řekne.
+
+**Práva kopírují pravidlo z 91.2 v malém:** kdo smí doklad upravovat, smí i
+přeříznout jeho sken (admin všechno, ostatní jen svoje firmy). U **schváleného**
+dokladu vymění sken jen admin/účetní – schválený doklad je už podklad pro
+účetnictví. Frontend tlačítko ukáže přesně tam, kde backend řekne ano, takže
+appka nikdy nenabídne akci, která by skončila na 403.
+
+Pořadí operací: nejdřív **upload na Disk**, teprve pak zápis do listu. Opačné
+pořadí by při spadlém uploadu nechalo doklad ukazovat na soubor, který
+neexistuje – takhle je nejhorší možný konec osiřelý soubor na Disku navíc,
+což nevadí nikomu.
+
+### 91.4 Ověření
+
+**Logika číslování** proti **skutečnému** `lib/evidencniCislo.js` – 17
+kontrol: řada se drží firmy i roku, změna roku dá číslo z nové řady, změna
+firmy taky, doklad, který ve své řadě zůstal, se nepřečísluje, mezera po
+přestěhovaném dokladu zůstane, návrh srovnání řadí podle DUZP a při shodě
+podle data zpracování, chybějící čísla se doplní, návrh nikdy nic nezapisuje.
+
+**Backend úklidu** proti **skutečnému** `netlify/functions/precislovani.js`
+(Google podstrčený, data vymyšlená) – 23 kontrol: bez tokenu 401, běžná role
+403, nesmyslný rok a neznámý typ 400, náhled nic nezapisuje, admin vidí obě
+firmy a účetní jen svoji, pořadí podle DUZP, zápis jde na správné řádky
+správného listu, srovnaný rok nezapíše nic, placeholder „Zpracovává se" se
+nečísluje.
+
+**Backend zpětného ořezu** proti **skutečnému**
+`netlify/functions/orezSkenu.js` – 22 kontrol: práva a validace nic
+nenahrají, nový soubor jde do složky INBOX pod názvem odvozeným z původního
+(`…-orez.jpg`), nahrané bajty sedí s dekódovaným base64, doklad se přepne na
+nový soubor a ostatní pole mu zůstanou, účetní smí i schválený doklad,
+nečitelný název z Disku appku nepoloží (náhradní název podle dokladu), nad
+4,5 MB 413 a nic se nenahraje.
+
+**Ořez se refaktorem nezměnil:** regresní test z v4.48 (devět umělých fotek –
+rovně, nakřivo, moc nakřivo, přes celou plochu, potmě, bílá na bílé…) po
+vytažení `vykresliOrezDoJpegu()` ze `zmensiObrazek()` vrátil **bajt po bajtu
+stejný výsledek** u všech devíti.
+
+**Vykreslení** proti **skutečnému** `index.html`, `style.css` i `app.js` –
+náhled srovnání číslování v **6 kombinacích** (320 / 390 / 1180 px × světlý
+i tmavý režim): žádná chyba JS, seznam nepřetéká z karty, **0 px** vodorovného
+přetečení řádku, popis se vždycky zalomí pod dvojici čísel (na Janových 320 px
+by se vedle sebe nevešly), nové číslo je odlišené barvou, hlavička hlásí
+správný počet, `(bez čísla)` se opravdu vykreslí – plus dva stavy „není co
+měnit", kde se tlačítko k zápisu nesmí objevit. Detail dokladu ve **4
+případech**: tlačítko „Oříznout sken" je u rozpracovaného dokladu, není
+u schváleného pro běžnou roli, je u schváleného pro účetní, není u dokladu
+bez skenu – a řádek akcí se na 320 px nevysype z karty.
+
+Změněné soubory: `lib/evidencniCislo.js`, `netlify/functions/precislovani.js`
+(nový), `netlify/functions/orezSkenu.js` (nový), `netlify/functions/doklady.js`,
+`netlify/functions/vydaneFaktury.js`, `public/index.html`, `public/app.js`,
+`public/style.css`, `public/sw.js`.
+
+`APP_VERZE` appka zvýšila na `v4.49 – 2026-08-02`, `VERZE` v `sw.js`
+na `v4.49`.
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

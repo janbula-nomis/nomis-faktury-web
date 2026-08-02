@@ -179,6 +179,30 @@
         <button type="button" id="dokl-sekce-ke-schvaleni" class="prepinac-sekce-tlacitko aktivni" data-sekce="keSchvaleni">Ke schválení</button>
         <button type="button" id="dokl-sekce-schvalene" class="prepinac-sekce-tlacitko" data-sekce="schvalene">Schválené</button>
       </div>
+      <!-- Srovnání číslování (v4.49) - Jan: "je možné ještě všechny doklady
+           roku 2026 upravit a doplnit číslování, než se to pošle účetní?".
+           Jen pro admina/účetní - appka blok běžné roli schová (zobrazApp v
+           public/app.js) a backend ho stejně odmítne (precislovani.js). -->
+      <div id="doklady-cislovani" class="skryto" style="margin:10px 0">
+        <button type="button" id="cislovani-otevrit" class="sekundarni">Srovnat číslování…</button>
+        <div id="cislovani-panel" class="skryto" style="margin-top:10px">
+          <p class="popis">Appka srovná evidenční čísla (FP 001-rok) za vybraný rok do souvislé řady –
+            zvlášť pro každou firmu, seřazeno podle DUZP (a když chybí, podle data dokladu). Doplní i čísla,
+            která chybí. Nejdřív ukáže náhled, teprve po potvrzení zapisuje. Doklady čekající na schválení
+            číslo nedostanou – to jim appka přidělí až při schválení.</p>
+          <label for="cislovani-rok" style="margin-top:10px">Rok</label>
+          <select id="cislovani-rok" style="max-width:140px"></select>
+          <label for="cislovani-typ" style="margin-top:10px">Co srovnat</label>
+          <select id="cislovani-typ" style="max-width:260px">
+            <option value="doklady">Přijaté doklady (FP)</option>
+            <option value="vydane">Vydané faktury (FV)</option>
+          </select>
+          <div class="tlacitka-nahrani" style="margin-top:12px">
+            <button type="button" id="cislovani-nahled">Zobrazit náhled</button>
+          </div>
+          <div id="cislovani-vysledek" style="margin-top:12px"></div>
+        </div>
+      </div>
       <div id="doklady-nacitani" class="nacitani">Načítám…</div>
       <div id="doklady-zprava" class="zprava uspech skryto"></div>
       <div class="doklad-tabulka-obal">
