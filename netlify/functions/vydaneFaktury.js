@@ -235,14 +235,17 @@ exports.handler = async (event) => {
       await deleteRow(sheets, spreadsheetId, 'Vydane_faktury', faktura._row);
 
       // Cascade: bankovní pohyby napárované na smazanou vydanou fakturu appka
-      // vrátí do stavu "Bez dokladu" (NE "Nespárováno" - to je konvence pro
-      // výdajovou stranu/Doklady a Smlouvy; příjmová strana bez přiřazení
-      // faktury je "Bez dokladu", viz banka.js).
+      // vrátí do NEROZHODNUTÉHO stavu příjmu (NE "Nespárováno" - to je
+      // konvence pro výdajovou stranu/Doklady a Smlouvy).
+      // Od v4.51 je tím stavem "Příjem ke kontrole", ne "Bez dokladu" - do
+      // v4.50 se platba po smazání faktury tvářila jako vyřízená ("doklad
+      // tu být nemá"), přestože se právě naopak stala nezařazenou. Nevracet
+      // zpátky, viz lib/bankSchema.js.
       try {
         const { rows: pohyby } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
         const napojenePohyby = pohyby.filter((p) => p.Vydana_faktura_ID === id);
         for (const pohyb of napojenePohyby) {
-          const aktualizovany = Object.assign({}, pohyb, { Vydana_faktura_ID: '', Stav_parovani: 'Bez dokladu' });
+          const aktualizovany = Object.assign({}, pohyb, { Vydana_faktura_ID: '', Stav_parovani: 'Příjem ke kontrole' });
           await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, aktualizovany);
         }
       } catch (e) {

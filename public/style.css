@@ -1266,6 +1266,16 @@ input[type="file"] { margin-top: 8px; }
   font-variant-numeric: tabular-nums;
 }
 .souhrn-akce-tlacitko .stav { display: block; font-size: 11px; color: var(--barva-text-tlumena); margin-top: 1px; }
+/* (v4.51) Přibyla třetí dlaždice („příjem ke kontrole"), takže počet dlaždic
+   může být lichý a poslední by v mřížce 1fr 1fr nechala vpravo díru - přesně
+   ten „rozhozený" dojem, kvůli kterému se souhrn v v4.50 předělával. Lichá
+   POSLEDNÍ dlaždice se proto roztáhne přes oba sloupce.
+   `:not(:first-child)` je tam schválně: jediná dlaždice má zůstat na půlku
+   tak, jak to Jan schválil ve v4.50 - tohle pravidlo mění jen případ tří
+   (a pěti…) dlaždic. Mřížka se NEpřepíná na `repeat(auto-fit, minmax(…))`:
+   na 320 px by ze tří dlaždic udělala tři úzké sloupce a popisek
+   „příjmů ke kontrole" by se v nich lámal na tři řádky. */
+.souhrn-akce-tlacitko:last-child:nth-child(odd):not(:first-child) { grid-column: 1 / -1; }
 /* Zapnutý filtr - `aria-pressed`, ne třída, ať to čte i odečítač obrazovky. */
 .souhrn-akce-tlacitko[aria-pressed="true"] { border-color: var(--barva-primarni); background: rgba(36, 84, 255, 0.08); }
 .souhrn-akce-tlacitko[aria-pressed="true"] .cislo { color: var(--barva-primarni); }
@@ -1389,6 +1399,44 @@ input[type="file"] { margin-top: 8px; }
 .banka-radek-detail dt { color: var(--barva-text-tlumena); }
 .banka-radek-detail dd { margin: 0; }
 
+/* (v4.51) Nápověda "mohlo by to být" a varování před dvojí platbou v
+   rozbaleném detailu PŘÍJMU. Obojí se vkládá do `.radek-akci`, což je flex
+   se `flex-wrap`, takže bez `flex-basis: 100%` by se to naskládalo vedle
+   tlačítek do jednoho úzkého sloupečku - stejný trik jako u
+   `.vyber-doklad-listbox` výš.
+   Levý barevný proužek místo plného rámečku je schválně: v detailu už je
+   podbarvení řádku podle stavu a další orámovaný box by z toho na 320 px
+   udělal změť. */
+.prijem-tipy, .prijem-varovani {
+  flex-basis: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+}
+.prijem-tipy { background: #eef2ff; border-left: 3px solid var(--barva-primarni); }
+.prijem-tipy-nadpis {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--barva-text-tlumena);
+  margin-bottom: 6px;
+}
+/* Každý tip je vlastní řádek: text přes celou šířku a tlačítko POD ním.
+   Nezkoušet dát tlačítko vedle textu (`justify-content: space-between`) -
+   na Janových 320 px se do řádku vejde jen pár znaků popisu a zbytek se
+   zalomí pod tlačítko, takže není poznat, co ke které nabídce patří. */
+.prijem-tip { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 6px; }
+.prijem-tip + .prijem-tip { border-top: 1px solid var(--barva-hranice); margin-top: 6px; }
+.prijem-tip-text { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; color: var(--barva-text); }
+/* Varování je jen text, bez akce (viz komentář v public/app.js) - proto tu
+   není nic, co by vypadalo jako tlačítko. */
+.prijem-varovani { background: #fdecea; border-left: 3px solid var(--barva-chyba); color: var(--barva-text); overflow-wrap: anywhere; }
+
 .banka-souhrn-radek { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .banka-souhrn-radek #banka-souhrn { margin-top: 0; }
 
@@ -1508,6 +1556,11 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .vf-radek.radek-vf-zpracovava,
 :root[data-motiv="tmavy"] .vf-radek.radek-vf-castecne,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-navrzeno { background: #22314f; color: var(--barva-primarni-tmava); }
+/* (v4.51) Tipy a varování u příjmu: v tmavém motivu nesmí zůstat světlé
+   podbarvení, jinak z detailu svítí bílý obdélník. Barva textu se dědí z
+   `--barva-text`, takže se tu nastavuje jen pozadí. */
+:root[data-motiv="tmavy"] .prijem-tipy { background: #22314f; }
+:root[data-motiv="tmavy"] .prijem-varovani { background: #3a2222; }
 :root[data-motiv="tmavy"] .stav-ke-kontrole,
 :root[data-motiv="tmavy"] .doklad-radek.radek-stav-ke-kontrole,
 :root[data-motiv="tmavy"] .vf-radek.radek-vf-neuhrazeno { background: #3a3220; color: var(--barva-varovani); }
@@ -1571,6 +1624,39 @@ input[type="file"] { margin-top: 8px; }
 :root[data-skin="gold"] .tlacitko-nahrat-cta { background: #c9a227; border-color: #c9a227; color: #14161a; }
 :root[data-skin="gold"] .tlacitko-nahrat-cta:hover,
 :root[data-skin="gold"] .tlacitko-nahrat-cta.aktivni { background: #e0bf4f; border-color: #e0bf4f; }
+
+/* (v4.51) OPRAVA STARÉ CHYBY z v4.15/v4.16: oba skiny přebíjejí
+   `--barva-primarni` na tmavou navy #16294f, ale tmavý motiv (`data-motiv`)
+   si ji zpátky NEROZSVÍTIL - výsledek byl tmavě modrý text na tmavém pozadí.
+   Změřeno harnessem (v451/kontrast.py): 1,04:1 u "Přiřadit příjem" a 1,11:1
+   u "Přiřadit fakturu", tedy prakticky neviditelné. Vyplavalo to až u v4.51,
+   protože příjmy ke kontrole mají teď červené podbarvení řádku a tipů
+   "mohlo by to být" je v detailu plno - ale týkalo se to VŠECH obtažených
+   tlačítek v celé appce v tmavém režimu.
+   Opravuje se jen INKOUST obtažených tlačítek, ne proměnná `--barva-primarni`
+   samotná: tu používají i vyplněná CTA (bílý text na tmavé navy je v tmavém
+   režimu čitelný a Jan si ten "rám" appky v v4.16 odsouhlasil), rozsvícením
+   proměnné by se z nich stal bílý text na světle modré (2,9:1). Nevracet
+   zpátky do proměnné.
+   Sémantické barvy z v4.39 (potvrdit zeleně, poznámka šedě, smazat červeně)
+   zůstávají - proto ta `:not()`; "zamítnout" se rozsvěcí schválně, protože
+   ta jediná z nich brala `--barva-primarni`. Tlačítka v hlavičce appky mají
+   vlastní pravidlo se čtyřmi třídami, takže je tohle nepřebije. */
+:root[data-motiv="tmavy"] button.sekundarni:not(.akce-potvrdit):not(.akce-poznamka):not(.akce-smazat),
+:root[data-motiv="tmavy"] button.sekundarni.akce-zamitnout { color: #7d9dff; border-color: #7d9dff; }
+:root[data-motiv="tmavy"] button.sekundarni:not(.akce-potvrdit):not(.akce-poznamka):not(.akce-smazat):hover,
+:root[data-motiv="tmavy"] button.sekundarni.akce-zamitnout:hover { background: rgba(125, 157, 255, 0.12); }
+
+/* (v4.51) Tytéž měření ve SVĚTLÉM motivu: šedá "Uložit poznámku" (3,96:1) a
+   červená "Smazat pohyb" (4,09:1) těsně nedosáhly na 4,5:1, protože v
+   detailu bankovního pohybu nesedí na bílé kartě, ale na barevném podbarvení
+   řádku podle stavu. Ztmavení je nepatrné (#6b7280 -> #616874, #d0342c ->
+   #c13029) a schválně JEN tady, uvnitř detailu pohybu - proměnné
+   `--barva-text-tlumena` a `--barva-chyba` appka nechává být, ty nese celý
+   zbytek appky a Jan si palety odsouhlasil. Čísla nehádat okem, přeměřit
+   harnessem v451/kontrast.py. */
+:root:not([data-motiv="tmavy"]) .banka-radek-detail button.sekundarni.akce-poznamka { color: #616874; border-color: #616874; }
+:root:not([data-motiv="tmavy"]) .banka-radek-detail button.sekundarni.akce-smazat { color: #c13029; border-color: #c13029; }
 
 #vyber-skinu {
   font-size: 11.5px;

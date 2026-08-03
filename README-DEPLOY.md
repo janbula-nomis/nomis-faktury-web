@@ -5249,6 +5249,64 @@ Změněné soubory: `public/index.html`, `public/app.js`, `public/style.css`, `p
 `APP_VERZE` appka zvýšila na `v4.50 – 2026-08-02`, `VERZE` v `sw.js` na `v4.50`.
 
 
+## 93. Příjmy: nový stav „Příjem ke kontrole" a kandidáti v detailu (v4.51)
+
+Jan (2026-08-03): *„u příjmu v bankovních výpisech se platby příjmy samy označí Bez dokladu, ale to je potřeba zkontrolovat Vystavené faktury nebo Smlouvy. navrhni jak to uděláš?"*
+
+### 93.1 V čem byla chyba
+
+Při importu výpisu appka u příchozí platby zkusila nejdřív `navrhniShoduPrijem` (vydané faktury) a pak `navrhniShoduNajem` (smlouvy). Když ani jedno neskórovalo dost, spadla platba do stavu **`Bez dokladu`**. Jenže `Bez dokladu` znamená všude jinde v appce **lidské rozhodnutí**: „účetní se podívala a doklad k tomu nemá být" – tedy hotová věc. Appka tak tímhle jedním stavem míchala dvě úplně různé věci: *„appka nic nenašla"* a *„člověk rozhodl, že tu nic být nemá"*.
+
+Od v4.50, kdy se vyřízené věci schovaly do tlumené věty „Vyřízeno: …", se to stalo doopravdy nebezpečným: 126 příjmů, které nikdo nikdy neviděl, se tvářilo jako vyřízených a zmizelo z očí.
+
+Druhá půlka problému byla v samotném hledání: `navrhniShoduPrijem` **vyžadovala shodu jména protistrany** a **variabilní symbol nečetla vůbec**, přestože u odchozích plateb ho appka používá odjakživa. Platba od Nováka za fakturu vystavenou na jeho firmu tak nikdy neprošla. A `navrhniShoduNajem` brala jen smlouvy `Typ = 'Nájem'`.
+
+### 93.2 Nový stav „Příjem ke kontrole"
+
+Přibyl stav `Příjem ke kontrole` – příjmový dvojník `Nespárováno`. Znamená přesně **„appka k té platbě nic nenašla, koukni na to"**.
+
+Pravidlo, které se nesmí porušit: **appka `Bez dokladu` sama nikdy nenastaví.** Jediná výjimka je `jeBezDokladu(typ_pohybu)` – tam jde o pravidlo podle typu pohybu (poplatky, úroky), ne o neúspěšné hledání. Všechna ostatní místa, kde se příjem vrací mezi nevyřízené (zamítnutí návrhu, zrušení vazby, smazání faktury nebo smlouvy), dávají příjmům `Příjem ke kontrole` a výdajům `Nespárováno`. Kaskády v `netlify/functions/vydaneFaktury.js` a `smlouvy.js` se proto rozhodují **podle znaménka částky**, ne podle jednoho pevného stavu.
+
+V souhrnu nad seznamem (v4.50) přibyla **třetí dlaždice „příjmů ke kontrole"**. Protože jsou dlaždice v mřížce po dvou, dostala poslední lichá dlaždice `grid-column: 1 / -1`, aby se neroztáhla jen do půlky řádku. V seznamu má odznak **„Ke kontr."** a stejné červené podbarvení řádku jako „chybí doklad" – je to práce k udělání.
+
+### 93.3 Kandidáti přímo v detailu pohybu
+
+Po rozbalení příjmu appka ukáže blok **„Mohlo by to být:"** – nejvýš tři vydané faktury nebo smlouvy s krátkým vysvětlením, proč si to myslí („sedí variabilní symbol, sedí částka"), a u každého tlačítko **Přiřadit fakturu / Přiřadit smlouvu**.
+
+Skóre: variabilní symbol +3, jméno protistrany +2, přesná částka +2, částečná platba +1. Bere se od skóre 2. U smluv je tolerance částky `max(100 Kč, 10 % očekávané)`.
+
+Vedle toho je **červené varování „Pozor: tahle platba sedí na už uhrazenou fakturu"** – dvojí platba nebo přeplatek. Varování schválně **nemá** tlačítko k přiřazení; má se to zkontrolovat ručně.
+
+**Appka nikdy nic nepotvrdí sama** – to je Janovo výslovné zadání. Vždycky jen navrhne.
+
+Porovnávání symbolů dělá `normalizujSymbol` / `shodaSymbolu` (v `lib/bankHelpers.js`): nechá jen číslice, zahodí vedoucí nuly, samé nuly a prázdný symbol se nepárují nikdy. Tatáž logika je **schválně zduplikovaná** v `public/app.js` – prohlížeč si `lib/` modul načíst neumí, appka nemá build.
+
+### 93.4 Jednorázový úklid starých příjmů
+
+V záložce Bankovní výpisy je tlačítko **„Zkontrolovat staré příjmy"**. Projde příchozí platby dané firmy ve stavu `Bez dokladu` a ty, které **nemají vydanou fakturu, smlouvu ani středisko**, přepne na `Příjem ke kontrole`. Platby s vazbou nebo se střediskem nechá být, odchozích se nedotkne.
+
+Pouští se **pro každou firmu zvlášť** a je za potvrzením – je to hromadný jednosměrný zápis do ostrých dat. Tlačítko z appky **nemazat** ani po úklidu: Jan má firem víc a přibývají.
+
+### 93.5 Kontrast tlačítek – nalezená stará chyba
+
+Při měření kontrastu (ne odhadem okem, ale spočítaně) se ukázalo, že v **tmavém motivu** měla všechna obrysová tlačítka `.sekundarni` v celé appce kontrast ~1,05:1, tedy prakticky neviditelná. Příčina: skiny `[data-skin="navy"]` / `[data-skin="gold"]` (v4.15/v4.16) přepisují `--barva-primarni` na tmavou modrou `#16294f` a tmavý motiv ji nikdy nerozsvítí zpátky; při shodné specificitě vyhraje skin, protože je v souboru níž.
+
+Opraveno **úzce**: v tmavém motivu se rozsvítí jen *inkoust* obrysových tlačítek na `#7d9dff` (naměřeno 4,95–5,78:1). **Nerozsvěcovat samotnou proměnnou** – plná tlačítka by pak měla bílý text na `#5b86ff`, což je ~2,9:1. Sémantické barvy z v4.39 (potvrdit / poznámka / smazat) jsou z pravidla vyloučené.
+
+Ve světlém motivu těsně nedosáhly na 4,5:1 „Uložit poznámku" (3,96:1) a „Smazat pohyb" (4,09:1) na podbarveném řádku. Ztmaveno nepatrně a **jen uvnitř `.banka-radek-detail`** (`#616874`, `#c13029`), globální proměnné appka nechala být. Čísla nehádat okem – přeměřit harnessem.
+
+### 93.6 Ověřeno
+
+- **logika** (`test-v451.js`, 24 kontrol): `normalizujSymbol` (prázdno, `undefined`, `null`, `0000`, `0007`, `FV 007-2026`, číselný vstup), `shodaSymbolu` (prázdné a samé nuly se nepárují, tolerance vedoucích nul), `navrhniShoduPrijem` (cizí jméno + správný VS projde, cizí jméno bez VS neprojde, správný VS + špatná částka neprojde, samotné jméno pořád funguje, částečná platba), `navrhniShoduNajem` (jméno, `Typ: 'Energie'` se už neignoruje, VS zastoupí jméno);
+- **vzhled** (`prijmy.py`, harness nad **skutečným** `index.html`/`style.css`/`app.js`, 320 / 390 / 1180 px × světlý/tmavý): tři dlaždice, „ke kontrole" není mezi vyřízenými, třetí dlaždice přes celou šířku, odznak a barva řádku, filtr nechá 5 řádků a druhé klepnutí ho vypne, tip s tlačítkem, varování bez tlačítka, nic nevyčnívá z detailu na 320 px;
+- **kontrast** (`kontrast.py`): každé tlačítko v rozbaleném detailu příjmu, oba skiny × oba motivy, s **poskládáním průhledných vrstev** pod sebou (`.banka-radek-detail` má `rgba(0,0,0,0.03)`) a započtenou vlastní `opacity` – 0 chyb;
+- **bez regrese**: harness z v4.50 (`souhrn.py`) prošel beze změny.
+
+Změněné soubory: `lib/bankSchema.js`, `lib/bankHelpers.js`, `netlify/functions/banka.js`, `netlify/functions/vydaneFaktury.js`, `netlify/functions/smlouvy.js`, `public/index.html`, `public/app.js`, `public/style.css`, `public/sw.js`.
+
+`APP_VERZE` appka zvýšila na `v4.51 – 2026-08-03`, `VERZE` v `sw.js` na `v4.51`.
+
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

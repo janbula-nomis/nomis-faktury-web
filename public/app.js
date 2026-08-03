@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.50 – 2026-08-02';
+const APP_VERZE = 'v4.51 – 2026-08-03';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -3534,7 +3534,8 @@ let bankaFakturySeznam = []; // od v3.22 - vydané faktury dané firmy (párová
 // Žádná zapnutá = celý seznam. Stav je schválně tady v proměnné, ne čtený
 // z atributu v DOM: souhrn se překresluje přes innerHTML, takže by se
 // aria-pressed při každém překreslení ztratilo.
-let bankaFiltr = { ceka: false, chybi: false };
+// (v4.51) Přibyla třetí dlaždice `kontrola` = stav "Příjem ke kontrole".
+let bankaFiltr = { ceka: false, chybi: false, kontrola: false };
 
 // Od v4.26.1 (Jan: "CZK nebo EUR se musí zobrazovat na základě měny
 // bankovních účtů") - appka dřív u pohybu zobrazovala rovnou p.Mena
@@ -3624,6 +3625,11 @@ function bankaStavBadge(stav) {
   if (stav === 'Potvrzeno') return '<span class="badge-potvrzeno" title="Potvrzeno">Potvrz.</span>';
   if (stav === 'Navrženo') return '<span class="badge-navrzeno" title="Navrženo">Návrh</span>';
   if (stav === 'Bez dokladu') return '<span class="badge-bezdokladu" title="Bez dokladu">Bez dokl.</span>';
+  // Od v4.51 - výchozí NEROZHODNUTÝ stav příjmu (appka nenašla vydanou
+  // fakturu ani smlouvu). Schválně má stejnou barvu jako "Chybí" u výdajů
+  // (badge-chybi), protože je to totéž: appka nic nenašla a čeká na Jana.
+  // Nedávat mu barvu "Bez dokladu" - to je vyřízená věc a splynulo by to.
+  if (stav === 'Příjem ke kontrole') return '<span class="badge-chybi" title="Příjem ke kontrole – zkontrolovat vydané faktury a smlouvy">Ke kontr.</span>';
   // Od v3.19 - trvalé příkazy (Smlouvy) a příjmy se středisko/účtem mají
   // VLASTNÍ barvu/badge, odlišnou od výdajových stavů výš (viz backlog).
   if (stav === 'Trvalý příkaz') return '<span class="badge-trvalyprikaz" title="Trvalý příkaz">Trvalý</span>';
@@ -3660,7 +3666,11 @@ function bankaStavRazeniPriorita(stav) {
   ) {
     return 0;
   }
-  if (stav === 'Nespárováno') return 1;
+  // "Příjem ke kontrole" (v4.51) patří do stejné skupiny jako "Nespárováno" -
+  // je to jeho dvojče na příjmové straně (appka nic nenašla, čeká se na
+  // člověka). Nepatří do skupiny 2 mezi vyřízené, kvůli tomu celá v4.51
+  // vznikla.
+  if (stav === 'Nespárováno' || stav === 'Příjem ke kontrole') return 1;
   return 2; // Potvrzeno, Bez dokladu, Trvalý příkaz, Příjem přiřazen, Spárováno - vydaná faktura/nájemní smlouva - vyřízeno
 }
 
@@ -3680,6 +3690,11 @@ function bankaStavRadekTrida(stav) {
   if (stav === 'Potvrzeno') return 'stav-radek-potvrzeno';
   if (stav === 'Navrženo' || stav === 'Navrženo - trvalý příkaz') return 'stav-radek-navrzeno';
   if (stav === 'Bez dokladu') return 'stav-radek-bezdokladu';
+  // (v4.51) Stejná barva řádku jako "Nespárováno" (výchozí stav-radek-chybi
+  // na konci) - viz komentář u bankaStavBadge. Řádek je tu schválně
+  // vyjmenovaný, i když by spadl do return na konci: aby bylo při čtení
+  // vidět, že to je záměr, ne opomenutí.
+  if (stav === 'Příjem ke kontrole') return 'stav-radek-chybi';
   if (stav === 'Trvalý příkaz') return 'stav-radek-trvalyprikaz';
   if (stav === 'Příjem přiřazen') return 'stav-radek-prijemprirazen';
   if (stav === 'Navrženo - vydaná faktura') return 'stav-radek-navrzeno';
@@ -3688,6 +3703,147 @@ function bankaStavRadekTrida(stav) {
   if (stav === 'Spárováno - nájemní smlouva') return 'stav-radek-prijemprirazen';
   if (stav === 'Daňová platba') return 'stav-radek-trvalyprikaz';
   return 'stav-radek-chybi';
+}
+
+// ---------- (v4.51) KANDIDÁTI K PŘÍJMU: TIPY V ROZBALENÉM DETAILU ----------
+// Jan (2026-08-03): *"u příjmu v bankovních výpisech se platby příjmy samy
+// označí Bez dokladu, ale to je potřeba zkontrolovat Vystavené faktury nebo
+// SMlouvy."* Backend (netlify/functions/banka.js + lib/bankHelpers.js) sice
+// návrh zkusí, ale je schválně přísný - navrhne až od skóre 2, jinak by
+// appka rozhazovala nesmysly. Když nic nenajde, zůstane příjem ve stavu
+// "Příjem ke kontrole" a Jan musí ručně projít seznam faktur. Tyhle tipy
+// jsou ten mezikrok: appka ukáže i SLABŠÍ shody jako nápovědu ("nejspíš to
+// bude tahle"), ale nic nepřiřadí - Jan si vybral "Ne, vždycky jen
+// navrhnout", takže appka NIKDY nepotvrzuje sama. Nedělat z toho
+// automatiku, ani "když je jen jeden kandidát".
+//
+// POZOR - proč je porovnávání napsané ZNOVU tady a ne převzaté z
+// lib/bankHelpers.js: `public/` je čistě statický adresář bez build kroku
+// (žádný bundler, žádné `require` v prohlížeči), takže se sdílený modul do
+// prohlížeče nedostane. Když se změní pravidla v lib/bankHelpers.js
+// (normalizujNazev / normalizujSymbol / navrhniShoduPrijem), je potřeba
+// srovnat i tyhle tři funkce - jinak bude appka na serveru a v prohlížeči
+// tipovat jinak. Není to hezké, ale je to levnější než zavádět build.
+function bankaNormalizujNazev(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Holé číslice bez úvodních nul - banka posílá VS jako "0002026001",
+// zatímco Cislo_faktury bývá "2026001". Prázdný výsledek NIKDY neznamená
+// shodu (jinak by se "spárovaly" všechny platby s prázdným VS mezi sebou).
+function bankaNormalizujSymbol(hodnota) {
+  return String(hodnota || '').replace(/\D/g, '').replace(/^0+/, '');
+}
+
+function bankaShodaSymbolu(vsPohybu, ...cisla) {
+  const vs = bankaNormalizujSymbol(vsPohybu);
+  if (!vs) return false;
+  return cisla.some((c) => {
+    const n = bankaNormalizujSymbol(c);
+    return n && n === vs;
+  });
+}
+
+// Vrátí { tipy, varovani } pro jeden příchozí pohyb.
+//   tipy     - neuhrazené faktury a platné smlouvy, které by to mohly být,
+//              seřazené od nejpravděpodobnější
+//   varovani - UŽ UHRAZENÉ faktury, na které platba sedí; to je typicky
+//              dvojí platba nebo přeplatek (Jan si vyžádal "Varovat před
+//              dvojí platbou"). Uhrazená faktura se schválně NEDÁ z tipů
+//              přiřadit - appka by tím sama přepsala její stav; ukáže se
+//              jen jako červená poznámka, ať se Jan podívá.
+function bankaKandidatiProPrijem(p) {
+  const castka = Math.abs(parsujCastkuZListu(p.Castka));
+  const nazev = bankaNormalizujNazev(p.Protistrana || p.Popis || '');
+  const vs = p.Variabilni_symbol || '';
+  const tipy = [];
+  const varovani = [];
+  if (castka <= 0) return { tipy, varovani };
+
+  // Tolerance na částku: 1 Kč kvůli zaokrouhlení, u velkých částek 0,5 %
+  // (bankovní poplatek u zahraniční platby ukousne pár korun).
+  const tolerance = Math.max(1, castka * 0.005);
+
+  (bankaFakturySeznam || []).forEach((f) => {
+    const castkaF = Math.abs(parsujCastkuZListu(f.Castka));
+    if (castkaF <= 0) return;
+    const shodaVs = bankaShodaSymbolu(vs, f.Cislo_faktury, f.Evidencni_cislo);
+    const nazevZakaznika = bankaNormalizujNazev(f.Zakaznik);
+    const shodaNazvu = !!(nazevZakaznika && nazev && (nazev.includes(nazevZakaznika) || nazevZakaznika.includes(nazev)));
+    const shodaCastky = Math.abs(castkaF - castka) <= tolerance;
+    const castecna = !shodaCastky && castka < castkaF;
+    if (!shodaVs && !shodaNazvu) return;
+    if (!shodaCastky && !castecna && !shodaVs) return;
+
+    const uhrazena = String(f.Stav || '').trim() === 'Uhrazeno';
+    let skore = 0;
+    if (shodaVs) skore += 3;
+    if (shodaNazvu) skore += 2;
+    if (shodaCastky) skore += 2;
+    else if (castecna) skore += 1;
+
+    const duvody = [];
+    if (shodaVs) duvody.push('sedí variabilní symbol');
+    if (shodaNazvu) duvody.push('sedí jméno');
+    if (shodaCastky) duvody.push('sedí částka');
+    else if (castecna) duvody.push('částečná úhrada');
+
+    const zaznam = {
+      druh: 'faktura',
+      id: f.ID,
+      popis:
+        (f.Cislo_faktury || '(bez čísla)') +
+        ' – ' + (f.Zakaznik || '(bez zákazníka)') +
+        ' – ' + formatCastkaSMenou(f.Castka, f.Mena),
+      duvody,
+      skore,
+    };
+    if (uhrazena) varovani.push(zaznam);
+    else tipy.push(zaznam);
+  });
+
+  (bankaSmlouvySeznam || []).forEach((s) => {
+    if (String(s.Aktivni || 'ANO').trim() === 'NE') return;
+    const ocekavana = Math.abs(parsujCastkuZListu(s.Ocekavana_castka));
+    if (ocekavana <= 0) return;
+    const shodaVs = bankaShodaSymbolu(vs, s.Cislo_smlouvy);
+    const nazevStrany = bankaNormalizujNazev(s.Druha_strana);
+    const shodaNazvu = !!(nazevStrany && nazev && (nazev.includes(nazevStrany) || nazevStrany.includes(nazev)));
+    // U smluv je tolerance větší - nájem se v jednotlivých měsících liší
+    // o zálohy na služby, doplatky apod.
+    const shodaCastky = Math.abs(ocekavana - castka) <= Math.max(100, ocekavana * 0.1);
+    if (!shodaVs && !shodaNazvu) return;
+    if (!shodaCastky && !shodaVs) return;
+
+    const duvody = [];
+    if (shodaVs) duvody.push('sedí číslo smlouvy');
+    if (shodaNazvu) duvody.push('sedí jméno');
+    if (shodaCastky) duvody.push('sedí očekávaná částka');
+
+    tipy.push({
+      druh: 'smlouva',
+      id: s.ID,
+      stredisko: s.Stredisko || '',
+      popis:
+        (s.Nazev || '(bez názvu)') +
+        (s.Typ ? ' (' + s.Typ + ')' : '') +
+        (s.Druha_strana ? ' – ' + s.Druha_strana : '') +
+        (s.Ocekavana_castka ? ' – ' + formatCastkaSMenou(s.Ocekavana_castka, s.Mena) : ''),
+      duvody,
+      skore: (shodaVs ? 3 : 0) + (shodaNazvu ? 2 : 0) + (shodaCastky ? 2 : 0),
+    });
+  });
+
+  tipy.sort((a, b) => b.skore - a.skore);
+  varovani.sort((a, b) => b.skore - a.skore);
+  // Víc než tři tipy už není nápověda, ale druhý seznam faktur - od toho
+  // jsou rozbalovací nabídky pod tím.
+  return { tipy: tipy.slice(0, 3), varovani: varovani.slice(0, 3) };
 }
 
 function vykresliBankovniPohyby() {
@@ -3729,15 +3885,30 @@ function vykresliBankovniPohyby() {
   // (appka nenašla nic). Pozor: "Bez dokladu" mezi ně NEPATŘÍ - to je
   // stav, kterým Jan sám řekl, že pohyb doklad mít nemá, tedy hotová věc.
   const ceka = navrzeno + trvalePrikazyNavrzene + fakturyNavrzeno + najmyNavrzeno;
+  // (v4.51) Třetí dlaždice: příjmy, u kterých appka nenašla vydanou fakturu
+  // ani smlouvu. Do v4.50 tyhle pohyby nesly stav "Bez dokladu" a padaly
+  // proto do tlumené věty mezi vyřízené - Jan (2026-08-03): "u příjmu v
+  // bankovních výpisech se platby příjmy samy označí Bez dokladu, ale to je
+  // potřeba zkontrolovat Vystavené faktury nebo SMlouvy." Nevracet zpátky
+  // do věty; tohle je práce, ne hotová věc.
+  const prijmyKeKontrole = bankaPohybySeznam.filter((p) => p.Stav_parovani === 'Příjem ke kontrole').length;
   // Dlaždici, na kterou nic nezbylo, appka neukazuje - a rovnou zhasne
   // i její filtr, jinak by po vyřízení posledního pohybu zůstal zapnutý
   // filtr bez tlačítka, kterým by se dal vypnout.
   if (ceka === 0) bankaFiltr.ceka = false;
   if (chybi === 0) bankaFiltr.chybi = false;
+  if (prijmyKeKontrole === 0) bankaFiltr.kontrola = false;
 
   const dlazdiceAkce = [
     ['ceka', ceka, 'čeká na kontrolu'],
     ['chybi', chybi, 'chybí doklad'],
+    // Popisek se skloňuje - "1 příjmů ke kontrole" vypadalo blbě, stejný
+    // důvod jako u věty pod dlaždicemi (viz tvarPodlePoctu).
+    [
+      'kontrola',
+      prijmyKeKontrole,
+      tvarPodlePoctu(prijmyKeKontrole, ['příjem ke kontrole', 'příjmy ke kontrole', 'příjmů ke kontrole']),
+    ],
   ].filter(([, pocet]) => pocet > 0);
 
   // Nulové stavy appka do věty nepíše - "0 navrženo k nájmu" nenese žádnou
@@ -3784,12 +3955,13 @@ function vykresliBankovniPohyby() {
   }
 
   // Filtr: žádná zapnutá dlaždice = celý seznam, jinak sjednocení zapnutých.
-  const filtrujeSe = bankaFiltr.ceka || bankaFiltr.chybi;
+  const filtrujeSe = bankaFiltr.ceka || bankaFiltr.chybi || bankaFiltr.kontrola;
   const serazene = bankaPohybySeznam
     .filter((p) => {
       if (!filtrujeSe) return true;
       if (bankaFiltr.chybi && p.Stav_parovani === 'Nespárováno') return true;
       if (bankaFiltr.ceka && String(p.Stav_parovani || '').startsWith('Navrženo')) return true;
+      if (bankaFiltr.kontrola && p.Stav_parovani === 'Příjem ke kontrole') return true;
       return false;
     })
     .slice()
@@ -4013,11 +4185,14 @@ function vytvorDetailBanka(p) {
     akce.appendChild(
       tlacitkoBanka('Zamítnout návrh', (e) =>
         ulozZmenuBanka(
-          // Od v4.24 - appka zamítnutý PŘÍJEM vrací do "Bez dokladu" (jeho
-          // obvyklý výchozí nerozhodnutý stav), ne do "Nespárováno" (to appka
-          // používá jen pro odchozí platby, viz netlify/functions/banka.js).
+          // Od v4.24 - appka zamítnutý PŘÍJEM vrací do jeho výchozího
+          // NEROZHODNUTÉHO stavu, ne do "Nespárováno" (to appka používá jen
+          // pro odchozí platby, viz netlify/functions/banka.js). Od v4.51 je
+          // tím stavem "Příjem ke kontrole", ne "Bez dokladu" - zamítnutý
+          // návrh znamená "tohle to není", ne "žádný doklad k tomu není", a
+          // s "Bez dokladu" by pohyb rovnou zmizel mezi vyřízené.
           jePrijemNavrzeno
-            ? { Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }
+            ? { Stav_parovani: 'Příjem ke kontrole', Smlouva_ID: '', Stredisko: '' }
             : { Stav_parovani: 'Nespárováno', Smlouva_ID: '' },
           e.target
         ), 'akce-zamitnout'
@@ -4069,8 +4244,10 @@ function vytvorDetailBanka(p) {
     akce.appendChild(
       tlacitkoBanka('Zrušit přiřazení ke smlouvě', (e) =>
         ulozZmenuBanka(
+          // (v4.51) U příjmu zpátky do "Příjem ke kontrole" - viz stejná
+          // úvaha u "Zamítnout návrh" výš.
           jePrijemPotvrzeno
-            ? { Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }
+            ? { Stav_parovani: 'Příjem ke kontrole', Smlouva_ID: '', Stredisko: '' }
             : { Stav_parovani: 'Nespárováno', Smlouva_ID: '' },
           e.target
         ), 'akce-zamitnout'
@@ -4087,7 +4264,8 @@ function vytvorDetailBanka(p) {
       (p.Cislo_uctu_vlastni ? ', účet: ' + p.Cislo_uctu_vlastni : '') + '.';
     akce.appendChild(infoPrijem);
     akce.appendChild(
-      tlacitkoBanka('Zrušit přiřazení příjmu', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Stredisko: '' }, e.target), 'akce-zamitnout')
+      // (v4.51) Zpátky do "Příjem ke kontrole", ne do "Bez dokladu".
+      tlacitkoBanka('Zrušit přiřazení příjmu', (e) => ulozZmenuBanka({ Stav_parovani: 'Příjem ke kontrole', Stredisko: '' }, e.target), 'akce-zamitnout')
     );
   } else if (p.Stav_parovani === 'Navrženo - vydaná faktura') {
     // Od v3.22 - appka navrhla spárování příchozí platby s konkrétní
@@ -4113,8 +4291,10 @@ function vytvorDetailBanka(p) {
       )
     );
     akce.appendChild(
+      // (v4.51) Zamítnutý návrh faktury = "tahle faktura to není", ne "žádná
+      // faktura k tomu není" - proto zpátky do "Příjem ke kontrole".
       tlacitkoBanka('Zamítnout návrh', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Vydana_faktura_ID: '' }, e.target), 'akce-zamitnout'
+        ulozZmenuBanka({ Stav_parovani: 'Příjem ke kontrole', Vydana_faktura_ID: '' }, e.target), 'akce-zamitnout'
       )
     );
   } else if (p.Stav_parovani === 'Spárováno - vydaná faktura') {
@@ -4131,8 +4311,9 @@ function vytvorDetailBanka(p) {
       : 'Spárováno s vydanou fakturou, kterou appka v seznamu nenašla (možná byla mezitím smazána).';
     akce.appendChild(infoFakturaSparovana);
     akce.appendChild(
+      // (v4.51) Zpátky do "Příjem ke kontrole" - viz stejná úvaha výš.
       tlacitkoBanka('Zrušit spárování', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Vydana_faktura_ID: '' }, e.target), 'akce-zamitnout'
+        ulozZmenuBanka({ Stav_parovani: 'Příjem ke kontrole', Vydana_faktura_ID: '' }, e.target), 'akce-zamitnout'
       )
     );
     const upozorneniZruseni = document.createElement('div');
@@ -4182,8 +4363,9 @@ function vytvorDetailBanka(p) {
       }, 'akce-potvrdit')
     );
     akce.appendChild(
+      // (v4.51) Zpátky do "Příjem ke kontrole" - viz stejná úvaha výš.
       tlacitkoBanka('Zamítnout návrh', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }, e.target), 'akce-zamitnout'
+        ulozZmenuBanka({ Stav_parovani: 'Příjem ke kontrole', Smlouva_ID: '', Stredisko: '' }, e.target), 'akce-zamitnout'
       )
     );
   } else if (p.Stav_parovani === 'Spárováno - nájemní smlouva') {
@@ -4201,8 +4383,9 @@ function vytvorDetailBanka(p) {
       (p.Stredisko ? ' Středisko: ' + p.Stredisko + '.' : ' Appka nemá u tohohle pohybu vyplněné středisko.');
     akce.appendChild(infoNajemSparovano);
     akce.appendChild(
+      // (v4.51) Zpátky do "Příjem ke kontrole" - viz stejná úvaha výš.
       tlacitkoBanka('Zrušit spárování', (e) =>
-        ulozZmenuBanka({ Stav_parovani: 'Bez dokladu', Smlouva_ID: '', Stredisko: '' }, e.target), 'akce-zamitnout'
+        ulozZmenuBanka({ Stav_parovani: 'Příjem ke kontrole', Smlouva_ID: '', Stredisko: '' }, e.target), 'akce-zamitnout'
       )
     );
   } else if (p.Stav_parovani === 'Daňová platba') {
@@ -4215,12 +4398,84 @@ function vytvorDetailBanka(p) {
     infoDan.textContent = 'Přiřazeno k dani: ' + (NAZVY_TYPU_DANE[p.Typ_dane] || p.Typ_dane || '(neznámý typ)') + '.';
     akce.appendChild(infoDan);
     akce.appendChild(
-      tlacitkoBanka('Zrušit přiřazení k dani', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno', Typ_dane: '' }, e.target), 'akce-zamitnout')
+      // (v4.51) Daňová platba může být i PŘÍCHOZÍ (vrácený přeplatek DPH od
+      // finančního úřadu, viz v4.6.1) - u kladné částky proto zpátky do
+      // "Příjem ke kontrole", ne do "Nespárováno". "Nespárováno" je stav
+      // výdajové strany, appka na něj pouští párování s Doklady a příchozí
+      // platba by se v něm zasekla natrvalo.
+      tlacitkoBanka('Zrušit přiřazení k dani', (e) =>
+        ulozZmenuBanka(
+          {
+            Stav_parovani: parsujCastkuZListu(p.Castka) > 0 ? 'Příjem ke kontrole' : 'Nespárováno',
+            Typ_dane: '',
+          },
+          e.target
+        ), 'akce-zamitnout'
+      )
     );
   } else if (parsujCastkuZListu(p.Castka) > 0) {
-    // PŘÍJEM (Nespárováno / Bez dokladu, kladná částka) - appka od v3.19
-    // nabízí přiřazení na Středisko a firemní účet místo výběru dokladu
-    // (u příjmů appka doklady vůbec nepáruje, viz lib/bankHelpers.js).
+    // PŘÍJEM (Příjem ke kontrole / Bez dokladu, kladná částka) - appka od
+    // v3.19 nabízí přiřazení na Středisko a firemní účet místo výběru
+    // dokladu (u příjmů appka doklady vůbec nepáruje, viz
+    // lib/bankHelpers.js).
+    //
+    // (v4.51) Nejdřív ale nápověda: co by to mohlo být. Viz
+    // bankaKandidatiProPrijem - appka ukáže i slabší shody, které backend
+    // schválně nenavrhl, a u každé napíše PROČ si to myslí. Přiřazení je
+    // pořád na jedno klepnutí Jana, appka nikdy nepotvrzuje sama.
+    const kandidati = bankaKandidatiProPrijem(p);
+    if (kandidati.tipy.length > 0) {
+      const napoveda = document.createElement('div');
+      napoveda.className = 'prijem-tipy';
+      const nadpis = document.createElement('div');
+      nadpis.className = 'prijem-tipy-nadpis';
+      nadpis.textContent = kandidati.tipy.length === 1 ? 'Mohlo by to být:' : 'Mohlo by to být některé z:';
+      napoveda.appendChild(nadpis);
+
+      kandidati.tipy.forEach((t) => {
+        const radek = document.createElement('div');
+        radek.className = 'prijem-tip';
+        const text = document.createElement('span');
+        text.className = 'prijem-tip-text';
+        text.textContent = t.popis + (t.duvody.length ? ' — ' + t.duvody.join(', ') : '');
+        radek.appendChild(text);
+        radek.appendChild(
+          tlacitkoBanka(t.druh === 'faktura' ? 'Přiřadit fakturu' : 'Přiřadit smlouvu', (e) => {
+            if (t.druh === 'faktura') {
+              ulozZmenuBanka({ Vydana_faktura_ID: t.id, Stav_parovani: 'Spárováno - vydaná faktura' }, e.target);
+              return;
+            }
+            // U smlouvy appka od v4.23 vyžaduje Středisko - když ho smlouva
+            // má, appka ho převezme; když nemá, tip přiřadit nejde a Jan to
+            // musí udělat rozbalovací nabídkou níž, kde si středisko vybere.
+            if (!t.stredisko) {
+              alert('Tahle smlouva nemá vyplněné středisko - přiřaďte ji prosím nabídkou níž a středisko vyberte ručně.');
+              return;
+            }
+            ulozZmenuBanka({ Smlouva_ID: t.id, Stav_parovani: 'Trvalý příkaz', Stredisko: t.stredisko }, e.target);
+          })
+        );
+        napoveda.appendChild(radek);
+      });
+      akce.appendChild(napoveda);
+    }
+
+    // (v4.51, Jan: "Varovat před dvojí platbou") Platba sedí na fakturu,
+    // která je ale už označená jako uhrazená - typicky dvojí platba nebo
+    // přeplatek. Appka to jen NAPÍŠE. Tlačítko "přiřadit" tu schválně není:
+    // přiřazením by appka sáhla na stav už uzavřené faktury a Jan by se o
+    // tom dozvěděl až z účetnictví. Nepřidávat sem akci, ať se z varování
+    // nestane další cesta, jak omylem přepsat uhrazenou fakturu.
+    if (kandidati.varovani.length > 0) {
+      const varovani = document.createElement('div');
+      varovani.className = 'prijem-varovani';
+      varovani.textContent =
+        'Pozor: tahle platba sedí na už uhrazenou fakturu (' +
+        kandidati.varovani.map((v) => v.popis).join('; ') +
+        '). Může jít o dvojí platbu nebo přeplatek - zkontrolujte to prosím ručně.';
+      akce.appendChild(varovani);
+    }
+
     const vyberStrediskoPrijem = document.createElement('select');
     vyberStrediskoPrijem.style.fontSize = '13px';
     vyberStrediskoPrijem.innerHTML = moznostiStrediska(p.Stredisko || '');
@@ -4366,12 +4621,26 @@ function vytvorDetailBanka(p) {
     // ve výdajové větvi).
     akce.appendChild(vytvorVyberPriradKDani(p, ulozZmenuBanka, tlacitkoBanka));
 
+    // (v4.51) Poslední východisko: Jan prošel faktury i smlouvy a k téhle
+    // platbě opravdu nic není (vratka, vklad, přeposlané peníze mezi
+    // vlastními účty). Popisek je schválně věta a ne "Označit Bez dokladu" -
+    // je to Janovo ROZHODNUTÍ a má být vidět, že ho dělá on, ne appka.
+    // Appka sama tenhle stav u příjmů nikdy nenastaví, viz banka.js.
     if (p.Stav_parovani !== 'Bez dokladu') {
       akce.appendChild(
-        tlacitkoBanka('Označit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu' }, e.target))
+        tlacitkoBanka('Není k tomu faktura ani smlouva', (e) => ulozZmenuBanka({ Stav_parovani: 'Bez dokladu' }, e.target))
       );
     } else {
-      akce.appendChild(tlacitkoBanka('Zrušit „Bez dokladu“', (e) => ulozZmenuBanka({ Stav_parovani: 'Nespárováno' }, e.target), 'akce-zamitnout'));
+      // Zpátky do NEROZHODNUTÉHO stavu příjmu - do v4.50 tady bylo
+      // "Nespárováno", což je stav výdajové strany (appka na něj pouští
+      // párování s Doklady). Nevracet zpátky.
+      akce.appendChild(
+        tlacitkoBanka(
+          'Zrušit „Bez dokladu“',
+          (e) => ulozZmenuBanka({ Stav_parovani: 'Příjem ke kontrole' }, e.target),
+          'akce-zamitnout'
+        )
+      );
     }
   } else {
     const vyberDokladu = document.createElement('select');
@@ -4715,8 +4984,55 @@ async function spustitKontroluDokladu(tlacitko) {
       '<div class="zprava uspech">Zkontrolováno ' + vysledek.zkontrolovano + ' nespárovaných pohybů - ' +
       vysledek.noveNavrzeno + ' appka nově navrhla ke kontrole, ' + vysledek.zustavaNesparovano +
       ' pořád čeká na doklad. U příjmů appka navíc zkontrolovala ' + (vysledek.zkontrolovanoPrijmu || 0) +
-      ' plateb označených „Bez dokladu“ - ' + (vysledek.noveNavrzenoPrijmu || 0) +
-      ' appka nově navrhla ke konkrétní vydané faktuře.</div>';
+      ' příchozích plateb, které čekaly na kontrolu - ' + (vysledek.noveNavrzenoPrijmu || 0) +
+      ' appka nově navrhla ke konkrétní vydané faktuře nebo smlouvě.</div>';
+    await nactiBankovniPohyby();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  } finally {
+    if (tlacitko) tlacitko.disabled = false;
+  }
+}
+
+// (v4.51) JEDNORÁZOVÝ ÚKLID starých příjmů - Jan (2026-08-03): *"u příjmu v
+// bankovních výpisech se platby příjmy samy označí Bez dokladu, ale to je
+// potřeba zkontrolovat Vystavené faktury nebo SMlouvy."* Do v4.50 appka po
+// neúspěšném hledání sáhla u příjmů rovnou po "Bez dokladu", což jinde v
+// appce znamená VYŘÍZENO - a po v4.50 se takové platby schovaly do tlumené
+// věty "Vyřízeno: …", takže se na ně nikdo nepodíval. Od v4.51 už appka
+// tenhle stav sama nikdy nenastaví (nový stav je "Příjem ke kontrole"), ale
+// staré řádky v tabulce zůstávají špatně - tohle tlačítko je přepne.
+//
+// Jan si vybral konzervativní variantu "Přepnout všechny bez vazby na
+// fakturu/smlouvu": backend sáhne jen na příjmy BEZ Vydané faktury, BEZ
+// smlouvy a BEZ střediska, tedy na ty, u kterých je jisté, že je nikdo
+// nezařadil. Proto se tu nic neptá na rozsah - rozsah je daný.
+//
+// Tlačítko je schválně jednorázové a s potvrzením: je to hromadný
+// jednosměrný zápis do ostrých dat. Nedělat z toho automatiku při načtení
+// záložky.
+async function prevestPrijmyKeKontrole(tlacitko) {
+  const zprava = document.getElementById('banka-import-zprava');
+  if (
+    !confirm(
+      'Appka projde příchozí platby této firmy označené „Bez dokladu“ a ty, které nemají vydanou fakturu, smlouvu ani středisko, přepne na „Příjem ke kontrole“, aby se objevily mezi věcmi, které čekají na vyřízení.\n\nPlateb s vazbou nebo se střediskem se to nedotkne. Odchozích plateb také ne.\n\nSpustit?'
+    )
+  ) {
+    return;
+  }
+  if (tlacitko) tlacitko.disabled = true;
+  zprava.innerHTML = '<div class="zprava">Procházím staré příjmy…</div>';
+  try {
+    const vysledek = await zavolejApi('/banka', {
+      method: 'POST',
+      body: JSON.stringify({ firma: bankaAktivniFirma, akce: 'prevestPrijmyKeKontrole' }),
+    });
+    zprava.innerHTML =
+      vysledek.prevedeno > 0
+        ? '<div class="zprava uspech">Přepnuto ' +
+          vysledek.prevedeno +
+          ' příchozích plateb na „Příjem ke kontrole“. Najdete je nahoře v dlaždici „příjmy ke kontrole“.</div>'
+        : '<div class="zprava">Není co přepínat - žádná příchozí platba bez vazby na fakturu, smlouvu ani středisko tu není.</div>';
     await nactiBankovniPohyby();
   } catch (e) {
     zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
@@ -6310,7 +6626,18 @@ async function ulozSmlouvu(id, zmeny, tlacitko) {
 }
 
 async function smazSmlouvu(id, nazev, tlacitko) {
-  if (!confirm('Opravdu smazat smlouvu „' + nazev + '“? Bankovní pohyby na ni napojené se vrátí do stavu "Nespárováno" a smažou se i všechny přílohy smlouvy.')) return;
+  // (v4.51) Text hlásí obojí: od v4.51 je kaskáda v
+  // netlify/functions/smlouvy.js podle SMĚRU pohybu - odchozí platby padnou
+  // do "Nespárováno", příchozí do "Příjem ke kontrole". Nepsat sem jen
+  // "Nespárováno", Jan by pak příjmy hledal ve špatné dlaždici.
+  if (
+    !confirm(
+      'Opravdu smazat smlouvu „' +
+        nazev +
+        '“? Bankovní pohyby na ni napojené se vrátí mezi nevyřízené (odchozí platby do „Nespárováno“, příchozí do „Příjem ke kontrole“) a smažou se i všechny přílohy smlouvy.'
+    )
+  )
+    return;
   tlacitko.disabled = true;
   try {
     await zavolejApi('/smlouvy?id=' + encodeURIComponent(id), { method: 'DELETE' });
@@ -8120,6 +8447,9 @@ document.getElementById('tlacitko-nahrat-vypis').addEventListener('click', () =>
 document.getElementById('pole-vypis').addEventListener('change', (e) => nahratVypis(e.target.files[0]));
 document.getElementById('tlacitko-banka-aktualizovat').addEventListener('click', (e) => aktualizovatBankovniPohyby(e.target));
 document.getElementById('tlacitko-banka-kontrola').addEventListener('click', (e) => spustitKontroluDokladu(e.target));
+document
+  .getElementById('tlacitko-banka-prijmy-kontrola')
+  .addEventListener('click', (e) => prevestPrijmyKeKontrole(e.target));
 // (v4.50) Dlaždice souhrnu jsou zároveň filtr seznamu. Posluchač visí na
 // obalu, ne na tlačítkách: souhrn se překresluje přes innerHTML, takže
 // tlačítka po každém překreslení zaniknou a posluchač přímo na nich by

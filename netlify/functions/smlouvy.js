@@ -34,6 +34,10 @@ const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects, appendRow, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const { SMLOUVY_HEADERS, dalsiPoradiSmlouvy } = require('../../lib/smlouvySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
+// (v4.51) Kvůli cascade po smazání smlouvy - podle znaménka částky appka
+// pozná, jestli pohyb vrátit do výdajového "Nespárováno", nebo do
+// příjmového "Příjem ke kontrole".
+const { parsujCastkuZListu } = require('../../lib/bankHelpers');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { idZeSdileneUrl } = require('../../lib/driveHelpers');
 const { json } = require('../../lib/http');
@@ -246,14 +250,25 @@ exports.handler = async (event) => {
       await deleteRow(sheets, spreadsheetId, 'Smlouvy', smlouva._row);
 
       // Cascade: bankovní pohyby napojené na smazanou smlouvu appka vrátí
-      // do stavu "Nespárováno", ať v Bankovních výpisech nezůstane pohyb
+      // do NEROZHODNUTÉHO stavu, ať v Bankovních výpisech nezůstane pohyb
       // odkazující na smlouvu, která už neexistuje (stejný vzor jako
       // cascade při smazání Dokladu, viz netlify/functions/doklady.js).
+      // Od v4.51 appka rozlišuje směr: smlouva může být napojená i na
+      // PŘÍJEM (nájemné, přefakturace) a "Nespárováno" je stav výdajové
+      // strany - appka na něj pouští párování s Doklady, takže by se v něm
+      // příchozí platba zasekla natrvalo. Příjem proto padá do
+      // "Příjem ke kontrole" (viz lib/bankSchema.js). Stredisko appka maže
+      // taky - bylo převzaté ze smlouvy, která už neexistuje.
       try {
         const { rows: pohyby } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
         const napojenePohyby = pohyby.filter((p) => p.Smlouva_ID === id);
         for (const pohyb of napojenePohyby) {
-          const aktualizovany = Object.assign({}, pohyb, { Smlouva_ID: '', Stav_parovani: 'Nespárováno' });
+          const jePrijem = parsujCastkuZListu(pohyb.Castka) > 0;
+          const aktualizovany = Object.assign({}, pohyb, {
+            Smlouva_ID: '',
+            Stav_parovani: jePrijem ? 'Příjem ke kontrole' : 'Nespárováno',
+            Stredisko: jePrijem ? '' : pohyb.Stredisko,
+          });
           await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, aktualizovany);
         }
       } catch (e) {

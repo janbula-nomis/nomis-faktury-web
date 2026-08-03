@@ -533,6 +533,13 @@
           <button id="tlacitko-nahrat-vypis" type="button">Nahrát výpis (JSON/CSV/XLS)</button>
           <input type="file" id="pole-vypis" accept=".json,.csv,.xls,.xlsx,application/json,text/csv" class="skryto" />
           <button id="tlacitko-banka-kontrola" type="button" class="sekundarni" title="Zkusit znovu navrhnout doklad u pohybů, které appka zatím nepárovala (např. protože doklad k nim přibyl až později)">Spustit kontrolu dokladů</button>
+          <!-- (v4.51) Jednorázový úklid starých příjmů, které appka do v4.50
+               chybně označila "Bez dokladu" (viz prevestPrijmyKeKontrole v
+               public/app.js). Tlačítko je schválně sekundární a s potvrzením -
+               je to hromadný jednosměrný zápis do ostrých dat. Nedávat ho
+               pryč, i až bude uklizeno: Jan má víc firem a úklid se pouští
+               pro každou zvlášť. -->
+          <button id="tlacitko-banka-prijmy-kontrola" type="button" class="sekundarni" title="Jednorázově: staré příchozí platby označené „Bez dokladu“, které nemají vydanou fakturu, smlouvu ani středisko, přepnout na „Příjem ke kontrole“">Zkontrolovat staré příjmy</button>
         </div>
       </div>
       <button id="tlacitko-banka-aktualizovat" type="button" class="sekundarni" style="margin-top:12px" title="Znovu načíst pohyby a doklady ze Sheets (např. po úpravě jinde/na jiném zařízení)">Aktualizovat</button>

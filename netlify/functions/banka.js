@@ -222,6 +222,48 @@ exports.handler = async (event) => {
       if (!firma) return json(400, { error: 'Vyberte firmu.' });
       if (!maPristupKFirme(uzivatel, firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
 
+      // (v4.51) Jednorázový úklid po chybě z v3.22-v4.50. Jan si vybral
+      // "Přepnout všechny bez vazby na fakturu/smlouvu (doporučeno)", tedy
+      // konzervativní variantu: appka sáhne JEN na příjmy, které mají
+      // "Bez dokladu" a zároveň NEMAJÍ Vydana_faktura_ID, Smlouva_ID ani
+      // Stredisko. Když je vyplněné cokoli z toho, znamená to, že to někdo
+      // rukou dořešil - takový pohyb appka nechá být, i kdyby stav vypadal
+      // jakkoli. Pohyby se zápornou částkou (výdaje) appka nesahá vůbec:
+      // tam "Bez dokladu" pořád znamená mzdy/přesuny mezi vlastními účty a
+      // je to správně.
+      // POZOR: tohle je JEDNOSMĚRNÁ dávková změna nad ostrými daty. Kdyby
+      // se někdy přidávala další podmínka, přidávat ji jako ZÚŽENÍ (další
+      // && v prvním filtru), ne jako rozšíření. Kontrola role je tu podruhé
+      // schválně (POST už ji má nahoře u requireAuth) - dávková změna nad
+      // ostrými daty si zaslouží pojistku i pro případ, že by se ta horní
+      // podmínka někdy uvolnila.
+      if (telo.akce === 'prevestPrijmyKeKontrole') {
+        if (uzivatel.role !== 'admin' && uzivatel.role !== 'ucetni') {
+          return json(403, { error: 'Tuhle akci smí spustit jen admin nebo účetní.' });
+        }
+        const { rows: pohybyVsechnyFirmy } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
+        const kPrevodu = pohybyVsechnyFirmy.filter(
+          (p) =>
+            p.Firma === firma &&
+            parsujCastkuZListu(p.Castka) > 0 &&
+            p.Stav_parovani === 'Bez dokladu' &&
+            !String(p.Vydana_faktura_ID || '').trim() &&
+            !String(p.Smlouva_ID || '').trim() &&
+            !String(p.Stredisko || '').trim()
+        );
+
+        let prevedeno = 0;
+        for (const pohyb of kPrevodu) {
+          await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, {
+            ...pohyb,
+            Stav_parovani: 'Příjem ke kontrole',
+          });
+          prevedeno += 1;
+        }
+
+        return json(200, { ok: true, prevedeno, ponechano: kPrevodu.length - prevedeno });
+      }
+
       if (telo.akce === 'prepocitatShody') {
         const { rows: pohybyVsechnyFirmy } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
         const pohybyFirmy = pohybyVsechnyFirmy.filter((p) => p.Firma === firma);
@@ -239,7 +281,8 @@ exports.handler = async (event) => {
         // kandidátů tak dostane přednost ten, který je datem blíž tomu
         // dřívějšímu pohybu. Od v4.24 appka navíc pojistkou vyžaduje
         // zápornou částku (výdaj) - "Nespárováno" appka u příjmů běžně
-        // nepoužívá (výchozí nerozhodnutý stav příjmu je "Bez dokladu"),
+        // nepoužívá (výchozí nerozhodnutý stav příjmu je od v4.51
+        // "Příjem ke kontrole", do v4.50 to bylo "Bez dokladu"),
         // ale appka takhle jistí, že by omylem nezkusila spárovat příchozí
         // platbu s VÝDAJOVÝM dokladem, kdyby se tam přeci jen nějaký příjem
         // ocitl.
@@ -288,19 +331,31 @@ exports.handler = async (event) => {
           (f) => f.Firma === firma && (f.Stav === 'Neuhrazeno' || f.Stav === 'Částečně uhrazeno')
         );
 
-        // Od v4.19: kandidáti pro spárování PŘÍJMŮ přímo s nájemní Smlouvou
+        // Od v4.19: kandidáti pro spárování PŘÍJMŮ přímo se Smlouvou
         // (viz lib/bankHelpers.js, navrhniShoduNajem) - appka zkouší tenhle
         // zdroj jako DRUHÝ, teprve když příjem neodpovídá žádné Vydané
         // faktuře (viz níž).
+        // Od v4.51 (Jan: "Smlouvy i jiné než nájem") appka NEfiltruje podle
+        // Typ === "Nájem". Příjem umí přijít i ze smlouvy typu Energie
+        // (přefakturace) nebo Ostatní; rozhoduje jen to, že smlouva platí a
+        // má vyplněnou Ocekavana_castka, se kterou se dá částka porovnat -
+        // to si pohlídá navrhniShoduNajem sama. Nevracet zpátky zúžení na
+        // "Nájem", jinak se přefakturace energií nikdy nenajde.
         const { rows: smlouvyVsechnyFirmy } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy').catch(
           () => ({ rows: [] })
         );
-        const kandidatiSmlouvyNajem = smlouvyVsechnyFirmy.filter(
-          (s) => s.Firma === firma && String(s.Typ || '').trim() === 'Nájem'
-        );
+        const kandidatiSmlouvyNajem = smlouvyVsechnyFirmy.filter((s) => s.Firma === firma);
 
+        // Od v4.51: kromě starých "Bez dokladu" appka přepočítává i nový
+        // výchozí stav příjmů "Příjem ke kontrole" - to je právě ta hromada,
+        // kvůli které celá v4.51 vznikla. Ruční rozhodnutí účetní appka dál
+        // nesahá (Příjem přiřazen / Spárováno - vydaná faktura / Trvalý
+        // příkaz / Daňová platba tady schválně nejsou).
         const prijmyKPreverovani = pohybyFirmy.filter(
-          (p) => parsujCastkuZListu(p.Castka) > 0 && p.Stav_parovani === 'Bez dokladu' && !p.Vydana_faktura_ID
+          (p) =>
+            parsujCastkuZListu(p.Castka) > 0 &&
+            (p.Stav_parovani === 'Bez dokladu' || p.Stav_parovani === 'Příjem ke kontrole') &&
+            !p.Vydana_faktura_ID
         );
 
         let noveNavrzenoPrijmu = 0;
@@ -311,6 +366,11 @@ exports.handler = async (event) => {
             mena: pohyb.Mena || '',
             protistrana: pohyb.Protistrana || pohyb.Popis || '',
             popis: pohyb.Popis || '',
+            // (v4.51) VS tady dřív chyběl, takže přepočet uměl míň než
+            // import - navrhniShoduPrijem od v4.51 porovnává variabilní
+            // symbol s číslem faktury. Nezapomenout ho doplnit i sem, když
+            // se bude do návrhu přidávat další pole.
+            variabilni_symbol: pohyb.Variabilni_symbol || '',
             datum: pohyb.Datum || '',
           };
           const navrh = navrhniShoduPrijem(pProNavrh, kandidatiFaktury);
@@ -428,18 +488,18 @@ exports.handler = async (event) => {
         (f) => f.Firma === firma && (f.Stav === 'Neuhrazeno' || f.Stav === 'Částečně uhrazeno')
       );
 
-      // Od v4.19: kandidáti pro spárování PŘÍJMŮ přímo s nájemní Smlouvou
-      // (viz lib/bankHelpers.js, navrhniShoduNajem) - appka tenhle zdroj
+      // Od v4.19: kandidáti pro spárování PŘÍJMŮ přímo se Smlouvou (viz
+      // lib/bankHelpers.js, navrhniShoduNajem) - appka tenhle zdroj
       // zkouší jako DRUHÝ, teprve když příjem neodpovídá žádné Vydané
       // faktuře (viz níž). Appka NEODEBÍRÁ smlouvu ze seznamu kandidátů po
       // shodě (na rozdíl od dokladů/faktur) - stejná nájemní smlouva se má
       // dál nabízet i u dalších měsíčních plateb v tomtéž výpisu.
+      // Od v4.51 (Jan: "Smlouvy i jiné než nájem") appka NEfiltruje podle
+      // Typ === "Nájem" - viz stejný komentář u "prepocitatShody" výš.
       const { rows: smlouvyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy').catch(() => ({
         rows: [],
       }));
-      const kandidatiSmlouvyNajem = smlouvyVsechny.filter(
-        (s) => s.Firma === firma && String(s.Typ || '').trim() === 'Nájem'
-      );
+      const kandidatiSmlouvyNajem = smlouvyVsechny.filter((s) => s.Firma === firma);
 
       const datumImportu = new Date().toISOString().slice(0, 10);
       // Od v4.21: appka vygeneruje jedno ID na CELÝ tenhle import, ať appka
@@ -450,6 +510,11 @@ exports.handler = async (event) => {
       let pocetDuplicit = 0;
       let pocetNavrzeno = 0;
       let pocetBezDokladu = 0;
+      // (v4.51) Příjmy, kterým appka nenašla fakturu ani smlouvu, se počítají
+      // zvlášť - dřív padaly do pocetBezDokladu, takže hlášení po importu
+      // tvrdilo "126 bez dokladu", i když ve skutečnosti appka jen nic
+      // nenašla a čeká na Jana.
+      let pocetPrijmuKeKontrole = 0;
       let pocetNesparovano = 0;
       let pocetNavrzenoPrijmu = 0;
       let pocetNavrzenoNajmu = 0;
@@ -486,9 +551,9 @@ exports.handler = async (event) => {
             }
           } else {
             // Od v4.19: žádná vydaná faktura neodpovídá - appka zkusí ještě
-            // aktivní nájemní Smlouvu (jméno nájemce + očekávaná částka,
-            // viz navrhniShoduNajem výš), teprve pak příjem označí "Bez
-            // dokladu".
+            // aktivní Smlouvu (jméno druhé strany / VS + očekávaná částka,
+            // viz navrhniShoduNajem výš), teprve pak příjem nechá
+            // nerozhodnutý ("Příjem ke kontrole", od v4.51).
             const navrhNajem = navrhniShoduNajem(p, kandidatiSmlouvyNajem);
             if (navrhNajem && navrhNajem.skore >= 2) {
               // Od v4.24 - appka sjednotila nájemní auto-návrh se stejným
@@ -505,8 +570,20 @@ exports.handler = async (event) => {
               stredisko = (smlouvaNajmu && smlouvaNajmu.Stredisko) || '';
               pocetNavrzenoNajmu += 1;
             } else {
-              stav = 'Bez dokladu';
-              pocetBezDokladu += 1;
+              // (v4.51) TADY BYLO 'Bez dokladu' A BYLA TO CHYBA. Jan
+              // (2026-08-03): *"u příjmu v bankovních výpisech se platby
+              // příjmy samy označí Bez dokladu, ale to je potřeba
+              // zkontrolovat Vystavené faktury nebo SMlouvy."* "Bez dokladu"
+              // je LIDSKÉ rozhodnutí "doklad tu být nemá" = hotová věc, a
+              // souhrn v4.50 ji schová do tlumené věty "Vyřízeno: …". Tím
+              // se "appka nic nenašla" tvářilo jako "je to vyřízené" a 126
+              // příjmů zmizelo z dohledu. Nový stav je nerozhodnutý a čeká
+              // na Jana - stejně jako "Nespárováno" u výdajů o pár řádků níž.
+              // Nevracet zpátky: appka nesmí sama od sebe nastavit
+              // "Bez dokladu" žádnému pohybu (výjimka jen jeBezDokladu()
+              // podle typu pohybu níž - to je pravidlo, ne neúspěch hledání).
+              stav = 'Příjem ke kontrole';
+              pocetPrijmuKeKontrole += 1;
             }
           }
         } else if (jeBezDokladu(p.typ_pohybu)) {
@@ -585,6 +662,10 @@ exports.handler = async (event) => {
         duplicitni: pocetDuplicit,
         navrzeno: pocetNavrzeno,
         bezDokladu: pocetBezDokladu,
+        // (v4.51) Nové pole - starší klient, který ho nezná, ho prostě
+        // nezobrazí; appka schválně nesčítá do bezDokladu, aby hlášení po
+        // importu říkalo pravdu (kolik věcí je vyřízených vs. kolik čeká).
+        prijmyKeKontrole: pocetPrijmuKeKontrole,
         nesparovano: pocetNesparovano,
         navrzenoPrijmu: pocetNavrzenoPrijmu,
         navrzenoNajmu: pocetNavrzenoNajmu,
@@ -693,10 +774,15 @@ exports.handler = async (event) => {
       // Auto-návrh dalších pohybů ke stejné smlouvě (v3.19) - jen při
       // RUČNÍM potvrzení (Stav_parovani "Trvalý příkaz", ne jen návrhu),
       // ať appka nezačne řetězit návrhy z návrhů.
-      // Od v4.24 - appka mezi kandidáty zahrnuje i "Bez dokladu" (výchozí
-      // nerozhodnutý stav PŘÍJMŮ, appka je do v4.23 nikdy nedávala do
+      // Od v4.24 - appka mezi kandidáty zahrnuje i "Bez dokladu" (do v4.50 to
+      // byl výchozí nerozhodnutý stav PŘÍJMŮ, appka je nikdy nedávala do
       // "Nespárováno" - to zůstává jen pro odchozí platby), ať appka umí
       // navrhnout i další podobné příchozí platby, ne jen odchozí.
+      // Od v4.51 je výchozí nerozhodnutý stav příjmů "Příjem ke kontrole",
+      // takže musí být v tomhle filtru taky - jinak by nové příjmy po
+      // potvrzení trvalého příkazu přestaly být kandidáty a Jan by tiše
+      // přišel o chování, které dneska má. "Bez dokladu" tu zůstává kvůli
+      // starým řádkům, které migrace nepřepnula (mají středisko nebo vazbu).
       // `jePodobnaShodaSmlouvy` (lib/bankHelpers.js) navíc sama vyžaduje
       // shodu ZNAMÉNKA částky, takže příjem a výdaj appka nikdy nesplete.
       let autoNavrzenoDalsich = 0;
@@ -709,7 +795,9 @@ exports.handler = async (event) => {
           (r) =>
             r.Firma === pohyb.Firma &&
             r.ID !== pohyb.ID &&
-            (r.Stav_parovani === 'Nespárováno' || r.Stav_parovani === 'Bez dokladu')
+            (r.Stav_parovani === 'Nespárováno' ||
+              r.Stav_parovani === 'Bez dokladu' ||
+              r.Stav_parovani === 'Příjem ke kontrole')
         );
         for (const kandidat of ostatniNesparovane) {
           const kProNavrh = {
