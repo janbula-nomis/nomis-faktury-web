@@ -517,6 +517,32 @@ nav.zalozky button .pocitadlo {
 .zprava.chyba { background: #fdecea; color: var(--barva-chyba); }
 .zprava.uspech { background: #e8f7f0; color: var(--barva-uspech); }
 .zprava.info { background: var(--barva-pozadi); color: var(--barva-text-tlumena); }
+/* (v4.52) Čtvrtý stupeň mezi info a chybou: "něco chybí, ale nic se nerozbilo".
+   Appka ho používá tam, kde má Jan něco doplnit, ale klidně to může odložit -
+   předkontace bez účtu MD (Nastavení) a nápověda podle platební karty
+   (detail bankovního pohybu). Schválně NE .chyba: červená v Nastavení
+   vypadá, jako by appka nefungovala, i když jen chybí vyplněný účet. */
+.zprava.varovani { background: #fff4de; color: var(--barva-varovani); }
+/* Nápověda ke kartě sedí uvnitř .radek-akci, což je flex kontejner - bez
+   width: 100% by se zamotala mezi tlačítka místo nad ně. */
+.napoveda-karta { width: 100%; margin-top: 0; margin-bottom: 4px; }
+
+/* (v4.52) Upozornění "účet není nastavený" pod roletkou Účet MD v detailu
+   dokladu. Appka ho schválně jen SKRÝVÁ (display: none), ne že by ho
+   nevytvořila - text se přepisuje při každé změně firmy/kategorie a takhle
+   nemusí přehazovat prvky v DOM. Prázdné místo pod polem nezůstává. */
+.upozorneni-ucet { display: none; margin: 4px 0 0; color: var(--barva-varovani); }
+.upozorneni-ucet.viditelne { display: block; }
+
+/* Řádek předkontace, který nemá vyplněný účet MD - tlumené žluté podbarvení,
+   ať je v tabulce vidět, kolik jich Jan ještě musí doplnit (viz počítadlo
+   nad tabulkou). Doklady těchhle kombinací zůstanou bez účtu, appka žádný
+   náhradní nedosazuje (Janova volba *"Nechat prázdné a upozornit"*). */
+tr.radek-bez-uctu { background: #fffaf0; }
+
+/* Stav karty "Aktivní" - protějšek .badge-chybi ("Doplnit"), stejný tvar
+   jako ostatní odznaky v appce. */
+.badge-ok { background: #d3efe0; color: var(--barva-uspech); font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 999px; }
 
 /* Filtry Exportu - řádek roletek vedle sebe, zalamuje se na užších oknech. */
 .mriz-filtru { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 12px; }
@@ -1544,6 +1570,7 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .vf-radek.radek-vf-posplatnosti,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-chybi { background: #3a2222; color: var(--barva-chyba); }
 :root[data-motiv="tmavy"] .zprava.uspech,
+:root[data-motiv="tmavy"] .badge-ok,
 :root[data-motiv="tmavy"] .badge-potvrzeno,
 :root[data-motiv="tmavy"] .doklad-radek.radek-stav-schvaleno,
 :root[data-motiv="tmavy"] .vf-radek.radek-vf-uhrazeno,
@@ -1563,6 +1590,11 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .prijem-varovani { background: #3a2222; }
 :root[data-motiv="tmavy"] .stav-ke-kontrole,
 :root[data-motiv="tmavy"] .doklad-radek.radek-stav-ke-kontrole,
+/* (v4.52) Varovná zpráva a řádek předkontace bez účtu - ve světlém motivu
+   mají teplé žluté podbarvení, které by v tmavém svítilo. Stejné pozadí
+   jako ostatní "čeká na tebe" stavy. */
+:root[data-motiv="tmavy"] .zprava.varovani,
+:root[data-motiv="tmavy"] tr.radek-bez-uctu,
 :root[data-motiv="tmavy"] .vf-radek.radek-vf-neuhrazeno { background: #3a3220; color: var(--barva-varovani); }
 :root[data-motiv="tmavy"] .badge-bezdokladu,
 :root[data-motiv="tmavy"] .stav-neaktivni,

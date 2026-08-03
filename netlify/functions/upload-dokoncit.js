@@ -43,6 +43,12 @@ const { DOKLADY_POLOZKY_HEADERS } = require('../../lib/dokladyPolozkySchema');
 const { nahradPolozky, zkontrolujSoucetPolozek } = require('../../lib/polozkyHelpers');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { vytezCisloUctu, jeCisloUctuPlatne } = require('../../lib/qrPlatba');
+// v4.52 - předkontace (účet MD podle firmy a kategorie) a evidence
+// platebních karet, viz lib/predkontaceHelpers.js a
+// lib/platebniKartyHelpers.js.
+const { navrhniUcetMD } = require('../../lib/predkontaceHelpers');
+const { zajistiKartu } = require('../../lib/platebniKartyHelpers');
+const { posledniCtyri } = require('../../lib/platebniKartySchema');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
 
@@ -161,6 +167,20 @@ exports.handler = async (event) => {
     const { rows: firmy } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Firmy');
     const extrakce = await extrahujDataZDokladu(buffer, mimeType, firmy);
 
+    // v4.52: účet MD podle předkontace (Firma + Kategorie). List Predkontace
+    // nemusí existovat, když Jan po aktualizaci ještě nepustil /api/setup -
+    // appka pak jede dál s prázdnou mapou a účet u dokladu prostě nechá
+    // prázdný, což je i tak správné chování při nenastavené kombinaci
+    // (Janova odpověď "Nechat prázdné a upozornit"). Zpracování dokladu se
+    // kvůli chybějící předkontaci nesmí shodit.
+    let predkontace = [];
+    try {
+      const nactene = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Predkontace');
+      predkontace = nactene.rows;
+    } catch (e) {
+      predkontace = [];
+    }
+
     const duplicita = isMoznaDuplicita(
       existujiciDoklady.filter((r) => r.ID !== id),
       extrakce
@@ -215,6 +235,15 @@ exports.handler = async (event) => {
       Cislo_uctu_dodavatele: cisteCisloUctu,
       Stav: duplicita ? 'Možná duplicita' : 'Ke kontrole',
       Poznamka: poznamka,
+      // v4.52 - karta se ukládá VÝHRADNĚ jako poslední čtyřčíslí, i kdyby
+      // AI přes výslovný pokyn v promptu vrátila číslic víc.
+      Platebni_karta: posledniCtyri(extrakce.platebni_karta),
+      Zpusob_platby: extrakce.zpusob_platby || '',
+      Ucet_MD: navrhniUcetMD(
+        predkontace,
+        (historickaShoda && historickaShoda.firma) || extrakce.firma_odhad || '',
+        (historickaShoda && historickaShoda.kategorie) || extrakce.kategorie || '',
+      ),
     });
 
     await updateRow(sheets, process.env.SPREADSHEET_ID, 'Doklady', DOKLADY_HEADERS, doklad._row, aktualizovany);
@@ -298,6 +327,16 @@ exports.handler = async (event) => {
         Stav: duplicitaDalsi ? 'Možná duplicita' : 'Ke kontrole',
         Poznamka: poznamkaDalsi,
         Nahral_uzivatel: aktualizovany.Nahral_uzivatel,
+        // v4.52 - stejně jako u hlavního dokladu výš. Karty se do listu
+        // Platebni_karty zapisují až po uložení řádků (viz smyčka níž),
+        // aby appka nezapisovala do dvou listů střídavě.
+        Platebni_karta: posledniCtyri(dalsi.platebni_karta),
+        Zpusob_platby: dalsi.zpusob_platby || '',
+        Ucet_MD: navrhniUcetMD(
+          predkontace,
+          (historickaShodaDalsi && historickaShodaDalsi.firma) || dalsi.firma_odhad || '',
+          (historickaShodaDalsi && historickaShodaDalsi.kategorie) || dalsi.kategorie || '',
+        ),
       };
 
       noveDoklady.push(novyDoklad);
@@ -315,6 +354,20 @@ exports.handler = async (event) => {
       await nahradPolozky(
         sheets, process.env.SPREADSHEET_ID, 'Doklady_Polozky', DOKLADY_POLOZKY_HEADERS,
         'Doklad_ID', polozka.dokladId, polozka.polozky
+      );
+    }
+
+    // v4.52: karty, které appka na dokladech uviděla, si zapíše do listu
+    // Platebni_karty - neznámou založí sama se stavem "Doplnit" (Janova
+    // odpověď: "Založit ji sama, ať ji jen doplním"). Postupně, ne přes
+    // Promise.all: dvě souběžná volání by si přepsala pozici řádku a dvě
+    // stejné karty z jednoho scanu by se založily dvakrát (každé volání
+    // čte list znovu, takže vidí i právě předchozí zápis).
+    for (const d of [aktualizovany].concat(noveDoklady)) {
+      if (!d.Platebni_karta) continue;
+      await zajistiKartu(
+        sheets, process.env.SPREADSHEET_ID,
+        d.Platebni_karta, d.Firma_potvrzena || d.Firma_AI_odhad || '',
       );
     }
 

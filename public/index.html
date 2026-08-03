@@ -846,18 +846,58 @@
         </div>
       </details>
 
+      <!-- Účtová osnova (v4.52) - Jan poslal Kontace.xlsx se svými účty po
+           firmách. Appka je drží v listu Uctova_osnova a nabízí je u dokladu
+           jako Účet MD. Tlačítko "Načíst výchozí účty" doplní přesně to, co
+           bylo v Kontace.xlsx (viz lib/kontaceVychozi.js) - schválně na
+           kliknutí, ne automaticky při setupu, aby appka nikdy nepřepsala
+           to, co si Jan mezitím upravil. -->
       <details class="panel-skladaci">
-        <summary>Předkontace (Money S3 export)</summary>
-        <p class="popis">Kód předkontace, který appka pošle do Money S3 exportu (element &lt;PredKontac&gt;) u
-          přijatých dokladů dané firmy a kategorie. Appka žádné kódy sama nevymýšlí - dokud tu kombinaci
-          firma+kategorie nenastavíte, appka element pošle prázdný, přesně jako dřív.</p>
+        <summary>Účtová osnova (účty MD)</summary>
+        <p class="popis">Nákladové účty, které appka nabízí u přijatých dokladů. Každá firma má vlastní
+          seznam. Tlačítkem níž si můžete načíst výchozí účty ze souboru Kontace – appka doplní jen ty,
+          které v osnově ještě nemáte, nic nepřepisuje ani nemaže.</p>
+        <h3>Přidat účet</h3>
+        <label for="novy-uo-firma">Firma</label>
+        <select id="novy-uo-firma"></select>
+        <label for="novy-uo-ucet">Účet</label>
+        <input type="text" id="novy-uo-ucet" placeholder="např. 518002" />
+        <label for="novy-uo-popis">Popis</label>
+        <input type="text" id="novy-uo-popis" placeholder="např. Daňové služby" />
+        <label for="novy-uo-poznamka">Poznámka</label>
+        <input type="text" id="novy-uo-poznamka" placeholder="nepovinné" />
+        <div class="radek-akci">
+          <button id="tlacitko-pridat-ucet-osnovy">Přidat účet</button>
+          <button id="tlacitko-vychozi-ucty" class="sekundarni">Načíst výchozí účty firmy</button>
+        </div>
+        <div id="uctova-osnova-zprava"></div>
+
+        <h3 style="margin-top:24px">Účty v osnově</h3>
+        <div id="uctova-osnova-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-uctova-osnova">
+          <thead><tr><th>Firma</th><th>Účet</th><th>Popis</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-uctova-osnova-telo"></tbody>
+        </table>
+        </div>
+      </details>
+
+      <details class="panel-skladaci">
+        <summary>Předkontace a účty dokladů</summary>
+        <p class="popis">Pro každou kombinaci firma + kategorie tu nastavíte dvě věci: <strong>účet MD</strong>,
+          který appka předvyplní u dokladu (jde u dokladu přepsat), a <strong>kód předkontace</strong> pro
+          Money S3 export (element &lt;PredKontac&gt;). Appka nic sama nevymýšlí – kombinace bez účtu
+          zůstane u dokladu prázdná a appka na to upozorní.</p>
+        <div id="predkontace-chybejici"></div>
         <h3>Přidat předkontaci</h3>
         <label for="nova-pk-firma">Firma</label>
         <select id="nova-pk-firma"></select>
         <label for="nova-pk-kategorie">Kategorie</label>
         <select id="nova-pk-kategorie"></select>
+        <label for="nova-pk-ucet">Účet MD</label>
+        <select id="nova-pk-ucet"></select>
         <label for="nova-pk-kod">Kód předkontace</label>
-        <input type="text" id="nova-pk-kod" placeholder="např. PF006" />
+        <input type="text" id="nova-pk-kod" placeholder="např. PF006 (nepovinné)" />
         <button id="tlacitko-pridat-predkontaci">Přidat předkontaci</button>
         <div id="predkontace-zprava"></div>
 
@@ -865,8 +905,45 @@
         <div id="predkontace-nacitani" class="nacitani">Načítám…</div>
         <div style="overflow-x:auto">
         <table id="tabulka-predkontace">
-          <thead><tr><th>Firma</th><th>Kategorie</th><th>Kód</th><th>Akce</th></tr></thead>
+          <thead><tr><th>Firma</th><th>Kategorie</th><th>Účet MD</th><th>Kód</th><th>Akce</th></tr></thead>
           <tbody id="tabulka-predkontace-telo"></tbody>
+        </table>
+        </div>
+      </details>
+
+      <!-- Platební karty (v4.52) - appka si kartu založí sama při vytěžování
+           dokladu (Janova volba "Založit ji sama, ať ji jen doplním"), tady
+           se u ní doplní držitel a účet. VŠUDE jen poslední čtyři číslice -
+           celé číslo karty appka neukládá, viz lib/platebniKartySchema.js. -->
+      <details class="panel-skladaci">
+        <summary>Platební karty</summary>
+        <p class="popis">Firemní karty podle posledních čtyř číslic. Appka je používá při hledání
+          odpovídajícího bankovního pohybu – když je čtyřčíslí v popisu platby, je to silný signál, že
+          pohyb patří k dokladu. Kartu, kterou appka potká poprvé na dokladu, si založí sama se stavem
+          <strong>Doplnit</strong> – stačí u ní doplnit držitele a účet.</p>
+        <p class="popis"><strong>Celé číslo karty sem nezadávejte.</strong> Appka pracuje výhradně
+          s posledními čtyřmi číslicemi a víc jich neuloží.</p>
+        <h3>Přidat kartu</h3>
+        <label for="nova-karta-cislo">Poslední 4 číslice</label>
+        <input type="text" id="nova-karta-cislo" inputmode="numeric" maxlength="4" placeholder="např. 1234" />
+        <label for="nova-karta-firma">Firma</label>
+        <select id="nova-karta-firma"></select>
+        <label for="nova-karta-ucet">Bankovní účet</label>
+        <select id="nova-karta-ucet"></select>
+        <label for="nova-karta-drzitel">Držitel</label>
+        <input type="text" id="nova-karta-drzitel" list="seznam-drzitelu" placeholder="kdo kartu nosí" />
+        <datalist id="seznam-drzitelu"></datalist>
+        <label for="nova-karta-popis">Popis</label>
+        <input type="text" id="nova-karta-popis" placeholder="např. Tesla firemka (nepovinné)" />
+        <button id="tlacitko-pridat-kartu">Přidat kartu</button>
+        <div id="karty-zprava"></div>
+
+        <h3 style="margin-top:24px">Evidované karty</h3>
+        <div id="karty-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-karty">
+          <thead><tr><th>Karta</th><th>Firma</th><th>Držitel</th><th>Stav</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-karty-telo"></tbody>
         </table>
         </div>
       </details>

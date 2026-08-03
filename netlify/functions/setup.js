@@ -36,6 +36,8 @@ const { SMLOUVY_PRILOHY_HEADERS } = require('../../lib/smlouvyPrilohySchema');
 const { KNIHA_JIZD_HEADERS } = require('../../lib/knihaJizdSchema');
 const { STREDISKA_HEADERS } = require('../../lib/strediskaSchema');
 const { PREDKONTACE_HEADERS } = require('../../lib/predkontaceSchema');
+const { UCTOVA_OSNOVA_HEADERS } = require('../../lib/uctovaOsnovaSchema');
+const { PLATEBNI_KARTY_HEADERS } = require('../../lib/platebniKartySchema');
 const { DOKLADY_POLOZKY_HEADERS } = require('../../lib/dokladyPolozkySchema');
 const { VYDANE_FAKTURY_POLOZKY_HEADERS } = require('../../lib/vydaneFakturyPolozkySchema');
 const { NEMOVITOSTI_JEDNOTKY_HEADERS } = require('../../lib/nemovitostiJednotkySchema');
@@ -101,6 +103,24 @@ const LISTY = [
     // v appce (Nastavení) až budou k dispozici.
     nazev: 'Predkontace',
     hlavicky: PREDKONTACE_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Účtová osnova per firma (od v4.52) - účty MD z Janova Kontace.xlsx,
+    // viz lib/uctovaOsnovaSchema.js. Appka list zakládá PRÁZDNÝ; výchozí
+    // účty se nasypou až na klepnutí na "Načíst výchozí účty" v Nastavení
+    // (netlify/functions/uctova-osnova.js). Kdyby se sypaly tady, každé
+    // spuštění /api/setup by Janovi vracelo jeho úpravy zpátky.
+    nazev: 'Uctova_osnova',
+    hlavicky: UCTOVA_OSNOVA_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Platební karty (od v4.52) - jen POSLEDNÍ 4 ČÍSLICE, nikdy celé číslo
+    // karty, viz lib/platebniKartySchema.js. Appka je používá při návrhu
+    // párování bankovního pohybu s dokladem.
+    nazev: 'Platebni_karty',
+    hlavicky: PLATEBNI_KARTY_HEADERS,
     ukazka: [],
   },
   {

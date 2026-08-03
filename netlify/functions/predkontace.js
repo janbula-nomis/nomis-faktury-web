@@ -64,6 +64,13 @@ exports.handler = async (event) => {
         Firma: firma,
         Kategorie: kategorie,
         Kod: kod,
+        // Ucet_MD (od v4.52) - nákladový účet, který appka předvyplní u
+        // dokladu téhle firmy a kategorie. Prázdno je legitimní stav: Jan si
+        // vybral *"Nechat prázdné a upozornit"*, takže appka žádný náhradní
+        // účet nedosazuje - jen na chybějící kombinace upozorní v Nastavení.
+        // Mezery ve vstupu se odstraňují proto, aby "518 002" a "518002"
+        // nebyly dva různé účty (stejná normalizace jako v uctova-osnova.js).
+        Ucet_MD: String(telo.Ucet_MD || '').replace(/\s+/g, ''),
       });
 
       return json(200, { ok: true });

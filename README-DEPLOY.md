@@ -5307,6 +5307,84 @@ Změněné soubory: `lib/bankSchema.js`, `lib/bankHelpers.js`, `netlify/function
 `APP_VERZE` appka zvýšila na `v4.51 – 2026-08-03`, `VERZE` v `sw.js` na `v4.51`.
 
 
+## 94. Předkontace, účty MD a evidence platebních karet (v4.52)
+
+Jan (2026-08-03) poslal soubor `Kontace.xlsx` se slovy: *„tohle jsou předkontace, je potřeba je zapracovat do systému, dále je důležité zavést při vytěžování registraci platebních karet a ty vést v databázi administrace, používat při návrhu přiřazení plateb"*.
+
+Jsou to dvě věci, které spolu na první pohled nesouvisí, ale v obou jde o totéž: **appka se má naučit, co už Jan a účetní vědí, a přestat se na to ptát znovu u každého dokladu.** Účet MD u nákladu se dá odvodit z kategorie. Kartu, kterou se platilo, jde z účtenky vytěžit a příště podle ní najít odpovídající bankovní pohyb.
+
+### 94.1 Účtová osnova per firma (list `Uctova_osnova`)
+
+`Kontace.xlsx` měl tři listy, jeden na firmu (`NInvestment` / `NCZ` / `NHomes`). Seznamy účtů se mezi firmami **liší** – NOMIS Investment má 513000 (nedaňové náklady) a 548000, NOMIS CZ navíc 518003 (leasingy) a 591000 (DPPO), NOMIS & Homes má 538000 (daň z nemovitosti) a naopak nemá palivo. Klíčem je proto dvojice **Firma + Účet**, ne samotné číslo účtu.
+
+Sloupce: `Firma`, `Ucet`, `Popis`, `Poznamka`. Účet je vedený jako **text**, ne číslo – vedoucí nuly se nesmí ztratit zaokrouhlením.
+
+Přesný přepis Janova souboru je v `lib/kontaceVychozi.js` (7 účtů pro NOMIS Investment, 8 pro NOMIS CZ, 5 pro NOMIS & Homes). Formulace popisů jsou schválně **Janovy, ne přeformulované**: „Daňové služby" u 518 znamená *daňově uznatelné* služby, ne služby daňového poradce – nepřepisovat to na něco, co vypadá učeněji. Opravený je jediný překlep („Bankovní poplaky" → „Bankovní poplatky" u NHomes; u zbylých dvou firem je stejný účet 568000 napsaný správně, takže o překlep nemůže být pochyb).
+
+**Výchozí účty se nesypou při `/api/setup`.** Nasypou se jen na výslovné klepnutí na tlačítko **„Načíst výchozí účty firmy"** v Nastavení, a to tak, že appka **přidá jen ty, které firma ještě nemá** – nic nepřepisuje ani nemaže. Důvod: jde o účetní data, která si Jan bude sám upravovat, a tichý zápis při každém setupu by mu je vracel zpátky na výchozí stav. Tohle **nepředělávat na automatiku**.
+
+### 94.2 Předkontace dostaly účet MD
+
+List `Predkontace` doteď mapoval `Firma + Kategorie → Kod` (kód předkontace pro Money S3, element `<PredKontac>`). Přibyl sloupec **`Ucet_MD`**, který se z účtové osnovy vybírá v roletce.
+
+Na otázku, jak se má účet na doklad dostat, si Jan vybral **„Podle kategorie, jde přepsat"**. Appka tedy účet **předvyplní** podle kombinace firma + kategorie a v detailu dokladu ho jde **kdykoli přepsat ručně**. Tenhle výběr **nevracet zpátky** na napevno odvozený účet.
+
+Na otázku, co dělat u kombinace, pro kterou předkontace neexistuje, si vybral **„Nechat prázdné a upozornit"**. Appka si tedy **nikdy žádný účet nevymyslí** – nechá pole prázdné a pod ním napíše oranžově *„Účet není nastavený pro kombinaci … Nastavte ho v Nastavení → Předkontace, nebo vyberte ručně."* V Nastavení je nad seznamem shrnutí **„Bez nastaveného účtu MD: 1 z 4"** a řádky bez účtu mají teplé podbarvení (`tr.radek-bez-uctu`). Žádné automatické doplňování „nejbližšího podobného účtu" – to je přesně ta chyba, kterou tenhle návrh vylučuje.
+
+Logika je v `lib/predkontaceHelpers.js`: `najdiPredkontaci`, `navrhniUcetMD` (vrátí `''`, když kombinace není), `doplnUcetMD` (**nikdy nepřepíše ručně zadaný účet**, a když není potvrzená firma, sáhne po `Firma_AI_odhad`) a `chybejiciUcty` (do počtu bere jen skutečné doklady, řadí podle četnosti, ať Jan doplňuje nejdřív to, co ho nejvíc pálí).
+
+Přepočet běží na dvou místech: při vytěžení nového dokladu (`netlify/functions/upload-dokoncit.js`) a při **změně firmy nebo kategorie** na existujícím dokladu (`netlify/functions/doklady.js`).
+
+Doklad má nový sloupec `Ucet_MD` (`lib/dokladySchema.js`) a **Excel export** dostal tři nové sloupce: *Účet MD*, *Způsob platby* a *Platební karta* (`lib/excelExport.js`, list `Prijate_faktury`).
+
+### 94.3 Platební karty (list `Platebni_karty`)
+
+Sloupce: `ID`, `Cislo_karty`, `Firma`, `Ucet`, `Drzitel`, `Popis`, `Stav`, `Poznamka`, `Datum_zalozeni`.
+
+Na otázku, co u karty vést, si Jan vybral **„Firma a bankovní účet"** + **„Držitel (uživatel appky)"**. **Auto (SPZ) ani Středisko si nevybral – nedodělávat je zpětně bez toho, že si o ně řekne.**
+
+**Bezpečnostní pravidlo, které se nesmí porušit: appka vede výhradně POSLEDNÍ ČTYŘI ČÍSLICE karty.** Nikdy celé číslo, nikdy CVV, nikdy platnost. Drží to tři vrstvy nezávisle na sobě:
+
+1. **Prompt pro Gemini** (`lib/gemini.js`) si o celé číslo vůbec neřekne – žádá výslovně jen poslední čtyři číslice a má v sobě větu, že i když je na dokladu vytištěné celé číslo, má vrátit jen poslední čtyřčíslí. Tuhle formulaci **nezjemňovat** na „číslo karty".
+2. **Server ořezává** cokoli, co přijde, funkcí `posledniCtyri` (`lib/platebniKartySchema.js`) – zvládne i maskované tvary typu `457112******3456`; kratší než čtyři číslice → `''`.
+3. **Formuláře v appce** mají `maxlength="4"` a schema **nemá žádný sloupec** pro PAN, CVV ani platnost. Test na to má výslovnou kontrolu, aby takový sloupec nikdo nedoplnil ani omylem.
+
+Na otázku, co má appka dělat s kartou, kterou vidí poprvé, si Jan vybral **„Založit ji sama, ať ji jen doplním"**. Při vytěžování si tedy appka novou kartu **sama zapíše** do listu se stavem **`Doplnit`** (`zajistiKartu` v `lib/platebniKartyHelpers.js`) a Jan k ní v Nastavení jen dopíše držitele a účet. Zakládání karty **schválně polyká chyby** – kdyby zápis karty selhal, nesmí to shodit vytěžení celého dokladu.
+
+Správa je v Nastavení → **Platební karty** (`netlify/functions/platebni-karty.js`).
+
+### 94.4 Karta jako signál při párování plateb
+
+*„používat při návrhu přiřazení plateb"* – tohle je vlastní důvod, proč se karty vedou.
+
+**Na serveru** (`lib/bankHelpers.js`) přibyla do `navrhniShodu` váha **karta +3**. Je to schválně stejná váha jako u variabilního symbolu a **vyšší než jméno protistrany (+2)**: čtyřčíslí je přesný údaj, který sedí jen tehdy, když se tou kartou opravdu platilo, kdežto jména si banka a účtenka píšou každá po svém. U plateb v cizí měně, kde částka nikdy nesedí přesně, **shoda karty jméno protistrany zastoupí**.
+
+Aby bonus nerozdával skóre náhodným kandidátům, čtyřčíslí z textu netahá regulární výraz na „jakékoli čtyřmístné číslo", ale `ctyrcisliZTextu` (`lib/platebniKartySchema.js`). Ta rozpozná `****1234`, `xxxx5678`, `...9012`, `457112******3456`, `Platba kartou 7890`, `CARD 4321` – a naopak **odmítne** `Platba 1234 Kc, faktura 2026`, číslo účtu `2345678901/0800`, `VS 5678 SS 1234 KS 0308` i `Najem byt 2026 kveten`. Vrací **`Set`** (kvůli deduplikaci) – pozor, `Set` nemá `.length` ani `.map`, v `public/app.js` se proto obaluje `Array.from(...)`.
+
+**V appce** přibyla v detailu bankovního pohybu **nápověda „Placeno kartou: **** 0417 – Tesla firemka, Jan Bula"**. Doklady se stejnou kartou jdou v nabídce **nahoru** a jsou označené **💳**. Když kartu z pohybu žádný nabízený doklad nemá vyplněnou, appka to napíše (*„doplňte ji v detailu dokladu, ať ji appka příště najde sama"*) – ticho by vypadalo jako „nic se nenašlo". Kartu, která v Nastavení není, vypíše jako *„**** 1234 (karta není v Nastavení)"*.
+
+**Nápověda nikdy nic sama nepřiřadí.** Jednou kartou se za měsíc zaplatí desítky drobných nákupů, takže shoda karty sama o sobě neurčuje, o který doklad jde – je to vodítko, ne důkaz. Drží to stejné pravidlo jako u příjmů v v4.51: appka vždycky jen navrhne.
+
+Karty se u nápovědy **schválně nefiltrují podle firmy.** Pohyb sice patří jedné firmě, ale kartou firmy A se běžně zaplatí doklad firmy B a Jan to pak přeúčtovává – kdyby appka filtrovala, nápověda by zmizela právě tam, kde je nejvíc potřeba. Firmu cizí karty místo toho vypíše, ať je vidět, že je cizí. **Nedodělávat filtr podle firmy.**
+
+### 94.5 Ověřeno
+
+- **logika** (`test-v452.js`, 35 kontrol, běží bez závislostí a bez Googlu): `posledniCtyri` (ořez celého PANu, maskované tvary, méně než čtyři číslice → `''`, vedoucí nula `0417` přežije), `ctyrcisliZTextu` (všechny tvary výš včetně toho, co se rozpoznat **nemá**; vrací `Set` a dedupuje), `shodaKarty` (prázdná karta se nepáruje nikdy), `dalsiIdKarty`, předkontace (`navrhniUcetMD` po firmách, neznámá kombinace → `''`, `doplnUcetMD` nepřepíše ruční účet a umí `Firma_AI_odhad`), `chybejiciUcty` (počítá jen skutečné doklady, řadí podle četnosti), **kontrola schématu** (list `Platebni_karty` nemá sloupec pro PAN, CVV ani platnost; nemá SPZ ani středisko) a Excel export (nové sloupce, účet i čtyřčíslí zůstávají TEXT, karta se píše maskovaně `**** 0417`, doklad bez karty má prázdno, ne `**** `);
+- **vzhled** (`nahled.py`, harness nad **skutečným** `index.html`/`style.css`/`app.js`, šířka 320 px): tři nové panely v Nastavení, detail dokladu s vyplněným i chybějícím účtem MD, detail bankovního pohybu s nápovědou podle karty ve světlém i tmavém motivu. Každá nová třída v `style.css` (`.zprava.varovani`, `.napoveda-karta`, `.upozorneni-ucet`, `tr.radek-bez-uctu`, `.badge-ok`) má **protějšek v tmavém motivu** – jinak by teplé žluté panely v tmavém motivu svítily.
+
+Náhledy Jan schválil 2026-08-03 beze změn.
+
+### 94.6 Po nasazení
+
+**Je potřeba znovu spustit `/api/setup`** – přibyly listy `Uctova_osnova` a `Platebni_karty` a sloupce `Ucet_MD` v `Predkontace` a v `Doklady`. Migrace je přidávací, existující data nechává být. Než setup proběhne, appka nové listy jen tiše nenajde (čtení jsou ošetřená) a chová se jako předtím.
+
+Pak v Nastavení → Účtová osnova klepnout **pro každou firmu zvlášť** na „Načíst výchozí účty firmy" a v Nastavení → Předkontace přiřadit účty kategoriím.
+
+Změněné soubory: `lib/kontaceVychozi.js` (nový), `lib/uctovaOsnovaSchema.js` (nový), `lib/platebniKartySchema.js` (nový), `lib/platebniKartyHelpers.js` (nový), `lib/predkontaceHelpers.js` (nový), `netlify/functions/uctova-osnova.js` (nový), `netlify/functions/platebni-karty.js` (nový), `lib/predkontaceSchema.js`, `lib/dokladySchema.js`, `lib/excelExport.js`, `lib/gemini.js`, `lib/bankHelpers.js`, `netlify/functions/setup.js`, `netlify/functions/predkontace.js`, `netlify/functions/doklady.js`, `netlify/functions/upload-dokoncit.js`, `public/index.html`, `public/app.js`, `public/style.css`, `public/sw.js`.
+
+`APP_VERZE` appka zvýšila na `v4.52 – 2026-08-03`, `VERZE` v `sw.js` na `v4.52`.
+
+
 ## Poznámky k bezpečnosti a omezením
 
 - PIN přihlášení je jednoduché a vhodné pro malý důvěryhodný tým. Pokud by

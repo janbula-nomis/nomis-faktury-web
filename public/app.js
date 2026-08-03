@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.51 – 2026-08-03';
+const APP_VERZE = 'v4.52 – 2026-08-03';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -539,7 +539,10 @@ function prepniZalozku(nazev) {
     nactiAuta();
     nactiUcty();
     nactiStrediska();
-    nactiPredkontace();
+    // Pořadí je schválně tohle: účtová osnova se načte před předkontacemi,
+    // protože nabídka "Účet MD" u předkontace se plní právě z ní (od v4.52).
+    nactiUctovouOsnovu().then(() => nactiPredkontace());
+    nactiPlatebniKarty();
   }
 }
 
@@ -1162,13 +1165,22 @@ async function nactiDoklady() {
   kontejner.innerHTML = '';
 
   try {
-    const [dataDoklady, dataFirmy, dataStrediska] = await Promise.all([
+    // Účtová osnova a předkontace (od v4.52) se načítají se stejnou
+    // tolerancí jako firmy/střediska - .catch() na prázdno. Než Jan po
+    // nasazení pustí /api/setup, ty dva listy v Sheets ještě neexistují a
+    // doklady se kvůli tomu nesmí přestat zobrazovat; jen se u nich zatím
+    // nenabídne účet.
+    const [dataDoklady, dataFirmy, dataStrediska, dataOsnova, dataPredkontace] = await Promise.all([
       zavolejApi('/doklady', { method: 'GET' }),
       zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
       zavolejApi('/strediska', { method: 'GET' }).catch(() => ({ strediska: [] })),
+      zavolejApi('/uctova-osnova', { method: 'GET' }).catch(() => ({ ucty: [] })),
+      zavolejApi('/predkontace', { method: 'GET' }).catch(() => ({ predkontace: [] })),
     ]);
     firmyProVyberDokladu = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
     strediskaSeznam = dataStrediska.strediska || [];
+    uctovaOsnovaSeznam = dataOsnova.ucty || [];
+    predkontaceSeznam = dataPredkontace.predkontace || [];
     nacitani.classList.add('skryto');
     vykresliDoklady(dataDoklady.doklady || []);
   } catch (e) {
@@ -1326,6 +1338,110 @@ function moznostiKategorie(vybrane) {
     html += '<option value="' + escapeAttr(vybrane) + '" selected>' + escapeHtml(vybrane) + ' (není v seznamu)</option>';
   }
   return html;
+}
+
+// ---------- ÚČTOVÁ OSNOVA A ÚČET MD (od v4.52) ----------
+// Jan (2026-08-03) poslal soubor Kontace.xlsx se svými účty po firmách:
+// *"tohle jsou předkontace, je potřeba je zapracovat do systému"*. Na otázku,
+// odkud má appka u dokladu brát účet, vybral *"Podle kategorie, jde přepsat"* -
+// appka tedy účet PŘEDVYPLNÍ podle kombinace firma+kategorie (list
+// Predkontace, sloupec Ucet_MD), ale v detailu dokladu jde přepsat na cokoli
+// z účtové osnovy dané firmy.
+//
+// Na otázku, co má appka dělat s kombinací, pro kterou účet nastavený není,
+// vybral *"Nechat prázdné a upozornit"* - proto navrhUctuMD() vrací prázdno a
+// NEMÁ žádný náhradní účet. Kdyby sem někdo dopsal fallback typu "když nic
+// nesedí, dej 518000", účetní by v exportu dostala tiše špatně zaúčtované
+// doklady a nepoznala by to. Nedoplňovat.
+//
+// Obě pole appka plní při otevření záložky Doklady (viz nactiDoklady) -
+// stejný vzor jako firmyProVyberDokladu/strediskaSeznam.
+let uctovaOsnovaSeznam = [];
+let predkontaceSeznam = [];
+
+// Účty dané firmy jako <option>y. Účet, který doklad má, ale v osnově firmy
+// není (jiná firma, ručně zapsaný, mezitím smazaný), appka ukáže taky - jinak
+// by ho tiché překlopení selectu na první možnost při uložení přepsalo.
+function moznostiUctuMD(firma, vybrany) {
+  const naFirmu = uctovaOsnovaSeznam.filter(
+    (u) => String(u.Firma || '').trim() === String(firma || '').trim(),
+  );
+  let html = '<option value="">— účet nenastaven —</option>';
+  const cisla = [];
+  naFirmu.forEach((u) => {
+    const ucet = String(u.Ucet || '').trim();
+    if (!ucet || cisla.includes(ucet)) return;
+    cisla.push(ucet);
+    const popis = String(u.Popis || '').trim();
+    const oznaceno = ucet === String(vybrany || '').trim() ? ' selected' : '';
+    html += '<option value="' + escapeAttr(ucet) + '"' + oznaceno + '>'
+      + escapeHtml(ucet + (popis ? ' - ' + popis : '')) + '</option>';
+  });
+  const vybranyText = String(vybrany || '').trim();
+  if (vybranyText && !cisla.includes(vybranyText)) {
+    html += '<option value="' + escapeAttr(vybranyText) + '" selected>'
+      + escapeHtml(vybranyText) + ' (není v osnově firmy)</option>';
+  }
+  return html;
+}
+
+// Stejná logika jako navrhniUcetMD() v lib/predkontaceHelpers.js. Duplikát tu
+// je schválně: prohlížeč si `lib/` modul načíst neumí (appka nemá build krok),
+// a předvyplnění účtu po změně kategorie musí být vidět HNED, ne až po uložení
+// a znovunačtení. Při změně jedné kopie je nutné upravit i tu druhou.
+function navrhUctuMD(firma, kategorie) {
+  const f = String(firma || '').trim();
+  const k = String(kategorie || '').trim();
+  if (!f || !k) return '';
+  const radek = predkontaceSeznam.find(
+    (p) => String(p.Firma || '').trim() === f && String(p.Kategorie || '').trim() === k,
+  );
+  return radek ? String(radek.Ucet_MD || '').trim() : '';
+}
+
+// ---------- PLATEBNÍ KARTY (od v4.52) ----------
+// Jan (2026-08-03): *"je důležité zavést při vytěžování registraci platebních
+// karet a ty vést v databázi administrace, používat při návrhu přiřazení
+// plateb"*. Appka o kartě drží VÝHRADNĚ POSLEDNÍ 4 ČÍSLICE - nikdy celé číslo
+// (PAN). Tohle pravidlo platí i tady v prohlížeči: žádné pole v appce celé
+// číslo karty nepřijímá a nikam ho neposílá. Neměkčit.
+//
+// Tyhle tři funkce jsou přesná kopie lib/platebniKartySchema.js
+// (posledniCtyri / ctyrcisliZTextu / shodaKarty). Duplikát je nutný, protože
+// prohlížeč si `lib/` modul načíst neumí (appka nemá build krok) a appka
+// potřebuje v detailu bankovního pohybu ukázat, že čtyřčíslí karty sedí, aniž
+// by se kvůli tomu ptala serveru. Při změně jedné kopie MUSÍ se upravit i ta
+// druhá, jinak bude appka na obrazovce tvrdit něco jiného než při párování.
+function posledniCtyriZTextu(vstup) {
+  const cislice = String(vstup == null ? '' : vstup).replace(/\D/g, '');
+  if (cislice.length < 4) return '';
+  return cislice.slice(-4);
+}
+
+function ctyrcisliZTextu(text) {
+  const t = String(text == null ? '' : text);
+  const nalezene = new Set();
+  const vzory = [
+    /[*]{2,}\s*-?\s*(\d{4})(?!\d)/g, // **** 1234
+    /[xX]{2,}\s*-?\s*(\d{4})(?!\d)/g, // xxxx1234
+    /\.{3,}\s*(\d{4})(?!\d)/g, // ...1234
+    /\d{4,6}\s*[*xX.]{2,}\s*(\d{4})(?!\d)/g, // 457112******1234
+    /(?:karta|kartou|kartu|karty|card)\D{0,12}?(\d{4})(?!\d)/gi,
+  ];
+  vzory.forEach((re) => {
+    let m = re.exec(t);
+    while (m) {
+      nalezene.add(m[1]);
+      m = re.exec(t);
+    }
+  });
+  return nalezene;
+}
+
+function shodaKarty(cisloKarty, textPohybu) {
+  const ctyri = posledniCtyriZTextu(cisloKarty);
+  if (!ctyri) return false;
+  return ctyrcisliZTextu(textPohybu).has(ctyri);
 }
 
 // Číselník Typ/Perioda u Smluv (trvalé příkazy, od v3.19) - VLASTNÍ menší
@@ -1835,6 +1951,68 @@ function vytvorDetailDoklad(d) {
   wrap.appendChild(labelKategorie);
   wrap.appendChild(vstupKategorie);
 
+  // Účet MD (od v4.52) - hned pod Kategorií, protože se z ní odvozuje.
+  // Janova volba byla *"Podle kategorie, jde přepsat"*, takže tohle NENÍ jen
+  // zobrazení navrženého účtu, ale plnohodnotné pole: co je tady vybrané, to
+  // se uloží a to půjde účetní do exportu.
+  const labelUcetMD = document.createElement('label');
+  labelUcetMD.textContent = 'Účet MD (nákladový účet)';
+  const vstupUcetMD = document.createElement('select');
+  vstupUcetMD.innerHTML = moznostiUctuMD(
+    d.Firma_potvrzena || d.Firma_AI_odhad || '', d.Ucet_MD || '',
+  );
+  const upozorneniUcet = document.createElement('div');
+  upozorneniUcet.className = 'popis upozorneni-ucet';
+  wrap.appendChild(labelUcetMD);
+  wrap.appendChild(vstupUcetMD);
+  wrap.appendChild(upozorneniUcet);
+
+  // Druhá polovina Janovy volby *"Nechat prázdné a upozornit"*: appka nikdy
+  // nedosadí náhradní účet, ale prázdno u dokladu nenechá tiše - napíše, PROČ
+  // je prázdné (osnova firmy je prázdná / kombinace firma+kategorie nemá
+  // nastavený účet) a kam se to doplňuje.
+  function prekresliUpozorneniUctu() {
+    const firmaTed = vstupFirma.value.trim();
+    const kategorieTed = vstupKategorie.value.trim();
+    if (vstupUcetMD.value.trim()) {
+      upozorneniUcet.textContent = '';
+      upozorneniUcet.classList.remove('viditelne');
+      return;
+    }
+    upozorneniUcet.classList.add('viditelne');
+    if (!firmaTed || !kategorieTed) {
+      upozorneniUcet.textContent = 'Účet není nastavený - nejdřív vyberte firmu a kategorii.';
+    } else if (!uctovaOsnovaSeznam.some((u) => String(u.Firma || '').trim() === firmaTed)) {
+      upozorneniUcet.textContent = 'Účet není nastavený - firma ' + firmaTed
+        + ' zatím nemá účtovou osnovu. Doplňte ji v Nastavení → Účtová osnova.';
+    } else {
+      upozorneniUcet.textContent = 'Účet není nastavený pro kombinaci ' + firmaTed
+        + ' / ' + kategorieTed + '. Nastavte ho v Nastavení → Předkontace, nebo vyberte ručně.';
+    }
+  }
+
+  // Přepočet po změně firmy/kategorie. Stejné třístranné pravidlo jako na
+  // serveru (netlify/functions/doklady.js, větev PATCH): appka přepíše jen
+  // účet, který je prázdný nebo který sama navrhla. Ručně vybraný účet
+  // zůstane. Kdyby se to zjednodušilo na "po změně kategorie vždycky přepiš",
+  // uživatel by opravou kategorie tiše přišel o účet, který si nastavil sám.
+  function prepocitejUcetMD() {
+    const firmaTed = vstupFirma.value.trim();
+    const soucasny = vstupUcetMD.value.trim();
+    const puvodniNavrh = navrhUctuMD(
+      d.Firma_potvrzena || d.Firma_AI_odhad || '', d.Kategorie || '',
+    );
+    const novy = (!soucasny || soucasny === puvodniNavrh)
+      ? navrhUctuMD(firmaTed, vstupKategorie.value.trim())
+      : soucasny;
+    vstupUcetMD.innerHTML = moznostiUctuMD(firmaTed, novy);
+    prekresliUpozorneniUctu();
+  }
+  vstupFirma.addEventListener('change', prepocitejUcetMD);
+  vstupKategorie.addEventListener('change', prepocitejUcetMD);
+  vstupUcetMD.addEventListener('change', prekresliUpozorneniUctu);
+  prekresliUpozorneniUctu();
+
   const labelStredisko = document.createElement('label');
   labelStredisko.textContent = 'Středisko';
   const vstupStredisko = document.createElement('select');
@@ -1883,6 +2061,37 @@ function vytvorDetailDoklad(d) {
   labelMimoUcet.appendChild(document.createTextNode('Mimo účet (hotově/soukromou kartou)'));
   wrap.appendChild(labelMimoUcet);
 
+  // Způsob platby a platební karta (od v4.52) - obojí vytěží AI z dokladu
+  // (viz lib/gemini.js), tady jde o kontrolu a opravu. Pozor, tohle je něco
+  // jiného než "Mimo účet" o řádek výš: způsob platby říká, ČÍM se platilo,
+  // zatímco "Mimo účet" je rozhodnutí, že se na bankovní pohyb vůbec nemá
+  // čekat. Firemní kartou zaplacený doklad na výpisu je, takže má "Karta" a
+  // zároveň NEMÁ "Mimo účet".
+  const labelZpusobPlatby = document.createElement('label');
+  labelZpusobPlatby.textContent = 'Způsob platby a karta';
+  const vstupZpusobPlatby = document.createElement('select');
+  ['', 'Karta', 'Hotovost', 'Převodem'].forEach((moznost) => {
+    const option = document.createElement('option');
+    option.value = moznost;
+    option.textContent = moznost || '— neuvedeno —';
+    if ((d.Zpusob_platby || '') === moznost) option.selected = true;
+    vstupZpusobPlatby.appendChild(option);
+  });
+  vstupZpusobPlatby.style.marginBottom = '6px';
+  const vstupKarta = document.createElement('input');
+  vstupKarta.type = 'text';
+  vstupKarta.inputMode = 'numeric';
+  vstupKarta.maxLength = 4;
+  vstupKarta.value = d.Platebni_karta || '';
+  // Schválně jen čtyři číslice, i v UI: appka celé číslo karty neukládá
+  // nikde (viz lib/platebniKartySchema.js) a tenhle placeholder ani maxLength
+  // neměnit tak, aby to vypadalo, že se sem píše celé číslo.
+  vstupKarta.placeholder = 'poslední 4 číslice karty';
+  vstupKarta.title = 'Poslední čtyři číslice karty - appka je používá při hledání odpovídajícího bankovního pohybu.';
+  wrap.appendChild(labelZpusobPlatby);
+  wrap.appendChild(vstupZpusobPlatby);
+  wrap.appendChild(vstupKarta);
+
   if (d.Zdrojovy_soubor_URL) {
     const souborDiv = document.createElement('div');
     souborDiv.style.marginTop = '12px';
@@ -1917,6 +2126,12 @@ function vytvorDetailDoklad(d) {
       Sazba_DPH: vstupSazbaDph.value.trim(),
       Firma_potvrzena: vstupFirma.value.trim(),
       Kategorie: vstupKategorie.value.trim(),
+      // Ucet_MD posílá appka vždycky (i prázdný) - server pak pozná, že si
+      // uživatel účet nastavil ručně, a nepřepíše ho vlastním návrhem
+      // (viz větev PATCH v netlify/functions/doklady.js).
+      Ucet_MD: vstupUcetMD.value.trim(),
+      Zpusob_platby: vstupZpusobPlatby.value,
+      Platebni_karta: posledniCtyriZTextu(vstupKarta.value),
       Stredisko: vstupStredisko.value.trim(),
       Mnozstvi_litru: vstupLitry.value,
       Druh_paliva: vstupDruhPaliva.value.trim(),
@@ -3527,6 +3742,7 @@ let bankaDokladySeznam = [];
 let bankaSmlouvySeznam = []; // od v3.19 - trvalé příkazy dané firmy
 let bankaUctySeznam = []; // od v3.19 - vlastní účty dané firmy (pro ruční doplnění u příjmů)
 let bankaFakturySeznam = []; // od v3.22 - vydané faktury dané firmy (párování příjmů)
+let bankaKartySeznam = []; // od v4.52 - platební karty firmy (nápověda u pohybu)
 
 // (v4.50) Filtr seznamu pohybů. Dřív to bylo jedno tlačítko s lupou, které
 // pouštělo dál "chybějící NEBO navržené" naráz; teď jsou to dvě dlaždice
@@ -3588,13 +3804,17 @@ async function nactiBankovniPohyby() {
   }
 
   try {
-    const [dataPohyby, dataDoklady, dataSmlouvy, dataUcty, dataFaktury, dataStrediska] = await Promise.all([
+    const [dataPohyby, dataDoklady, dataSmlouvy, dataUcty, dataFaktury, dataStrediska, dataKarty] = await Promise.all([
       zavolejApi('/banka?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }),
       zavolejApi('/doklady', { method: 'GET' }),
       zavolejApi('/smlouvy?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }).catch(() => ({ smlouvy: [] })),
       zavolejApi('/ucty', { method: 'GET' }).catch(() => ({ ucty: [] })),
       zavolejApi('/vydaneFaktury?firma=' + encodeURIComponent(bankaAktivniFirma), { method: 'GET' }).catch(() => ({ faktury: [] })),
       zavolejApi('/strediska', { method: 'GET' }).catch(() => ({ strediska: [] })),
+      // (v4.52) Karty jsou jen NÁPOVĚDA v detailu pohybu - proto .catch() na
+      // prázdno. Vlastní párování podle karty dělá server (navrhniShodu v
+      // lib/bankHelpers.js) a funguje i tehdy, když se tenhle seznam nenačte.
+      zavolejApi('/platebni-karty', { method: 'GET' }).catch(() => ({ karty: [] })),
     ]);
     strediskaSeznam = dataStrediska.strediska || [];
     bankaPohybySeznam = dataPohyby.pohyby || [];
@@ -3604,6 +3824,12 @@ async function nactiBankovniPohyby() {
     bankaSmlouvySeznam = dataSmlouvy.smlouvy || [];
     bankaUctySeznam = (dataUcty.ucty || []).filter((u) => u.Firma === bankaAktivniFirma);
     bankaFakturySeznam = dataFaktury.faktury || [];
+    // (v4.52) Karty appka NEFILTRUJE podle firmy schválně: pohyb sice patří
+    // jedné firmě, ale kartou firmy A se běžně zaplatí doklad firmy B a Jan
+    // to pak přeúčtovává. Kdyby appka karty filtrovala, nápověda by u těchhle
+    // pohybů zmizela právě tam, kde je nejvíc potřeba. Firmu karty appka
+    // místo toho u nápovědy vypíše, ať je vidět, že je cizí.
+    bankaKartySeznam = dataKarty.karty || [];
     nacitani.classList.add('skryto');
     vykresliBankovniPohyby();
   } catch (e) {
@@ -4660,17 +4886,66 @@ function vytvorDetailBanka(p) {
     // - zbylé doklady appka řadí tak, aby schválené byly první a hned
     //   viditelné (nejčastější případ výběru), a u každého rovnou ukáže
     //   stav, ať je jasné, co je hotové a co ještě čeká na kontrolu.
+    //
+    // (v4.52) - a jako úplně první řadí appka doklady, jejichž platební karta
+    // sedí s kartou z popisu pohybu (viz nápověda níž). Čtyřčíslí karty je
+    // přesnější vodítko než stav dokladu: "schválených" dokladů je v seznamu
+    // většina, kdežto kartou 1234 se platil jen zlomek z nich. Uvnitř každé
+    // z obou skupin zůstává původní řazení (schválené první, pak podle data).
+    const textPohybuProKartu = String(p.Popis || '') + ' ' + String(p.Protistrana || '');
+    // Array.from je tu nutné: ctyrcisliZTextu vrací Set (kvůli deduplikaci),
+    // ten nemá ani .length, ani .map - `kartyVPohybu.length` by na Setu tiše
+    // vyšlo undefined a nápověda by se nikdy nezobrazila.
+    const kartyVPohybu = Array.from(ctyrcisliZTextu(textPohybuProKartu));
+    const sediKarta = (d) => (kartyVPohybu.length ? shodaKarty(d.Platebni_karta, textPohybuProKartu) : false);
     const volneDoklady = bankaDokladySeznam
       .filter((d) => !jizPouzite.has(d.ID))
       .filter((d) => String(d.Hrazeno_mimo_ucet || '').trim() !== 'ANO')
       .filter((d) => d.Stav !== 'Zpracovává se')
       .slice()
       .sort((a, b) => {
+        const kartaA = sediKarta(a) ? 0 : 1;
+        const kartaB = sediKarta(b) ? 0 : 1;
+        if (kartaA !== kartaB) return kartaA - kartaB;
         const prioritaA = dokladVyberRazeniPriorita(a.Stav);
         const prioritaB = dokladVyberRazeniPriorita(b.Stav);
         if (prioritaA !== prioritaB) return prioritaA - prioritaB;
         return String(b.Datum_dokladu || '').localeCompare(String(a.Datum_dokladu || ''));
       });
+    const dokladyNaKartu = volneDoklady.filter(sediKarta);
+
+    // (v4.52) NÁPOVĚDA PODLE PLATEBNÍ KARTY - Jan: *"používat při návrhu
+    // přiřazení plateb"*. Vlastní návrh dělá server (navrhniShodu v
+    // lib/bankHelpers.js, karta má váhu +3), tohle je jeho ruční protějšek:
+    // když server žádný návrh nedal (třeba nesedla částka kvůli spropitnému
+    // nebo kurzu), příslušnost ke kartě zůstává jediné vodítko a appka ho
+    // ukáže tady u výběru dokladu, kde se rozhoduje.
+    //
+    // Appka schválně jen UKAZUJE - nic sama nepřiřadí. Kartou se platí
+    // desítky drobných nákupů měsíčně, takže "kartou 1234" vybere klidně
+    // deset dokladů; vybrat z nich ten pravý umí jen člověk.
+    if (kartyVPohybu.length) {
+      const napovedaKarta = document.createElement('div');
+      napovedaKarta.className = 'zprava napoveda-karta';
+      // Karta se pojmenuje z administrace (Nastavení > Platební karty). Když
+      // ji tam Jan ještě nemá, appka nemlčí - napíše aspoň čtyřčíslí a pošle
+      // ho kartu založit; jinak by vypadalo, že appka nic nenašla.
+      const popisky = kartyVPohybu.map((ctyrcisli) => {
+        const karta = bankaKartySeznam.find((k) => String(k.Cislo_karty || '').trim() === ctyrcisli);
+        if (!karta) return '**** ' + ctyrcisli + ' (karta není v Nastavení)';
+        const detaily = [karta.Popis, karta.Drzitel, karta.Firma !== bankaAktivniFirma ? karta.Firma : '']
+          .filter((x) => String(x || '').trim())
+          .join(', ');
+        return '**** ' + ctyrcisli + (detaily ? ' – ' + detaily : '');
+      });
+      napovedaKarta.innerHTML =
+        '<strong>Placeno kartou:</strong> ' + escapeHtml(popisky.join('; ')) + '. ' +
+        (dokladyNaKartu.length
+          ? 'Doklady s touhle kartou jsou v nabídce označené 💳 (' + dokladyNaKartu.length + ').'
+          : 'Žádný z nabízených dokladů tuhle kartu nemá vyplněnou – doplňte ji v detailu dokladu, ať ji appka příště najde sama.');
+      akce.appendChild(napovedaKarta);
+    }
+
     // Appka zobrazí rovnou víc řádků najednou (ne jen sbalenou nabídku),
     // ať jsou všechny dostupné doklady vidět bez nutnosti rozklikávat
     // a scrollovat v malém okně prohlížeče.
@@ -4681,6 +4956,7 @@ function vytvorDetailBanka(p) {
         .map(
           (d) =>
             '<option value="' + escapeAttr(d.ID) + '">' +
+            (dokladyNaKartu.indexOf(d) !== -1 ? '💳 ' : '') +
             (d.Stav === 'Schváleno' ? '✅ ' : '') +
             escapeHtml(d.Dodavatel || '(bez dodavatele)') + ' – ' + escapeHtml(String(parsujCastkuZListu(d.Castka))) + ' ' +
             escapeHtml(d.Mena || '') + ' (' + escapeHtml(d.Datum_dokladu || '') + ')' +
@@ -5750,10 +6026,173 @@ async function smazStredisko(row, nazev, tlacitko) {
   }
 }
 
+// ---------- ADMIN: ÚČTOVÁ OSNOVA (od v4.52 - viz lib/uctovaOsnovaSchema.js,
+// lib/kontaceVychozi.js a netlify/functions/uctova-osnova.js) ----------
+// Nákladové účty po firmách, ze kterých se pak vybírá Účet MD u předkontace
+// a u dokladu. Zdroj je Janův soubor Kontace.xlsx (2026-08-03).
+//
+// Výchozí účty appka NENAČÍTÁ sama při /api/setup, ale až na tlačítko - kdyby
+// je dosazovala při každém setupu, přepsala by Janovi ruční úpravy a on by
+// se to dozvěděl až od účetní. Endpoint proto doplňuje jen chybějící účty a
+// vrací, kolik jich přidal a kolik přeskočil.
+
+async function nactiUctovouOsnovu() {
+  const nacitani = document.getElementById('uctova-osnova-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  try {
+    const [dataFirmy, data] = await Promise.all([
+      zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+      zavolejApi('/uctova-osnova', { method: 'GET' }),
+    ]);
+    const nazvyFirem = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
+    document.getElementById('novy-uo-firma').innerHTML = moznostiFirmySeznam(nazvyFirem, '');
+    // Sdílená cache (stejná, ze které čerpá detail dokladu) - ať nabídka
+    // účtů u předkontace nemusí volat API podruhé.
+    uctovaOsnovaSeznam = data.ucty || [];
+    vykresliUctovouOsnovu(uctovaOsnovaSeznam);
+    nacitani.classList.add('skryto');
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst účtovou osnovu: ' + e.message;
+  }
+}
+
+function vykresliUctovouOsnovu(ucty) {
+  const telo = document.getElementById('tabulka-uctova-osnova-telo');
+  telo.innerHTML = '';
+
+  ucty.forEach((u) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td data-label="Firma"></td>' +
+      '<td data-label="Účet"></td>' +
+      '<td data-label="Popis"></td>' +
+      '<td data-label="Akce"></td>';
+
+    tr.children[0].textContent = u.Firma || '';
+    tr.children[1].textContent = u.Ucet || '';
+
+    const vstupPopis = document.createElement('input');
+    vstupPopis.type = 'text';
+    vstupPopis.value = u.Popis || '';
+    vstupPopis.placeholder = 'popis účtu';
+    tr.children[2].appendChild(vstupPopis);
+
+    const tlacitkoUlozit = document.createElement('button');
+    tlacitkoUlozit.className = 'maly sekundarni';
+    tlacitkoUlozit.textContent = 'Uložit';
+    tlacitkoUlozit.onclick = () => ulozUcetOsnovy(u._row, { Popis: vstupPopis.value.trim() }, tlacitkoUlozit);
+    tr.children[3].appendChild(tlacitkoUlozit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.style.marginLeft = '6px';
+    tlacitkoSmazat.onclick = () => smazUcetOsnovy(u._row, (u.Firma || '') + ' / ' + (u.Ucet || ''), tlacitkoSmazat);
+    tr.children[3].appendChild(tlacitkoSmazat);
+
+    telo.appendChild(tr);
+  });
+
+  if (ucty.length === 0) {
+    telo.innerHTML = '<tr><td colspan="4" class="nacitani">Osnova je zatím prázdná - vyberte firmu a klikněte na „Načíst výchozí účty firmy“.</td></tr>';
+  }
+}
+
+async function pridatUcetOsnovy() {
+  const zprava = document.getElementById('uctova-osnova-zprava');
+  zprava.innerHTML = '';
+
+  const firma = document.getElementById('novy-uo-firma').value.trim();
+  const ucet = document.getElementById('novy-uo-ucet').value.trim();
+  if (!firma || !ucet) {
+    zprava.innerHTML = '<div class="zprava chyba">Firma i účet jsou povinné.</div>';
+    return;
+  }
+
+  try {
+    await zavolejApi('/uctova-osnova', {
+      method: 'POST',
+      body: JSON.stringify({
+        Firma: firma,
+        Ucet: ucet,
+        Popis: document.getElementById('novy-uo-popis').value.trim(),
+        Poznamka: document.getElementById('novy-uo-poznamka').value.trim(),
+      }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Účet přidán.</div>';
+    document.getElementById('novy-uo-ucet').value = '';
+    document.getElementById('novy-uo-popis').value = '';
+    document.getElementById('novy-uo-poznamka').value = '';
+    await nactiUctovouOsnovu();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function nactiVychoziUcty() {
+  const zprava = document.getElementById('uctova-osnova-zprava');
+  const firma = document.getElementById('novy-uo-firma').value.trim();
+  zprava.innerHTML = '';
+  if (!firma) {
+    zprava.innerHTML = '<div class="zprava chyba">Nejdřív vyberte firmu.</div>';
+    return;
+  }
+
+  const tlacitko = document.getElementById('tlacitko-vychozi-ucty');
+  tlacitko.disabled = true;
+  try {
+    const vysledek = await zavolejApi('/uctova-osnova', {
+      method: 'POST',
+      body: JSON.stringify({ akce: 'vychozi', Firma: firma }),
+    });
+    const pridano = vysledek.pridano || 0;
+    const preskoceno = vysledek.preskoceno || 0;
+    zprava.innerHTML = '<div class="zprava uspech">Přidáno účtů: ' + pridano
+      + (preskoceno ? ', už jste jich měli: ' + preskoceno : '') + '.</div>';
+    await nactiUctovouOsnovu();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+  tlacitko.disabled = false;
+}
+
+async function ulozUcetOsnovy(row, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/uctova-osnova', { method: 'PATCH', body: JSON.stringify({ row, zmeny }) });
+    await nactiUctovouOsnovu();
+  } catch (e) {
+    alert('Nepodařilo se uložit účet: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazUcetOsnovy(row, popis, tlacitko) {
+  // Účet z osnovy zmizí jen jako NABÍDKA - doklady, které ho už mají
+  // uložený, si ho nechají (v detailu se ukáže jako "není v osnově firmy").
+  if (!confirm('Opravdu smazat účet „' + popis + '“ z osnovy?\n\nDoklady, které ho už mají zapsaný, si ho nechají.')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/uctova-osnova?row=' + row, { method: 'DELETE' });
+    await nactiUctovouOsnovu();
+  } catch (e) {
+    alert('Nepodařilo se smazat účet: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
 // ---------- ADMIN: PŘEDKONTACE (od v4.32 - viz lib/predkontaceSchema.js a
 // netlify/functions/predkontace.js) - kódy pro Money S3 export <PredKontac>,
 // per firma a kategorie dokladu. Appka list zakládá s prázdnými kódy - Jan/
-// účetní je doplní tady, jakmile bude vědět, jaké kódy chce použít. ----------
+// účetní je doplní tady, jakmile bude vědět, jaké kódy chce použít.
+//
+// Od v4.52 tu je navíc sloupec Účet MD - nákladový účet, který appka
+// předvyplní u dokladu té firmy a kategorie (Janova volba "Podle kategorie,
+// jde přepsat"). Kód předkontace a účet MD jsou dvě různé věci a schválně
+// zůstávají vedle sebe: kód je řetězec pro Money S3, účet je skutečný účet z
+// osnovy. Neslučovat do jednoho pole. ----------
 
 async function nactiPredkontace() {
   const nacitani = document.getElementById('predkontace-nacitani');
@@ -5761,6 +6200,15 @@ async function nactiPredkontace() {
   nacitani.textContent = 'Načítám…';
 
   document.getElementById('nova-pk-kategorie').innerHTML = moznostiKategorie('');
+
+  // Nabídka účtů se řídí vybranou firmou - u NOMIS & Homes nemá smysl
+  // nabízet účet, který má v osnově jen NOMIS CZ.
+  const vyberFirmyPk = document.getElementById('nova-pk-firma');
+  const vyberUctuPk = document.getElementById('nova-pk-ucet');
+  vyberUctuPk.innerHTML = moznostiUctuMD(vyberFirmyPk.value.trim(), '');
+  vyberFirmyPk.onchange = () => {
+    vyberUctuPk.innerHTML = moznostiUctuMD(vyberFirmyPk.value.trim(), '');
+  };
 
   try {
     // Appka si tu firmy načítá ČERSTVĚ vlastním voláním (ne přes sdílené
@@ -5773,7 +6221,11 @@ async function nactiPredkontace() {
     ]);
     document.getElementById('nova-pk-firma').innerHTML =
       moznostiFirmySeznam((dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean), '');
-    vykresliPredkontace(data.predkontace || []);
+    // Nabídka firem se právě přepsala, takže i nabídka účtů musí odpovídat
+    // tomu, co je teď vybrané (jinak by v ní zůstaly účty předchozí firmy).
+    vyberUctuPk.innerHTML = moznostiUctuMD(vyberFirmyPk.value.trim(), '');
+    predkontaceSeznam = data.predkontace || [];
+    vykresliPredkontace(predkontaceSeznam);
     nacitani.classList.add('skryto');
   } catch (e) {
     nacitani.textContent = 'Nepodařilo se načíst předkontace: ' + e.message;
@@ -5784,41 +6236,66 @@ function vykresliPredkontace(predkontace) {
   const telo = document.getElementById('tabulka-predkontace-telo');
   telo.innerHTML = '';
 
+  let bezUctu = 0;
+
   predkontace.forEach((p) => {
     const tr = document.createElement('tr');
     tr.innerHTML =
       '<td data-label="Firma"></td>' +
       '<td data-label="Kategorie"></td>' +
+      '<td data-label="Účet MD"></td>' +
       '<td data-label="Kód"></td>' +
       '<td data-label="Akce"></td>';
 
     tr.children[0].textContent = p.Firma || '';
     tr.children[1].textContent = p.Kategorie || '';
 
+    const vyberUctu = document.createElement('select');
+    vyberUctu.innerHTML = moznostiUctuMD(p.Firma || '', p.Ucet_MD || '');
+    tr.children[2].appendChild(vyberUctu);
+    if (!String(p.Ucet_MD || '').trim()) {
+      bezUctu += 1;
+      tr.classList.add('radek-bez-uctu');
+    }
+
     const vstupKod = document.createElement('input');
     vstupKod.type = 'text';
     vstupKod.value = p.Kod || '';
     vstupKod.placeholder = 'kód předkontace';
-    tr.children[2].appendChild(vstupKod);
+    tr.children[3].appendChild(vstupKod);
 
     const tlacitkoUlozit = document.createElement('button');
     tlacitkoUlozit.className = 'maly sekundarni';
     tlacitkoUlozit.textContent = 'Uložit';
-    tlacitkoUlozit.onclick = () => ulozPredkontaci(p._row, { Kod: vstupKod.value.trim() }, tlacitkoUlozit);
-    tr.children[3].appendChild(tlacitkoUlozit);
+    tlacitkoUlozit.onclick = () => ulozPredkontaci(
+      p._row, { Kod: vstupKod.value.trim(), Ucet_MD: vyberUctu.value.trim() }, tlacitkoUlozit,
+    );
+    tr.children[4].appendChild(tlacitkoUlozit);
 
     const tlacitkoSmazat = document.createElement('button');
     tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
     tlacitkoSmazat.textContent = 'Smazat';
     tlacitkoSmazat.style.marginLeft = '6px';
     tlacitkoSmazat.onclick = () => smazPredkontaci(p._row, (p.Firma || '') + ' / ' + (p.Kategorie || ''), tlacitkoSmazat);
-    tr.children[3].appendChild(tlacitkoSmazat);
+    tr.children[4].appendChild(tlacitkoSmazat);
 
     telo.appendChild(tr);
   });
 
+  // Janova volba byla *"Nechat prázdné a upozornit"* - upozornění je tohle.
+  // Appka počítá jen kombinace, které Jan opravdu má založené; nevypisuje
+  // kartézský součin všech firem × 16 kategorií, protože většinu z nich
+  // nikdy nepoužije a seznam by byl k nepřečtení.
+  const shrnuti = document.getElementById('predkontace-chybejici');
+  if (shrnuti) {
+    shrnuti.innerHTML = bezUctu
+      ? '<div class="zprava varovani">Bez nastaveného účtu MD: ' + bezUctu
+        + ' z ' + predkontace.length + '. Doklady těchhle kombinací zůstanou bez účtu.</div>'
+      : '';
+  }
+
   if (predkontace.length === 0) {
-    telo.innerHTML = '<tr><td colspan="4" class="nacitani">Zatím žádné předkontace - appka do Money S3 exportu posílá prázdný &lt;PredKontac&gt;.</td></tr>';
+    telo.innerHTML = '<tr><td colspan="5" class="nacitani">Zatím žádné předkontace - appka u dokladů nepředvyplní účet a do Money S3 exportu posílá prázdný &lt;PredKontac&gt;.</td></tr>';
   }
 }
 
@@ -5837,7 +6314,12 @@ async function pridatPredkontaci() {
   try {
     await zavolejApi('/predkontace', {
       method: 'POST',
-      body: JSON.stringify({ Firma: firma, Kategorie: kategorie, Kod: kod }),
+      body: JSON.stringify({
+        Firma: firma,
+        Kategorie: kategorie,
+        Kod: kod,
+        Ucet_MD: document.getElementById('nova-pk-ucet').value.trim(),
+      }),
     });
     zprava.innerHTML = '<div class="zprava uspech">Předkontace přidána.</div>';
     document.getElementById('nova-pk-kod').value = '';
@@ -5866,6 +6348,242 @@ async function smazPredkontaci(row, popis, tlacitko) {
     await nactiPredkontace();
   } catch (e) {
     alert('Nepodařilo se smazat předkontaci: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+// ---------- ADMIN: PLATEBNÍ KARTY (od v4.52 - viz lib/platebniKartySchema.js
+// a netlify/functions/platebni-karty.js) ----------
+// Jan (2026-08-03): *"je důležité zavést při vytěžování registraci platebních
+// karet a ty vést v databázi administrace, používat při návrhu přiřazení
+// plateb"*. Appka kartu, kterou potká na dokladu poprvé, založí sama se
+// stavem "Doplnit" (Janova volba *"Založit ji sama, ať ji jen doplním"*) -
+// tenhle panel je to místo, kde se u ní doplní držitel a účet.
+//
+// Jan si u karty přál vést firmu s bankovním účtem a držitele. SPZ auta ani
+// středisko schválně NE - appka mu je nabízela a nevybral je. Nedoplňovat
+// zpětně bez toho, že si o ně řekne.
+//
+// A ještě jednou, protože je to důležité: appka o kartě drží JEN POSLEDNÍ
+// ČTYŘI ČÍSLICE. Žádné pole tady celé číslo karty nepřijímá.
+
+async function nactiPlatebniKarty() {
+  const nacitani = document.getElementById('karty-nacitani');
+  nacitani.classList.remove('skryto');
+  nacitani.textContent = 'Načítám…';
+
+  try {
+    const [dataFirmy, dataUcty, dataUzivatele, data] = await Promise.all([
+      zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
+      zavolejApi('/ucty', { method: 'GET' }).catch(() => ({ ucty: [] })),
+      zavolejApi('/uzivatele', { method: 'GET' }).catch(() => ({ uzivatele: [] })),
+      zavolejApi('/platebni-karty', { method: 'GET' }),
+    ]);
+
+    const nazvyFirem = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
+    const vyberFirmy = document.getElementById('nova-karta-firma');
+    const vyberUctu = document.getElementById('nova-karta-ucet');
+    vyberFirmy.innerHTML = moznostiFirmySeznam(nazvyFirem, '');
+
+    // Bankovní účty se filtrují podle vybrané firmy - karta patří k účtu té
+    // firmy, na jejímž výpisu se platba objeví.
+    const vsechnyUcty = dataUcty.ucty || [];
+    function prekresliUctyKarty() {
+      const firma = vyberFirmy.value.trim();
+      const naFirmu = vsechnyUcty.filter((u) => String(u.Firma || '').trim() === firma);
+      let html = '<option value="">— nevybráno —</option>';
+      naFirmu.forEach((u) => {
+        const cislo = String(u.Cislo_uctu || '').trim();
+        if (!cislo) return;
+        const popis = String(u.Popis || '').trim();
+        html += '<option value="' + escapeAttr(cislo) + '">'
+          + escapeHtml(cislo + (popis ? ' - ' + popis : '')) + '</option>';
+      });
+      vyberUctu.innerHTML = html;
+    }
+    vyberFirmy.onchange = prekresliUctyKarty;
+    prekresliUctyKarty();
+
+    // Držitel se nabízí ze seznamu uživatelů appky, ale jde napsat i cokoli
+    // jiného - proto <datalist> a ne <select> (kartu může nosit i někdo, kdo
+    // v appce účet nemá). /uzivatele smí načíst jen admin, účetní dostane
+    // 403 - proto je to v .catch() a nabídka jí zůstane prázdná, pole ale
+    // funguje dál jako obyčejný text.
+    const seznamDrzitelu = document.getElementById('seznam-drzitelu');
+    seznamDrzitelu.innerHTML = (dataUzivatele.uzivatele || [])
+      .map((u) => u.Jmeno)
+      .filter(Boolean)
+      .map((j) => '<option value="' + escapeAttr(j) + '"></option>')
+      .join('');
+
+    vykresliPlatebniKarty(data.karty || [], nazvyFirem, vsechnyUcty);
+    nacitani.classList.add('skryto');
+  } catch (e) {
+    nacitani.textContent = 'Nepodařilo se načíst platební karty: ' + e.message;
+  }
+}
+
+function vykresliPlatebniKarty(karty, nazvyFirem, vsechnyUcty) {
+  const telo = document.getElementById('tabulka-karty-telo');
+  telo.innerHTML = '';
+
+  karty.forEach((k) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td data-label="Karta"></td>' +
+      '<td data-label="Firma"></td>' +
+      '<td data-label="Držitel"></td>' +
+      '<td data-label="Stav"></td>' +
+      '<td data-label="Akce"></td>';
+
+    // Maska **** je jen zobrazení - uloženy jsou opravdu jen ty čtyři
+    // číslice, appka žádné další nezná.
+    const popisek = document.createElement('div');
+    popisek.textContent = '**** ' + (k.Cislo_karty || '????');
+    popisek.style.fontWeight = '600';
+    tr.children[0].appendChild(popisek);
+    if (k.Popis) {
+      const podpopis = document.createElement('div');
+      podpopis.className = 'popis';
+      podpopis.textContent = k.Popis;
+      tr.children[0].appendChild(podpopis);
+    }
+
+    tr.children[1].textContent = k.Firma || '';
+    if (k.Ucet) {
+      const ucetDiv = document.createElement('div');
+      ucetDiv.className = 'popis';
+      ucetDiv.textContent = k.Ucet;
+      tr.children[1].appendChild(ucetDiv);
+    }
+
+    const vstupDrzitel = document.createElement('input');
+    vstupDrzitel.type = 'text';
+    vstupDrzitel.value = k.Drzitel || '';
+    vstupDrzitel.setAttribute('list', 'seznam-drzitelu');
+    vstupDrzitel.placeholder = 'kdo kartu nosí';
+    tr.children[2].appendChild(vstupDrzitel);
+
+    const vyberUctuRadku = document.createElement('select');
+    const naFirmu = (vsechnyUcty || []).filter(
+      (u) => String(u.Firma || '').trim() === String(k.Firma || '').trim(),
+    );
+    let htmlUctu = '<option value="">— účet nevybrán —</option>';
+    naFirmu.forEach((u) => {
+      const cislo = String(u.Cislo_uctu || '').trim();
+      if (!cislo) return;
+      const oznaceno = cislo === String(k.Ucet || '').trim() ? ' selected' : '';
+      htmlUctu += '<option value="' + escapeAttr(cislo) + '"' + oznaceno + '>' + escapeHtml(cislo) + '</option>';
+    });
+    if (k.Ucet && !naFirmu.some((u) => String(u.Cislo_uctu || '').trim() === String(k.Ucet).trim())) {
+      htmlUctu += '<option value="' + escapeAttr(k.Ucet) + '" selected>' + escapeHtml(k.Ucet) + ' (není v Účtech)</option>';
+    }
+    vyberUctuRadku.innerHTML = htmlUctu;
+    vyberUctuRadku.style.marginTop = '4px';
+    tr.children[2].appendChild(vyberUctuRadku);
+
+    // Stav "Doplnit" znamená jen "chybí u ní držitel/účet" - na párování se
+    // taková karta používá úplně stejně jako aktivní.
+    const stavKarty = String(k.Stav || '').trim();
+    const badge = document.createElement('span');
+    badge.className = stavKarty === 'Doplnit' ? 'badge-chybi' : 'badge-ok';
+    badge.textContent = stavKarty || 'Aktivní';
+    if (stavKarty === 'Doplnit') {
+      badge.title = 'Kartu si appka založila sama při vytěžování dokladu - doplňte držitele a účet.';
+    }
+    tr.children[3].appendChild(badge);
+
+    const tlacitkoUlozit = document.createElement('button');
+    tlacitkoUlozit.className = 'maly sekundarni';
+    tlacitkoUlozit.textContent = 'Uložit';
+    tlacitkoUlozit.onclick = () => {
+      const zmeny = {
+        Drzitel: vstupDrzitel.value.trim(),
+        Ucet: vyberUctuRadku.value.trim(),
+      };
+      // Doplněním držitele karta automaticky přestává být "Doplnit" - jinak
+      // by u ní stav "Doplnit" zůstal viset navždycky a přestal by cokoli
+      // znamenat.
+      if (stavKarty === 'Doplnit' && zmeny.Drzitel) zmeny.Stav = 'Aktivní';
+      ulozPlatebniKartu(k._row, zmeny, tlacitkoUlozit);
+    };
+    tr.children[4].appendChild(tlacitkoUlozit);
+
+    const tlacitkoSmazat = document.createElement('button');
+    tlacitkoSmazat.className = 'maly sekundarni akce-smazat';
+    tlacitkoSmazat.textContent = 'Smazat';
+    tlacitkoSmazat.style.marginLeft = '6px';
+    tlacitkoSmazat.onclick = () => smazPlatebniKartu(
+      k._row, '**** ' + (k.Cislo_karty || '') + ' (' + (k.Firma || '') + ')', tlacitkoSmazat,
+    );
+    tr.children[4].appendChild(tlacitkoSmazat);
+
+    telo.appendChild(tr);
+  });
+
+  if (karty.length === 0) {
+    telo.innerHTML = '<tr><td colspan="5" class="nacitani">Zatím žádné karty - appka si je založí sama, jakmile nějakou najde na dokladu.</td></tr>';
+  }
+}
+
+async function pridatPlatebniKartu() {
+  const zprava = document.getElementById('karty-zprava');
+  zprava.innerHTML = '';
+
+  const cislo = posledniCtyriZTextu(document.getElementById('nova-karta-cislo').value);
+  const firma = document.getElementById('nova-karta-firma').value.trim();
+  if (!cislo) {
+    zprava.innerHTML = '<div class="zprava chyba">Zadejte poslední čtyři číslice karty.</div>';
+    return;
+  }
+  if (!firma) {
+    zprava.innerHTML = '<div class="zprava chyba">Vyberte firmu.</div>';
+    return;
+  }
+
+  try {
+    await zavolejApi('/platebni-karty', {
+      method: 'POST',
+      body: JSON.stringify({
+        Cislo_karty: cislo,
+        Firma: firma,
+        Ucet: document.getElementById('nova-karta-ucet').value.trim(),
+        Drzitel: document.getElementById('nova-karta-drzitel').value.trim(),
+        Popis: document.getElementById('nova-karta-popis').value.trim(),
+      }),
+    });
+    zprava.innerHTML = '<div class="zprava uspech">Karta přidána.</div>';
+    document.getElementById('nova-karta-cislo').value = '';
+    document.getElementById('nova-karta-drzitel').value = '';
+    document.getElementById('nova-karta-popis').value = '';
+    await nactiPlatebniKarty();
+  } catch (e) {
+    zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function ulozPlatebniKartu(row, zmeny, tlacitko) {
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/platebni-karty', { method: 'PATCH', body: JSON.stringify({ row, zmeny }) });
+    await nactiPlatebniKarty();
+  } catch (e) {
+    alert('Nepodařilo se uložit kartu: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+async function smazPlatebniKartu(row, popis, tlacitko) {
+  // Doklady si čtyřčíslí drží u sebe, takže smazání karty jim nic nesebere -
+  // jen se přestane nabízet v administraci a appka ji při dalším vytěžení
+  // dokladu se stejnou kartou založí znovu.
+  if (!confirm('Opravdu smazat kartu ' + popis + '?')) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/platebni-karty?row=' + row, { method: 'DELETE' });
+    await nactiPlatebniKarty();
+  } catch (e) {
+    alert('Nepodařilo se smazat kartu: ' + e.message);
     tlacitko.disabled = false;
   }
 }
@@ -8424,6 +9142,10 @@ document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridat
 document.getElementById('tlacitko-pridat-ucet').addEventListener('click', pridatUcet);
 document.getElementById('tlacitko-pridat-stredisko').addEventListener('click', pridatStredisko);
 document.getElementById('tlacitko-pridat-predkontaci').addEventListener('click', pridatPredkontaci);
+// v4.52 - účtová osnova a platební karty
+document.getElementById('tlacitko-pridat-ucet-osnovy').addEventListener('click', pridatUcetOsnovy);
+document.getElementById('tlacitko-vychozi-ucty').addEventListener('click', nactiVychoziUcty);
+document.getElementById('tlacitko-pridat-kartu').addEventListener('click', pridatPlatebniKartu);
 document.getElementById('tlacitko-pridat-smlouvu').addEventListener('click', pridatSmlouvu);
 document.getElementById('sm-tlacitko-vyfotit').addEventListener('click', () => document.getElementById('sm-pole-foto').click());
 document.getElementById('sm-tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('sm-pole-soubor').click());

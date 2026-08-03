@@ -42,6 +42,8 @@ const { readSheetObjects, updateRow, deleteRow } = require('../../lib/sheetsHelp
 const { DOKLADY_HEADERS } = require('../../lib/dokladySchema');
 const { BANKOVNI_HEADERS } = require('../../lib/bankSchema');
 const { dalsiEvidencniCislo, precislujPriPresunu } = require('../../lib/evidencniCislo');
+// v4.52 - účet MD podle předkontace, viz lib/predkontaceHelpers.js.
+const { navrhniUcetMD } = require('../../lib/predkontaceHelpers');
 const { json } = require('../../lib/http');
 
 function ziskejFirmuDokladu(d) {
@@ -170,6 +172,42 @@ exports.handler = async (event) => {
           doklad, rows, 'FP', firmaPoUprave, rokPoUprave, ziskejFirmuDokladu
         );
         if (preindexovane) aktualizovany.Evidencni_cislo = preindexovane;
+      }
+
+      // (v4.52) Účet MD po změně firmy nebo kategorie. Jan si vybral
+      // "Podle kategorie, jde přepsat" - appka tedy účet dopočítá znovu,
+      // ale RUČNÍ hodnotu nesmí přepsat. Rozlišuje se to takhle:
+      //  - když uživatel poslal Ucet_MD sám, appka na něj nesahá vůbec;
+      //  - jinak přepíše jen tehdy, když je pole prázdné NEBO v něm sedí
+      //    přesně ten účet, který appka sama navrhla pro PŮVODNÍ kombinaci
+      //    (tedy to, co tam dala appka, ne člověk).
+      // Kdyby se to zjednodušilo na "po změně kategorie vždy přepiš",
+      // Jan by po opravě kategorie tiše přišel o účet, který si nastavil
+      // ručně - to je přesně to, co si nepřál. Nezjednodušovat.
+      const menilFirmuNeboKategorii = zmeny
+        && (zmeny.Kategorie !== undefined || zmeny.Firma_potvrzena !== undefined);
+      if (menilFirmuNeboKategorii && (!zmeny || zmeny.Ucet_MD === undefined)) {
+        try {
+          const { rows: predkontace } = await readSheetObjects(
+            sheets, process.env.SPREADSHEET_ID, 'Predkontace'
+          );
+          const puvodniNavrh = navrhniUcetMD(
+            predkontace,
+            doklad.Firma_potvrzena || doklad.Firma_AI_odhad || '',
+            doklad.Kategorie
+          );
+          const soucasny = String(aktualizovany.Ucet_MD || '').trim();
+          if (!soucasny || soucasny === puvodniNavrh) {
+            aktualizovany.Ucet_MD = navrhniUcetMD(
+              predkontace,
+              aktualizovany.Firma_potvrzena || aktualizovany.Firma_AI_odhad || '',
+              aktualizovany.Kategorie
+            );
+          }
+        } catch (e) {
+          // List Predkontace nemusí existovat (Jan po aktualizaci ještě
+          // nepustil /api/setup) - úprava dokladu se kvůli tomu neshodí.
+        }
       }
 
       await updateRow(
