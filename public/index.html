@@ -57,7 +57,8 @@
     <div class="prihlaseni-panel-vpravo">
       <div class="prihlaseni-karta">
         <h2>Přihlášení</h2>
-        <p class="prihlaseni-podnadpis">Zadejte své jméno a PIN.</p>
+        <p class="prihlaseni-podnadpis" id="prihlaseni-podnadpis">Zadejte své jméno a PIN.</p>
+
         <label for="vyber-jmeno">Jméno</label>
         <select id="vyber-jmeno">
           <option value="">Načítám seznam uživatelů…</option>
@@ -124,14 +125,46 @@
          a v obou skinech i v tmavém režimu vypadá stejně. Text "Nahrát
          doklady" se tím vrací zpátky vedle ikony (na plný řádek se v
          pohodě vejde), title/aria-label appka pro jistotu nechává. -->
-    <div class="radek-nahrat-cta">
-      <button data-zalozka="nahrat" class="tlacitko-nahrat-cta" title="Nahrát doklady" aria-label="Nahrát doklady">
+    <!-- (v4.56) Jan: "v tlačítku Nahrát doklady bude zarolována možnost
+         Vyfotit / Nahrát soubor", volba "B - vedle sebe" + "Jen rozbalit".
+         Tlačítko proto UŽ NEMÁ data-zalozka: klepnutí jen vyroluje panel
+         pod ním a nechá člověka tam, kde je (typicky na Dashboardu). Na
+         záložku Nahrát doklad appka přeskočí až po vybrání jedné ze dvou
+         voleb - a protože se to děje uvnitř obsluhy klepnutí, smí appka
+         fotoaparát otevřít rovnou (prohlížeč to povolí jen jako reakci na
+         gesto člověka, viz otevriZeZastupce() v app.js). -->
+    <div class="radek-nahrat-cta" id="radek-nahrat-cta">
+      <button type="button" id="tlacitko-nahrat-cta" class="tlacitko-nahrat-cta"
+              aria-expanded="false" aria-controls="rozbaleni-nahrat"
+              title="Nahrát doklady" aria-label="Nahrát doklady">
         <svg class="ikona-nahrat" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"
              fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 19V5" /><path d="M5 12l7-7 7 7" />
         </svg>
         <span>Nahrát doklady</span>
+        <svg class="ikona-rozbalit" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"
+             fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
       </button>
+      <div class="rozbaleni-nahrat" id="rozbaleni-nahrat">
+        <div class="rozbaleni-nahrat-vnitrek">
+          <button type="button" class="volba-nahrat" id="volba-vyfotit">
+            <span class="volba-nahrat-ikona" aria-hidden="true">📷</span>
+            <span class="volba-nahrat-text">
+              <strong>Vyfotit</strong>
+              <small>Fotoaparát, fotka se sama zmenší a ořízne</small>
+            </span>
+          </button>
+          <button type="button" class="volba-nahrat" id="volba-soubor">
+            <span class="volba-nahrat-ikona" aria-hidden="true">📁</span>
+            <span class="volba-nahrat-text">
+              <strong>Nahrát soubor</strong>
+              <small>Obrázek nebo PDF z telefonu či počítače</small>
+            </span>
+          </button>
+        </div>
+      </div>
     </div>
 
     <nav class="zalozky">
@@ -627,6 +660,29 @@
       <div class="prepinac-sekce" style="margin-top:16px">
         <button type="button" id="sm-sekce-aktivni" class="prepinac-sekce-tlacitko aktivni" data-sekce="aktivni">Aktivní</button>
         <button type="button" id="sm-sekce-neaktivni" class="prepinac-sekce-tlacitko" data-sekce="neaktivni">Neaktivní</button>
+      </div>
+
+      <!-- (v4.54) Filtr a řazení Registru smluv. Hledací pole je schválně
+           první a přes celou šířku - devětkrát z deseti se hledá konkrétní
+           smlouva, ne skupina. Roletky jdou v pořadí od nejhrubšího dělení
+           (Firma) po nejjemnější (Typ), řazení až nakonec, protože se mění
+           nejmíň často. -->
+      <div class="smlouvy-filtr" style="margin-top:12px">
+        <input type="search" id="sm-filtr-hledat" placeholder="Hledat název, protistranu nebo číslo smlouvy…" autocomplete="off">
+        <div class="mriz-filtru">
+          <select id="sm-filtr-firma"><option value="">Všechny firmy</option></select>
+          <select id="sm-filtr-stredisko"><option value="">Všechna střediska</option></select>
+          <select id="sm-filtr-typ"><option value="">Všechny typy</option></select>
+          <select id="sm-filtr-razeni">
+            <option value="">Moje pořadí</option>
+            <option value="castka">Podle částky, nejvyšší nahoře</option>
+            <option value="platnost_do">Podle konce platnosti, nejdřív končící</option>
+            <option value="platnost_od">Podle začátku platnosti, nejstarší nahoře</option>
+            <option value="cislo">Podle čísla smlouvy</option>
+            <option value="nazev">Podle názvu</option>
+          </select>
+        </div>
+        <div id="sm-filtr-stitky" class="filtr-stitky"></div>
       </div>
 
       <div id="smlouvy-nacitani" class="nacitani" style="margin-top:12px">Načítám…</div>

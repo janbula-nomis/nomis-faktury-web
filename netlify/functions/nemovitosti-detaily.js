@@ -1,17 +1,18 @@
 /**
  * netlify/functions/nemovitosti-detaily.js
- * Konsolidovaná správa čtyř malých listů, které appka vždy zobrazuje
+ * Konsolidovaná správa malých listů, které appka vždy zobrazuje
  * pohromadě u jedné Jednotky (od v4.36, modul Nemovitosti - backlog
- * položka 19): Klíče, Měřidla, Měřidla_Odečty, Revize - viz
- * lib/nemovitostiDetailySchema.js. Appka je záměrně NEDĚLÁ jako čtyři
- * samostatné netlify funkce (byly by skoro identické, jen s jiným názvem
- * listu) - jedna funkce je obsluhuje podle parametru `entita`
- * ('klice' | 'meridla' | 'meridla_odecty' | 'revize').
+ * položka 19): Klíče, Měřidla, Měřidla_Odečty, Revize a od v4.53 i
+ * Přístupové kódy - viz lib/nemovitostiDetailySchema.js. Appka je záměrně
+ * NEDĚLÁ jako pět samostatných netlify funkcí (byly by skoro identické,
+ * jen s jiným názvem listu) - jedna funkce je obsluhuje podle parametru
+ * `entita` ('klice' | 'kody' | 'meridla' | 'meridla_odecty' | 'revize').
+ * Přidat další takový seznam = přidat řádek do ENTITY_CONFIG, nic víc.
  *
  * Přístup jen pro role "admin" a "ucetni" (rozhodnuto AskUserQuestion
  * 2026-07-27 - viz claude/nomis-faktury-backlog.md).
  *
- * Klíče/Měřidla/Revize jsou navázané přímo na Stredisko - appka Firmu pro
+ * Klíče/Kódy/Měřidla/Revize jsou navázané přímo na Stredisko - appka Firmu pro
  * kontrolu přístupu odvozuje přes Nemovitosti_Jednotky (Strediska sama o
  * sobě pole Firma nemají, viz lib/strediskaSchema.js). Měřidla_Odečty jsou
  * navázané na konkrétní Měřidlo (Meridlo_ID) - appka Firmu odvozuje o
@@ -22,7 +23,7 @@
  *           (bez stredisko/meridlo_id), nebo jen záznamy jednoho střediska/
  *           měřidla.
  * POST   ?entita=X  { ...pole dané entity } -> založí nový záznam. Appka u
- *           klice/meridla/revize vyžaduje, aby zadané Stredisko mělo
+ *           klice/kody/meridla/revize vyžaduje, aby zadané Stredisko mělo
  *           existující Jednotku (jinak neumí odvodit Firmu/přístup), u
  *           meridla_odecty vyžaduje existující Meridlo_ID.
  * PATCH  ?entita=X  { id, zmeny } -> úprava záznamu.
@@ -33,12 +34,14 @@ const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects, appendRow, updateRow, deleteRow } = require('../../lib/sheetsHelpers');
 const {
   KLICE_HEADERS, MERIDLA_HEADERS, MERIDLA_ODECTY_HEADERS, REVIZE_HEADERS,
+  PRISTUPOVE_KODY_HEADERS,
 } = require('../../lib/nemovitostiDetailySchema');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
 
 const ENTITY_CONFIG = {
   klice: { sheet: 'Klice', headers: KLICE_HEADERS, klicPole: 'Stredisko' },
+  kody: { sheet: 'Pristupove_kody', headers: PRISTUPOVE_KODY_HEADERS, klicPole: 'Stredisko' },
   meridla: { sheet: 'Meridla', headers: MERIDLA_HEADERS, klicPole: 'Stredisko' },
   meridla_odecty: { sheet: 'Meridla_Odecty', headers: MERIDLA_ODECTY_HEADERS, klicPole: 'Meridlo_ID' },
   revize: { sheet: 'Revize', headers: REVIZE_HEADERS, klicPole: 'Stredisko' },
@@ -86,7 +89,7 @@ exports.handler = async (event) => {
   const entita = String(qs.entita || '').trim();
   const konfig = ENTITY_CONFIG[entita];
   if (!konfig) {
-    return json(400, { error: 'Neznámá entita. Očekává se klice, meridla, meridla_odecty nebo revize.' });
+    return json(400, { error: 'Neznámá entita. Očekává se klice, kody, meridla, meridla_odecty nebo revize.' });
   }
 
   const sheets = await getSheetsClient();

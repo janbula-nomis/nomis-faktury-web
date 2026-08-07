@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.52 – 2026-08-03';
+const APP_VERZE = 'v4.56 – 2026-08-07';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -301,6 +301,73 @@ function vynulujCacheAppky() {
   nemovitostiFirmySeznam = [];
 }
 
+/* ---------- ZÁSTUPCE „VYFOTIT DOKLAD“ NA PLOŠE TELEFONU (v4.55) ----------
+ *
+ * Janův dotaz 2026-08-06: *"zjednodušit nahrání dokladu - např z hlavní
+ * obrazovky, bez přihlášení? jde to?"*, volba: *"Ikona na ploše → rovnou
+ * focení"*.
+ *
+ * Jak to funguje: appka se otevře adresou `?akce=doklad` a rovnou naskočí
+ * na záložku Nahrát doklad s nachystaným tlačítkem „Vyfotit“. Na Androidu
+ * to obstará podržení ikony appky (`shortcuts` v manifest.webmanifest),
+ * na iPhonu se ta adresa přidá na plochu jako druhá ikona - postup je
+ * popsaný v README-DEPLOY.md.
+ *
+ * Co appka NEDĚLÁ a proč: sama neotevře fotoaparát. Telefon otevření
+ * fotoaparátu povolí jen jako reakci na klepnutí člověka, ne při načtení
+ * stránky - kdyby to appka zkusila, prohlížeč to potichu zahodí a vypadalo
+ * by to jako porouchaná appka. Ušetří se tedy všechno ostatní (hledání
+ * ikony, přepínání záložek) a zbude přesně jedno klepnutí.
+ *
+ * Přihlášení tím nijak neobchází: když přihlášení mezitím vypršelo, appka
+ * ukáže normální PIN a na Nahrát doklad naskočí hned po něm (zobrazApp()
+ * volá otevriZeZastupce() na konci, ať už se sem člověk dostal přes PIN
+ * nebo s ještě platným přihlášením).
+ */
+function zastupceZadaOFoceni() {
+  try {
+    return new URLSearchParams(window.location.search).get('akce') === 'doklad';
+  } catch (e) {
+    // Starý prohlížeč bez URLSearchParams - zástupce prostě nebude fungovat,
+    // ale appka se kvůli tomu nesmí rozbít.
+    return false;
+  }
+}
+
+let zastupceCeka = zastupceZadaOFoceni();
+
+function otevriZeZastupce() {
+  if (!zastupceCeka) return;
+  // Jen jednou za spuštění. Bez tohohle by se člověk nedostal na jinou
+  // záložku - stačilo by, aby appka z jakéhokoli důvodu zavolala zobrazApp()
+  // podruhé, a přehodila by ho zpátky na focení.
+  zastupceCeka = false;
+
+  // Z adresy se `?akce=doklad` zahodí. Kdyby tam zůstalo, obnovení stránky
+  // (nebo návrat do appky v seznamu otevřených oken) by focení spustilo
+  // znovu, i když už člověk dělá něco jiného.
+  try {
+    window.history.replaceState({}, '', window.location.pathname);
+  } catch (e) {
+    // Když prohlížeč replaceState nedovolí (např. file://), nevadí - pojistka
+    // `zastupceCeka` výš stejně druhé spuštění v rámci téhle stránky ohlídá.
+  }
+
+  prepniZalozku('nahrat');
+  const tlacitko = document.getElementById('tlacitko-vyfotit');
+  if (!tlacitko) return;
+  // Zvýraznění je jediná věc, která tu člověku říká „klepni sem“. Sundá se
+  // samo po prvním klepnutí, ať kolem tlačítka nesvítí kroužek celou dobu,
+  // co se doklad nahrává.
+  tlacitko.classList.add('vyfotit-ceka');
+  tlacitko.addEventListener('click', () => tlacitko.classList.remove('vyfotit-ceka'), { once: true });
+  try {
+    tlacitko.focus({ preventScroll: true });
+  } catch (e) {
+    tlacitko.focus();
+  }
+}
+
 // ---------- PŘEPÍNÁNÍ POHLEDŮ ----------
 
 function zobrazLogin() {
@@ -443,6 +510,10 @@ function zobrazApp() {
   // dotaz odsud by byl jen druhé volání téhož endpointu během jedné vteřiny.
   if (!jeUcetniNeboAdmin) obnovPocitadla();
   spustIdleSledovani();
+  // (v4.55) Zástupce „Vyfotit doklad“ z plochy telefonu. Musí být AŽ TADY,
+  // za výchozí záložkou o pár řádků výš - jinak by ji Dashboard/Přijaté
+  // faktury zase přepnuly zpátky.
+  otevriZeZastupce();
 }
 
 // ---------- AUTOMATICKÉ ODHLÁŠENÍ PO NEAKTIVITĚ (v4.17) ----------
@@ -6607,6 +6678,27 @@ let prilohySeznamAktualni = [];
 let smlouvySekce = 'aktivni';
 let firmyProVyberSmlouvy = [];
 
+// (v4.54) Jan: "není nikde filtr, podle kterého bych řadil data, podle
+// částky, datumu, čísla, středisek apod." Filtr appka drží v PROMĚNNÉ, ne
+// v atributech v DOM - stejný vzor jako `bankaFiltr`/`vfFiltr` (v4.50).
+// Filtr se schválně NEUKLÁDÁ na server ani do prohlížeče: je to pohled na
+// seznam, ne vlastnost dat. Po přenačtení stránky je seznam zase celý, aby
+// se nikdo nedíval na profiltrovaný registr a nemyslel si, že mu chybí
+// smlouvy.
+let smlouvyFiltr = { hledat: '', firma: '', stredisko: '', typ: '' };
+
+// Řazení je taky jen POHLED (Janova volba 2026-08-06: *"Řazení jen dočasně,
+// pořadí se nepřepíše"*). Prázdný řetězec = vlastní ruční pořadí `Poradi`,
+// které si Jan skládá přetahováním. Cokoli jiného seznam jen jinak vykreslí
+// a **do listu Smlouvy se nezapíše nic** - viz `smlouvyLzePretahovat()`.
+// **Nepředělávat na "seřaď a ulož"** - ruční pořadí je Janova práce, kterou
+// by jedno kliknutí na roletku nenávratně smazalo.
+let smlouvyRazeni = '';
+
+// Sbalené skupiny (klíč = název střediska). Appka je drží mezi překreslením
+// seznamu, ať se po uložení jedné smlouvy zase nerozbalí všechno.
+const smlouvySkupinySbalene = new Set();
+
 async function nactiSmlouvy() {
   const nacitani = document.getElementById('smlouvy-nacitani');
   const kontejner = document.getElementById('smlouvy-seznam');
@@ -6674,6 +6766,175 @@ function stavTextSmlouva(s) {
 // dragover na JINÝCH řádcích, ať pozná, kterou smlouvu má přesouvat.
 let smlouvaTazenaId = null;
 
+// (v4.54) Hledání ignoruje diakritiku i velikost písmen - "cez" najde
+// "ČEZ". Stejný princip jako bankaNormalizujNazev, jen tady appka NEcpe
+// všechno na mezery: v čísle smlouvy ("SML-2026-001") jsou pomlčky nosné.
+function smlouvyNormalizuj(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+// Appka hledá jen ve třech polích - Název, Druhá strana a Číslo smlouvy.
+// Schválně NE v poznámce: ta bývá dlouhá a hledání by pak vracelo smlouvy,
+// u kterých není vidět proč se našly.
+function smlouvaOdpovidaHledani(s, hledane) {
+  if (!hledane) return true;
+  const kde = smlouvyNormalizuj([s.Nazev, s.Druha_strana, s.Cislo_smlouvy].filter(Boolean).join(' '));
+  return kde.includes(hledane);
+}
+
+function smlouvyFiltrJeAktivni() {
+  return Boolean(smlouvyFiltr.hledat || smlouvyFiltr.firma || smlouvyFiltr.stredisko || smlouvyFiltr.typ);
+}
+
+// Přetahování appka pustí JEN u nefiltrovaného seznamu ve vlastním pořadí a
+// jen když jsou všechny skupiny rozbalené.
+// Důvod není kosmetický: ulozNovePoradiSmluv() čte pořadí řádků z DOM a
+// přiděluje indexy 0..n - kdyby část smluv byla odfiltrovaná (nebo seřazená
+// podle částky, nebo schovaná ve sbalené skupině), appka by tímhle přepsala
+// Poradi celého registru podle něčeho, co Jan nikdy neskládal.
+// **Tuhle podmínku neoslabovat.**
+function smlouvyLzePretahovat() {
+  return smlouvyRazeni === '' && !smlouvyFiltrJeAktivni() && smlouvySkupinySbalene.size === 0;
+}
+
+// Proč zrovna teď přetahování nejde. Appka to musí umět říct větou, jinak
+// vypnuté táhlo vypadá jako rozbitá appka.
+function smlouvyProcNelzePretahovat() {
+  if (smlouvyRazeni) return 'Řazení je jen dočasný pohled – vaše pořadí zůstává uložené, přetahování je zatím vypnuté.';
+  if (smlouvyFiltrJeAktivni()) return 'Při zapnutém filtru appka přetahování vypíná, aby nepřepsala vaše pořadí.';
+  if (smlouvySkupinySbalene.size > 0) return 'Rozbalte všechny skupiny, ať jde zase přetahovat – ze sbalené skupiny appka nevidí, kam smlouvy patří.';
+  return '';
+}
+
+function smlouvyPorovnejVlastniPoradi(a, b) {
+  // v4.14: appka řadí podle vlastního (přetažením měnitelného) pořadí
+  // Poradi místo dřívějšího abecedního řazení podle Názvu - smlouvy bez
+  // Poradi (mělo by appku dohnat /api/setup, viz setup.js) appka defenzivně
+  // zařadí až za všechny s vyplněným pořadím, ať appka nespadne na NaN.
+  //
+  // (v4.54, oprava) Prázdné pole se muselo odchytit ZVLÁŠŤ: `Number('')` je
+  // nula, ne NaN, takže smlouva bez vyplněného Poradi se dřív protlačila na
+  // úplný začátek seznamu - přesně naopak, než tenhle komentář sliboval.
+  // Projevilo se to až u smluv založených mimo appku (import, ruční řádek
+  // v listu), kde Poradi zůstalo prázdné.
+  const pa = smlouvyCisloNeboNaN(a.Poradi);
+  const pb = smlouvyCisloNeboNaN(b.Poradi);
+  const cislaA = Number.isFinite(pa) ? pa : Number.MAX_SAFE_INTEGER;
+  const cislaB = Number.isFinite(pb) ? pb : Number.MAX_SAFE_INTEGER;
+  if (cislaA !== cislaB) return cislaA - cislaB;
+  return (a.Nazev || '').localeCompare(b.Nazev || '', 'cs');
+}
+
+// Řazení podle částky je záměrně JEN v rámci jedné měny. `Ocekavana_castka`
+// má vedle sebe `Mena` a appka smlouvy v CZK a v EUR nikdy neporovnává
+// jedním číslem - "12000 Kč měsíčně" a "400 € ročně" nejsou srovnatelné
+// údaje a appka si je nedopočítává (stejné pravidlo jako na Dashboardu,
+// kde se na CZK účtu nesmí objevit EUR). Smlouvy s jinou měnou než ta
+// nejčastější proto appka nechá seřazené mezi sebou, až za nimi.
+function smlouvyPorovnejCastku(a, b) {
+  // Stejná past jako u Poradi: `Number('')` je nula, ne NaN. Prázdnou částku
+  // proto appka odchytí zvlášť - jinak by se smlouva bez částky tvářila jako
+  // "0" a při sestupném řazení by předběhla případný záporný údaj.
+  const ca = smlouvyCisloNeboNaN(a.Ocekavana_castka);
+  const cb = smlouvyCisloNeboNaN(b.Ocekavana_castka);
+  const ma = String(a.Mena || 'CZK');
+  const mb = String(b.Mena || 'CZK');
+  if (ma !== mb) return ma.localeCompare(mb);
+  if (!Number.isFinite(ca) && !Number.isFinite(cb)) return 0;
+  if (!Number.isFinite(ca)) return 1;   // bez částky vždycky dolů
+  if (!Number.isFinite(cb)) return -1;
+  return cb - ca;
+}
+
+// Prázdný řetězec NENÍ nula. Appka to potřebuje na dvou místech (Poradi,
+// Ocekavana_castka), tak si to drží na jednom.
+function smlouvyCisloNeboNaN(hodnota) {
+  const text = String(hodnota === undefined || hodnota === null ? '' : hodnota).trim().replace(',', '.');
+  if (text === '') return NaN;
+  return Number(text);
+}
+
+// Prázdné datum patří vždycky na konec, ať se řadí vzestupně nebo ne -
+// smlouva bez konce platnosti není "nejstarší", je to smlouva bez údaje.
+function smlouvyPorovnejDatum(a, b, pole) {
+  const da = String(a[pole] || '');
+  const db = String(b[pole] || '');
+  if (!da && !db) return 0;
+  if (!da) return 1;
+  if (!db) return -1;
+  return da.localeCompare(db);
+}
+
+// Text (číslo smlouvy, název). Dvě věci, které holé `localeCompare` neumí:
+// 1) Prázdná hodnota patří DOLŮ. Prázdný řetězec se jinak řadí jako první
+//    znak abecedy, takže smlouvy bez vyplněného čísla by při "Podle čísla
+//    smlouvy" obsadily celý začátek seznamu.
+// 2) `numeric: true`. Bez toho je "SML-2026-10" PŘED "SML-2026-2", protože
+//    znak "1" je menší než "2". U dvouciferných čísel smluv je to hned vidět.
+function smlouvyPorovnejText(a, b, pole) {
+  const ta = String(a[pole] || '').trim();
+  const tb = String(b[pole] || '').trim();
+  if (!ta && !tb) return 0;
+  if (!ta) return 1;
+  if (!tb) return -1;
+  return ta.localeCompare(tb, 'cs', { numeric: true, sensitivity: 'base' });
+}
+
+function smlouvyPorovnej(a, b) {
+  if (smlouvyRazeni === 'castka') return smlouvyPorovnejCastku(a, b);
+  if (smlouvyRazeni === 'platnost_do') return smlouvyPorovnejDatum(a, b, 'Platnost_do');
+  if (smlouvyRazeni === 'platnost_od') return smlouvyPorovnejDatum(a, b, 'Platnost_od');
+  if (smlouvyRazeni === 'cislo') return smlouvyPorovnejText(a, b, 'Cislo_smlouvy');
+  if (smlouvyRazeni === 'nazev') return smlouvyPorovnejText(a, b, 'Nazev');
+  return smlouvyPorovnejVlastniPoradi(a, b);
+}
+
+const SMLOUVY_BEZ_STREDISKA = '(bez střediska)';
+
+// Janova volba 2026-08-06: *"Podle střediska"*. U jedné nemovitosti chce
+// vidět nájem, elektřinu i leasing pohromadě - středisko je od v4.23
+// jediné pole pro kategorizaci (viz lib/smlouvySchema.js, zrušené
+// Nemovitost_ID). Skupiny appka řadí abecedně, "(bez střediska)" vždy
+// naposled - je to hromádka k dodělání, ne plnohodnotná skupina.
+function seskupSmlouvyPodleStrediska(smlouvy) {
+  const mapa = new Map();
+  smlouvy.forEach((s) => {
+    const klic = String(s.Stredisko || '').trim() || SMLOUVY_BEZ_STREDISKA;
+    if (!mapa.has(klic)) mapa.set(klic, []);
+    mapa.get(klic).push(s);
+  });
+  return Array.from(mapa.entries())
+    .map(([nazev, polozky]) => ({ nazev, polozky: polozky.slice().sort(smlouvyPorovnej) }))
+    .sort((a, b) => {
+      if (a.nazev === SMLOUVY_BEZ_STREDISKA) return 1;
+      if (b.nazev === SMLOUVY_BEZ_STREDISKA) return -1;
+      return a.nazev.localeCompare(b.nazev, 'cs');
+    });
+}
+
+function filtrujSmlouvy(smlouvy) {
+  const hledane = smlouvyNormalizuj(smlouvyFiltr.hledat);
+  return smlouvy.filter((s) => {
+    if (smlouvySekce === 'neaktivni' ? !jeSmlouvaNeaktivni(s) : jeSmlouvaNeaktivni(s)) return false;
+    if (smlouvyFiltr.firma && s.Firma !== smlouvyFiltr.firma) return false;
+    if (smlouvyFiltr.stredisko && (String(s.Stredisko || '').trim() || SMLOUVY_BEZ_STREDISKA) !== smlouvyFiltr.stredisko) return false;
+    if (smlouvyFiltr.typ && s.Typ !== smlouvyFiltr.typ) return false;
+    return smlouvaOdpovidaHledani(s, hledane);
+  });
+}
+
+// Překreslení po sáhnutí na filtr. Appka schválně NEJDE na server: v
+// `smlouvySeznamAktualni` má všechny smlouvy, filtr je jen pohled na ně.
+// Kdyby to volalo `nactiSmlouvy()`, každé písmeno v hledacím poli by
+// znamenalo dotaz do Google Sheets.
+function prekresliSmlouvyPoFiltru() {
+  vykresliSmlouvy(smlouvySeznamAktualni, prilohySeznamAktualni);
+}
+
 function vykresliSmlouvy(smlouvy, prilohy) {
   smlouvySeznamAktualni = smlouvy;
   prilohySeznamAktualni = prilohy;
@@ -6683,30 +6944,117 @@ function vykresliSmlouvy(smlouvy, prilohy) {
   document.getElementById('sm-sekce-aktivni').textContent = 'Aktivní (' + (smlouvy.length - neaktivniPocet) + ')';
   document.getElementById('sm-sekce-neaktivni').textContent = 'Neaktivní (' + neaktivniPocet + ')';
 
-  const filtrovane = smlouvy.filter((s) => (smlouvySekce === 'neaktivni' ? jeSmlouvaNeaktivni(s) : !jeSmlouvaNeaktivni(s)));
-  // v4.14: appka řadí podle vlastního (přetažením měnitelného) pořadí
-  // Poradi místo dřívějšího abecedního řazení podle Názvu - smlouvy bez
-  // Poradi (mělo by appku dohnat /api/setup, viz setup.js) appka defenzivně
-  // zařadí až za všechny s vyplněným pořadím, ať appka nespadne na NaN.
-  const serazene = filtrovane.slice().sort((a, b) => {
-    const pa = Number(a.Poradi);
-    const pb = Number(b.Poradi);
-    const cislaA = Number.isFinite(pa) ? pa : Number.MAX_SAFE_INTEGER;
-    const cislaB = Number.isFinite(pb) ? pb : Number.MAX_SAFE_INTEGER;
-    if (cislaA !== cislaB) return cislaA - cislaB;
-    return (a.Nazev || '').localeCompare(b.Nazev || '', 'cs');
-  });
+  naplnFiltrySmluv(smlouvy);
+  const vSekci = smlouvy.filter((s) => (smlouvySekce === 'neaktivni' ? jeSmlouvaNeaktivni(s) : !jeSmlouvaNeaktivni(s)));
+  const filtrovane = filtrujSmlouvy(smlouvy);
+  vykresliStitkyFiltruSmluv(filtrovane.length, vSekci.length);
 
   kontejner.innerHTML = '';
-  serazene.forEach((s) => {
-    const prilohyTeto = prilohy.filter((p) => p.Smlouva_ID === s.ID);
-    kontejner.appendChild(vytvorRadekSmlouva(s, prilohyTeto));
+  if (filtrovane.length === 0) {
+    kontejner.innerHTML = '<div class="nacitani">' +
+      (smlouvyFiltrJeAktivni()
+        ? 'Žádná smlouva neodpovídá filtru. Zrušte ho odznakem výš.'
+        : (smlouvySekce === 'neaktivni' ? 'Žádné neaktivní smlouvy.' : 'Zatím žádné aktivní smlouvy.')) +
+      '</div>';
+    return;
+  }
+
+  // Skupiny appka vykresluje i když je jediná - jinak by seznam po zapnutí
+  // filtru na jedno středisko ztratil hlavičku a nebylo by poznat, čí
+  // smlouvy to jsou.
+  seskupSmlouvyPodleStrediska(filtrovane).forEach((skupina) => {
+    const sbalena = smlouvySkupinySbalene.has(skupina.nazev);
+
+    const hlavicka = document.createElement('div');
+    hlavicka.className = 'smlouvy-skupina' + (sbalena ? ' sbalena' : '');
+    hlavicka.innerHTML = '<span class="smlouvy-skupina-sipka">▶</span>' +
+      '<span class="smlouvy-skupina-nazev">' + escapeHtml(skupina.nazev) + '</span>' +
+      '<span class="smlouvy-skupina-pocet">' + skupina.polozky.length + '&nbsp;' +
+      tvarPodlePoctu(skupina.polozky.length, ['smlouva', 'smlouvy', 'smluv']) + '</span>';
+    hlavicka.onclick = () => {
+      if (smlouvySkupinySbalene.has(skupina.nazev)) smlouvySkupinySbalene.delete(skupina.nazev);
+      else smlouvySkupinySbalene.add(skupina.nazev);
+      vykresliSmlouvy(smlouvySeznamAktualni, prilohySeznamAktualni);
+    };
+    kontejner.appendChild(hlavicka);
+
+    if (sbalena) return;
+    skupina.polozky.forEach((s) => {
+      const prilohyTeto = prilohy.filter((p) => p.Smlouva_ID === s.ID);
+      kontejner.appendChild(vytvorRadekSmlouva(s, prilohyTeto));
+    });
+  });
+}
+
+// Roletky appka plní z toho, co je ve smlouvách SKUTEČNĚ obsazené (ne z
+// celého číselníku středisek) - nabízet filtr na středisko, ve kterém není
+// ani jedna smlouva, znamená jen prázdný seznam a zmatek. Vybranou hodnotu
+// appka nechá v nabídce i kdyby zmizela, ať filtr nespadne sám od sebe.
+function naplnFiltrySmluv(smlouvy) {
+  const firmy = Array.from(new Set(smlouvy.map((s) => s.Firma).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'cs'));
+  const strediska = Array.from(new Set(smlouvy.map((s) => String(s.Stredisko || '').trim() || SMLOUVY_BEZ_STREDISKA)))
+    .sort((a, b) => {
+      if (a === SMLOUVY_BEZ_STREDISKA) return 1;
+      if (b === SMLOUVY_BEZ_STREDISKA) return -1;
+      return a.localeCompare(b, 'cs');
+    });
+  const typy = Array.from(new Set(smlouvy.map((s) => s.Typ).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'cs'));
+
+  naplnJednuRoletkuFiltru('sm-filtr-firma', 'Všechny firmy', firmy, smlouvyFiltr.firma);
+  naplnJednuRoletkuFiltru('sm-filtr-stredisko', 'Všechna střediska', strediska, smlouvyFiltr.stredisko);
+  naplnJednuRoletkuFiltru('sm-filtr-typ', 'Všechny typy', typy, smlouvyFiltr.typ);
+}
+
+function naplnJednuRoletkuFiltru(id, popisVse, hodnoty, vybrano) {
+  const prvek = document.getElementById(id);
+  if (!prvek) return;
+  const seznam = vybrano && !hodnoty.includes(vybrano) ? hodnoty.concat([vybrano]) : hodnoty;
+  const novy = '<option value="">' + escapeHtml(popisVse) + '</option>' +
+    seznam.map((h) => '<option value="' + escapeAttr(h) + '"' + (h === vybrano ? ' selected' : '') + '>' + escapeHtml(h) + '</option>').join('');
+  if (prvek.innerHTML !== novy) prvek.innerHTML = novy;
+}
+
+// Zapnutý filtr musí být VIDĚT. Bez toho se člověk za měsíc dívá na
+// zkrácený registr a myslí si, že mu appka smlouvy ztratila.
+function vykresliStitkyFiltruSmluv(zobrazeno, celkem) {
+  const kam = document.getElementById('sm-filtr-stitky');
+  if (!kam) return;
+  kam.innerHTML = '';
+
+  const stitky = [];
+  if (smlouvyFiltr.hledat) stitky.push({ klic: 'hledat', text: '„' + smlouvyFiltr.hledat + '“' });
+  if (smlouvyFiltr.firma) stitky.push({ klic: 'firma', text: smlouvyFiltr.firma });
+  if (smlouvyFiltr.stredisko) stitky.push({ klic: 'stredisko', text: smlouvyFiltr.stredisko });
+  if (smlouvyFiltr.typ) stitky.push({ klic: 'typ', text: smlouvyFiltr.typ });
+
+  stitky.forEach((s) => {
+    const stitek = document.createElement('button');
+    stitek.type = 'button';
+    stitek.className = 'filtr-stitek';
+    stitek.innerHTML = escapeHtml(s.text) + '<span aria-hidden="true">×</span>';
+    stitek.title = 'Zrušit tuhle část filtru';
+    stitek.onclick = () => {
+      smlouvyFiltr[s.klic] = '';
+      if (s.klic === 'hledat') document.getElementById('sm-filtr-hledat').value = '';
+      vykresliSmlouvy(smlouvySeznamAktualni, prilohySeznamAktualni);
+    };
+    kam.appendChild(stitek);
   });
 
-  if (serazene.length === 0) {
-    kontejner.innerHTML = '<div class="nacitani">' +
-      (smlouvySekce === 'neaktivni' ? 'Žádné neaktivní smlouvy.' : 'Zatím žádné aktivní smlouvy.') +
-      '</div>';
+  if (stitky.length > 0) {
+    const pocet = document.createElement('span');
+    pocet.className = 'filtr-pocet popis';
+    pocet.textContent = 'Zobrazeno ' + zobrazeno + ' z ' + celkem + '.';
+    kam.appendChild(pocet);
+  }
+
+  // Když appka přetahování vypne, musí říct proč - jinak to vypadá jako
+  // rozbité táhlo.
+  if (!smlouvyLzePretahovat()) {
+    const napoveda = document.createElement('span');
+    napoveda.className = 'filtr-pocet popis';
+    napoveda.textContent = smlouvyProcNelzePretahovat();
+    kam.appendChild(napoveda);
   }
 }
 
@@ -6715,6 +7063,11 @@ function vytvorRadekSmlouva(s, prilohyTeto) {
   const radek = document.createElement('div');
   radek.className = 'smlouva-radek radek-' + stavTridaSmlouva(s);
   radek.dataset.smlouvaId = s.ID;
+  // (v4.54) Do jaké skupiny (střediska) řádek patří. Appka to potřebuje při
+  // přetahování: přes hranici skupiny se táhnout nedá, protože přesun mezi
+  // středisky by znamenal ZMĚNU pole Stredisko, a to appka sama neudělá -
+  // řádek by se při dalším překreslení stejně vrátil zpátky do své skupiny.
+  radek.dataset.skupina = String(s.Stredisko || '').trim() || SMLOUVY_BEZ_STREDISKA;
 
   const hlava = document.createElement('div');
   hlava.className = 'smlouva-radek-hlava';
@@ -6734,9 +7087,15 @@ function vytvorRadekSmlouva(s, prilohyTeto) {
   // na mobilu, viz breakpoints níže).
   const smluvniStrany = [s.Firma, s.Druha_strana].filter(Boolean).join(' / ');
   const platnost = [s.Platnost_od, s.Platnost_do].filter(Boolean).join(' - ');
+  // (v4.54) Když je zapnutý filtr nebo řazení, appka tahadlo VYKRESLÍ, ale
+  // nepřetahovatelné a s vysvětlením v title - schované tahadlo by vypadalo,
+  // že appka o funkci přišla, a řádky by navíc poskočily o pár pixelů.
+  const lzePretahovat = smlouvyLzePretahovat();
   hlava.innerHTML =
     '<span class="smlouva-poradi-sipka">' +
-      '<span class="smlouva-tahadlo" draggable="true" title="Přetáhněte pro změnu pořadí">⠿</span>' +
+      '<span class="smlouva-tahadlo' + (lzePretahovat ? '' : ' vypnute') + '"' +
+        (lzePretahovat ? ' draggable="true"' : '') +
+        ' title="' + escapeAttr(lzePretahovat ? 'Přetáhněte pro změnu pořadí' : smlouvyProcNelzePretahovat()) + '">⠿</span>' +
       '<span class="smlouva-sipka">▶</span>' +
     '</span>' +
     '<span class="cislo-smlouvy">' + escapeHtml(s.Cislo_smlouvy || '') + '</span>' +
@@ -6758,11 +7117,18 @@ function vytvorRadekSmlouva(s, prilohyTeto) {
     }
   });
 
+  radek.appendChild(hlava);
+  radek.appendChild(detail);
+
   // v4.14 - drag & drop přesun pořadí. Appka tažení váže jen na samotné
   // tahadlo (ne na celý řádek), ať se nebije s klikáním na řádek (rozbalení)
   // ani s tlačítky uvnitř rozbaleného detailu.
   const tahadlo = hlava.querySelector('.smlouva-tahadlo');
   tahadlo.addEventListener('click', (e) => e.stopPropagation());
+  // (v4.54) Vypnuté tahadlo appka dál nedrátuje. Bez tohohle `return` by
+  // ulozNovePoradiSmluv() přečetlo profiltrovaný (nebo podle částky seřazený)
+  // DOM a zapsalo ho jako Janovo ruční pořadí.
+  if (!lzePretahovat) return radek;
   tahadlo.addEventListener('dragstart', (e) => {
     smlouvaTazenaId = s.ID;
     radek.classList.add('tazeny');
@@ -6782,6 +7148,8 @@ function vytvorRadekSmlouva(s, prilohyTeto) {
     const kontejner = radek.parentElement;
     const tazenyRadek = kontejner && kontejner.querySelector('.smlouva-radek[data-smlouva-id="' + smlouvaTazenaId + '"]');
     if (!kontejner || !tazenyRadek || tazenyRadek === radek) return;
+    // (v4.54) Přes hranici skupiny ne - viz radek.dataset.skupina výš.
+    if (tazenyRadek.dataset.skupina !== radek.dataset.skupina) return;
     const obdelnik = radek.getBoundingClientRect();
     const zaPolovinou = e.clientY - obdelnik.top > obdelnik.height / 2;
     kontejner.insertBefore(tazenyRadek, zaPolovinou ? radek.nextSibling : radek);
@@ -6791,8 +7159,6 @@ function vytvorRadekSmlouva(s, prilohyTeto) {
     ulozNovePoradiSmluv();
   });
 
-  radek.appendChild(hlava);
-  radek.appendChild(detail);
   return radek;
 }
 
@@ -7403,6 +7769,7 @@ let nemovitostiFirmySeznam = [];
 const MOZNOSTI_KAUCE_STAV = ['Nesjednána', 'Uhrazena - drží se', 'Vráceno celá', 'Vráceno částečně'];
 const MOZNOSTI_TYP_MERIDLA = ['Elektřina', 'Voda', 'Plyn', 'Teplo'];
 const MOZNOSTI_TYP_REVIZE = ['Elektro', 'Plyn', 'Komín', 'Hasicí přístroje', 'Výtah', 'Ostatní'];
+const MOZNOSTI_STAV_KODU = ['Platný', 'Neplatný'];
 
 async function nactiNemovitosti() {
   const nacitani = document.getElementById('nemovitosti-nacitani');
@@ -7632,11 +7999,11 @@ function vytvorKartuJednotky(j) {
   detail.appendChild(sekceSmlouva);
   vykresliSekciSmlouva(sekceSmlouva, j);
 
-  // -- Klíče / Měřidla / Revize (lazy loaded) --
+  // -- Klíče / Přístupové kódy / Měřidla / Revize (lazy loaded) --
   const sekceDetaily = document.createElement('div');
   sekceDetaily.className = 'sekce-jednotky';
   sekceDetaily.id = 'nem-detaily-' + j.ID;
-  sekceDetaily.innerHTML = '<p class="popis">Rozbalte kartu pro načtení klíčů/měřidel/revizí…</p>';
+  sekceDetaily.innerHTML = '<p class="popis">Rozbalte kartu pro načtení klíčů, kódů, měřidel a revizí…</p>';
   detail.appendChild(sekceDetaily);
 
   let detailyNacteny = false;
@@ -7774,8 +8141,13 @@ function vykresliSekciSmlouva(el, j) {
 async function nactiDetailyJednotky(el, j) {
   el.innerHTML = '<div class="nacitani">Načítám…</div>';
   try {
-    const [dataKlice, dataMeridla, dataRevize] = await Promise.all([
+    // Kódy appka načítá s .catch() na prázdno: list Pristupove_kody vzniká
+    // až po novém /api/setup (v4.53) a appka nesmí kvůli němu shodit celý
+    // detail jednotky - do té doby se sekce prostě ukáže prázdná.
+    const [dataKlice, dataKody, dataMeridla, dataRevize] = await Promise.all([
       zavolejApi('/nemovitosti-detaily?entita=klice&stredisko=' + encodeURIComponent(j.Stredisko), { method: 'GET' }),
+      zavolejApi('/nemovitosti-detaily?entita=kody&stredisko=' + encodeURIComponent(j.Stredisko), { method: 'GET' })
+        .catch(() => ({ polozky: [] })),
       zavolejApi('/nemovitosti-detaily?entita=meridla&stredisko=' + encodeURIComponent(j.Stredisko), { method: 'GET' }),
       zavolejApi('/nemovitosti-detaily?entita=revize&stredisko=' + encodeURIComponent(j.Stredisko), { method: 'GET' }),
     ]);
@@ -7791,6 +8163,7 @@ async function nactiDetailyJednotky(el, j) {
 
     el.innerHTML = '';
     vykresliSekciKlice(el, j, dataKlice.polozky || []);
+    vykresliSekciKody(el, j, dataKody.polozky || []);
     vykresliSekciMeridla(el, j, meridla, odecty);
     vykresliSekciRevize(el, j, dataRevize.polozky || []);
   } catch (e) {
@@ -7895,6 +8268,165 @@ function vykresliSekciKlice(el, j, klice) {
     }
   };
   pridatWrap.appendChild(nTyp); pridatWrap.appendChild(nPocet); pridatWrap.appendChild(nDrzitel); pridatWrap.appendChild(btnPridat);
+  wrap.appendChild(pridatWrap);
+
+  el.appendChild(wrap);
+}
+
+// Přístupové kódy k závoře/vratům (od v4.53, zadání Jana 2026-08-05:
+// "k nemovitosti evidovat také přístupové kódy k závoře, může jich být
+// více"). Vlastní sekce hned pod Klíči - proč ne uvnitř Klíčů viz komentář
+// v lib/nemovitostiDetailySchema.js.
+//
+// Kód se zobrazuje ČITELNĚ (Janova volba "Rovnou vidět"), monospace ať se
+// dá spolehlivě přečíst do telefonu. **Nemaskovat.**
+//
+// Neplatné kódy appka nemaže, jen je zeslabí (tr.radek-kod-neplatny) a
+// srovná na konec seznamu (Janova volba "Nechat se stavem Neplatný") - ať
+// je za rok dohledatelné, kdo jaký kód znal. Stav appka NIKDY nepřepíná
+// sama: spočítá, kolik kódů má Platnost_do v minulosti a napíše to, ale
+// přepnutí nechá na člověku (appka navrhne, člověk potvrdí).
+function vykresliSekciKody(el, j, kody) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = '<h4>Přístupové kódy</h4>';
+
+  const dnes = new Date().toISOString().slice(0, 10);
+
+  // Platné nahoru, neplatné dolů; uvnitř skupiny appka drží pořadí z listu.
+  const serazene = kody.slice().sort((a, b) => {
+    const na = a.Stav === 'Neplatný' ? 1 : 0;
+    const nb = b.Stav === 'Neplatný' ? 1 : 0;
+    return na - nb;
+  });
+
+  const tabulka = document.createElement('table');
+  tabulka.className = 'tabulka-kodu';
+  tabulka.innerHTML = '<thead><tr><th></th><th>Název</th><th>Umístění</th><th>Kód</th><th>Platnost od</th>'
+    + '<th>Platnost do</th><th>Předáno komu</th><th>Stav</th><th>Poznámka</th><th>Akce</th></tr></thead>';
+  const telo = document.createElement('tbody');
+
+  serazene.forEach((k) => {
+    const tr = document.createElement('tr');
+    if (k.Stav === 'Neplatný') tr.className = 'radek-kod-neplatny';
+    tr.innerHTML = '<td class="kod-hlava"></td>'
+      + '<td data-label="Název"></td><td data-label="Umístění"></td><td data-label="Kód"></td>'
+      + '<td data-label="Platnost od"></td><td data-label="Platnost do"></td><td data-label="Předáno komu"></td>'
+      + '<td data-label="Stav"></td><td data-label="Poznámka"></td><td data-label="Akce"></td>';
+
+    const vNazev = document.createElement('input'); vNazev.type = 'text'; vNazev.value = k.Nazev || ''; vNazev.style.fontSize = '13px';
+    const vUmisteni = document.createElement('input'); vUmisteni.type = 'text'; vUmisteni.value = k.Umisteni || ''; vUmisteni.style.fontSize = '13px';
+    const vKod = document.createElement('input'); vKod.type = 'text'; vKod.value = k.Kod || '';
+    vKod.style.fontSize = '13px'; vKod.className = 'kod-hodnota';
+    const vOd = document.createElement('input'); vOd.type = 'date'; vOd.value = k.Platnost_od || ''; vOd.style.fontSize = '13px';
+    const vDo = document.createElement('input'); vDo.type = 'date'; vDo.value = k.Platnost_do || ''; vDo.style.fontSize = '13px';
+    const vPredano = document.createElement('input'); vPredano.type = 'text'; vPredano.value = k.Predano_komu || ''; vPredano.style.fontSize = '13px';
+    const vStav = document.createElement('select'); vStav.style.fontSize = '13px';
+    vStav.innerHTML = MOZNOSTI_STAV_KODU.map((s) =>
+      '<option value="' + escapeAttr(s) + '"' + (s === (k.Stav || 'Platný') ? ' selected' : '') + '>' + escapeHtml(s) + '</option>'
+    ).join('');
+    const vPozn = document.createElement('input'); vPozn.type = 'text'; vPozn.value = k.Poznamka || ''; vPozn.style.fontSize = '13px';
+
+    tr.children[1].appendChild(vNazev); tr.children[2].appendChild(vUmisteni); tr.children[3].appendChild(vKod);
+    tr.children[4].appendChild(vOd); tr.children[5].appendChild(vDo); tr.children[6].appendChild(vPredano);
+    tr.children[7].appendChild(vStav); tr.children[8].appendChild(vPozn);
+
+    const poPlatnosti = k.Stav !== 'Neplatný' && k.Platnost_do && k.Platnost_do < dnes;
+
+    // Appka u platného kódu s prošlou platností napíše rovnou k řádku, že
+    // je po datu - ale stav nepřepne, to je na člověku.
+    if (poPlatnosti) {
+      const znacka = document.createElement('div');
+      znacka.className = 'kod-po-platnosti';
+      znacka.textContent = 'po platnosti';
+      tr.children[5].appendChild(znacka);
+    }
+
+    // Sbalená hlavička řádku - appka ji ukazuje JEN na mobilu (Janova volba
+    // 2026-08-05 *"Na mobilu zabalit do řádku"*). Osm políček pod sebou je
+    // na 320 px dlouhé rolování a hlavní důvod, proč se sem Jan dívá, je
+    // přečíst kód do telefonu - proto je v hlavičce Název a Kód, zbytek se
+    // rozklikne. Na desktopu je hlavička skrytá a tabulka zůstává tabulkou
+    // (viz .tabulka-kodu v style.css). **Neukazovat hlavičku na desktopu** -
+    // duplikovala by první sloupec.
+    const hlava = tr.children[0];
+    hlava.innerHTML = '<span class="kod-sipka">›</span>';
+    const popisek = document.createElement('span');
+    popisek.className = 'kod-hlava-text';
+    // Umístění musí být v hlavičce taky: u jedné nemovitosti bývá závor víc
+    // a "Závora" vs. "Závora" sám o sobě je nerozliší (proto ten sloupec
+    // vůbec existuje, viz lib/nemovitostiDetailySchema.js).
+    popisek.innerHTML = '<strong>' + escapeHtml(k.Nazev || '(bez názvu)') + '</strong>'
+      + (k.Umisteni ? '<span class="kod-hlava-umisteni">' + escapeHtml(k.Umisteni) + '</span>' : '')
+      + '<span class="kod-hlava-kod">' + escapeHtml(k.Kod || '') + '</span>';
+    hlava.appendChild(popisek);
+    if (k.Stav === 'Neplatný') {
+      const chip = document.createElement('span');
+      chip.className = 'stav-chip stav-neaktivni';
+      chip.textContent = 'Neplatný';
+      hlava.appendChild(chip);
+    } else if (poPlatnosti) {
+      const chip = document.createElement('span');
+      chip.className = 'stav-chip stav-ke-kontrole';
+      chip.textContent = 'po platnosti';
+      hlava.appendChild(chip);
+    }
+    hlava.onclick = () => tr.classList.toggle('rozbaleno');
+
+    const btnU = document.createElement('button'); btnU.className = 'maly sekundarni'; btnU.textContent = 'Uložit';
+    btnU.onclick = () => ulozDetailPolozku('kody', k.ID, {
+      Nazev: vNazev.value.trim(), Umisteni: vUmisteni.value.trim(), Kod: vKod.value.trim(),
+      Platnost_od: vOd.value, Platnost_do: vDo.value, Predano_komu: vPredano.value.trim(),
+      Stav: vStav.value, Poznamka: vPozn.value.trim(),
+    }, btnU, j);
+    const btnS = document.createElement('button'); btnS.className = 'maly sekundarni akce-smazat'; btnS.style.marginLeft = '6px'; btnS.textContent = 'Smazat';
+    btnS.onclick = () => smazDetailPolozku('kody', k.ID, j, btnS);
+    tr.children[9].appendChild(btnU); tr.children[9].appendChild(btnS);
+
+    telo.appendChild(tr);
+  });
+  if (serazene.length === 0) telo.innerHTML = '<tr><td colspan="10" class="nacitani">Zatím žádné přístupové kódy.</td></tr>';
+  tabulka.appendChild(telo);
+  wrap.appendChild(tabulka);
+
+  const prosle = serazene.filter((k) => k.Stav !== 'Neplatný' && k.Platnost_do && k.Platnost_do < dnes);
+  if (prosle.length > 0) {
+    const varovani = document.createElement('div');
+    varovani.className = 'zprava varovani';
+    varovani.style.marginTop = '6px';
+    varovani.textContent = 'Appka eviduje ' + prosle.length + ' kód/kódy s prošlou platností, ale pořád ve stavu „Platný“. '
+      + 'Stav appka sama nepřepne – přepněte ho na „Neplatný“, až kód opravdu přestane fungovat.';
+    wrap.appendChild(varovani);
+  }
+
+  const pridatWrap = document.createElement('div');
+  pridatWrap.style.marginTop = '8px';
+  const nNazev = document.createElement('input'); nNazev.type = 'text'; nNazev.placeholder = 'Název (Závora, Vrata garáž…)'; nNazev.style.fontSize = '13px';
+  const nUmisteni = document.createElement('input'); nUmisteni.type = 'text'; nUmisteni.placeholder = 'Umístění (hlavní vjezd…)'; nUmisteni.style.fontSize = '13px';
+  const nKod = document.createElement('input'); nKod.type = 'text'; nKod.placeholder = 'Kód'; nKod.style.fontSize = '13px'; nKod.className = 'kod-hodnota';
+  const nDo = document.createElement('input'); nDo.type = 'date'; nDo.style.fontSize = '13px';
+  const btnPridat = document.createElement('button');
+  btnPridat.className = 'maly sekundarni';
+  btnPridat.textContent = 'Přidat kód';
+  btnPridat.onclick = async () => {
+    if (!nNazev.value.trim()) { alert('Zadejte název – co ten kód otevírá.'); return; }
+    if (!nKod.value.trim()) { alert('Zadejte kód.'); return; }
+    btnPridat.disabled = true;
+    try {
+      await zavolejApi('/nemovitosti-detaily?entita=kody', {
+        method: 'POST',
+        body: JSON.stringify({
+          Stredisko: j.Stredisko, Nazev: nNazev.value.trim(), Umisteni: nUmisteni.value.trim(),
+          Kod: nKod.value.trim(), Platnost_od: dnes, Platnost_do: nDo.value, Stav: 'Platný',
+        }),
+      });
+      await obnovDetailySekce(j);
+    } catch (e) {
+      alert('Nepodařilo se přidat kód: ' + e.message);
+      btnPridat.disabled = false;
+    }
+  };
+  pridatWrap.appendChild(nNazev); pridatWrap.appendChild(nUmisteni); pridatWrap.appendChild(nKod);
+  pridatWrap.appendChild(nDo); pridatWrap.appendChild(btnPridat);
   wrap.appendChild(pridatWrap);
 
   el.appendChild(wrap);
@@ -9131,6 +9663,71 @@ document.getElementById('tlacitko-odhlasit').addEventListener('click', odhlasit)
 document.getElementById('tlacitko-zustat-prihlasen').addEventListener('click', idleResetovatCasovac);
 document.getElementById('tlacitko-vyfotit').addEventListener('click', () => document.getElementById('pole-foto').click());
 document.getElementById('tlacitko-vybrat-soubor').addEventListener('click', () => document.getElementById('pole-soubor').click());
+
+/* ---------- ROZBALOVACÍ „NAHRÁT DOKLADY“ (v4.56) ----------
+ *
+ * Jan (2026-08-07): *"v tlačítku Nahrát doklady bude zarolována možnost
+ * Vyfotit / Nahrát soubor"*. Z náhledů si vybral variantu „B - vedle sebe“
+ * a chování „Jen rozbalit“.
+ *
+ * Tlačítko proto v index.html už NEMÁ `data-zalozka` - obsluha dole u
+ * `[data-zalozka]` se ho tedy netýká a klepnutí jen vyroluje panel.
+ *
+ * Proč se fotoaparát smí otevřít až odsud: prohlížeč ho pustí jen jako
+ * reakci na klepnutí člověka. Tady klepnutí JE (člověk klepl na „Vyfotit“),
+ * takže `pole-foto.click()` projde. Zástupce z plochy (v4.55) to udělat
+ * nemůže, protože tam appka žádné gesto k dispozici nemá - proto tam jen
+ * zvýrazňuje tlačítko.
+ */
+function nastavRozbaleniNahrat(otevrit) {
+  const radek = document.getElementById('radek-nahrat-cta');
+  const tlacitko = document.getElementById('tlacitko-nahrat-cta');
+  if (!radek || !tlacitko) return;
+  radek.classList.toggle('rozbaleno', otevrit);
+  tlacitko.setAttribute('aria-expanded', otevrit ? 'true' : 'false');
+}
+
+function prepniRozbaleniNahrat() {
+  const radek = document.getElementById('radek-nahrat-cta');
+  if (!radek) return;
+  nastavRozbaleniNahrat(!radek.classList.contains('rozbaleno'));
+}
+
+// Společné pro obě volby: panel se zaroluje, appka přeskočí na záložku
+// Nahrát doklad a otevře fotoaparát / výběr souboru. Pořadí je důležité -
+// `prepniZalozku` musí být PŘED `.click()`, jinak by se soubor vybíral do
+// záložky, kterou člověk nevidí, a vypadalo by to, že se nic nestalo.
+function spustNahraniZRozbaleni(idPole) {
+  nastavRozbaleniNahrat(false);
+  prepniZalozku('nahrat');
+  const pole = document.getElementById(idPole);
+  if (pole) pole.click();
+}
+
+document.getElementById('tlacitko-nahrat-cta').addEventListener('click', prepniRozbaleniNahrat);
+document.getElementById('volba-vyfotit').addEventListener('click', () => spustNahraniZRozbaleni('pole-foto'));
+document.getElementById('volba-soubor').addEventListener('click', () => spustNahraniZRozbaleni('pole-soubor'));
+
+// Klepnutí mimo panel ho zaroluje. Bez tohohle by rozbalený panel zůstal
+// viset přes celou práci s Dashboardem, dokud by si člověk nevzpomněl
+// klepnout zpátky na „Nahrát doklady“.
+document.addEventListener('click', (e) => {
+  const radek = document.getElementById('radek-nahrat-cta');
+  if (!radek || !radek.classList.contains('rozbaleno')) return;
+  if (radek.contains(e.target)) return;
+  nastavRozbaleniNahrat(false);
+});
+
+// Escape zavírá panel a vrací pozornost na tlačítko, ať se klávesnicí dá
+// z rozbalené nabídky dostat ven bez myši.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const radek = document.getElementById('radek-nahrat-cta');
+  if (!radek || !radek.classList.contains('rozbaleno')) return;
+  nastavRozbaleniNahrat(false);
+  const tlacitko = document.getElementById('tlacitko-nahrat-cta');
+  if (tlacitko) tlacitko.focus();
+});
 document.getElementById('pole-foto').addEventListener('change', (e) => zpracujVybranySoubor(e.target.files[0]));
 document.getElementById('pole-soubor').addEventListener('change', (e) => zpracujVybranySoubor(e.target.files[0]));
 document.getElementById('tlacitko-nahrat').addEventListener('click', nahratDoklad);
@@ -9154,6 +9751,31 @@ document.getElementById('sm-pole-soubor').addEventListener('change', (e) => zpra
 document.getElementById('sm-tlacitko-nahrat').addEventListener('click', nahratSmlouvu);
 document.getElementById('sm-sekce-aktivni').addEventListener('click', () => prepniSmlouvySekci('aktivni'));
 document.getElementById('sm-sekce-neaktivni').addEventListener('click', () => prepniSmlouvySekci('neaktivni'));
+// (v4.54) Filtr a řazení Registru smluv. Všech pět ovladačů jen zapíše do
+// proměnné a nechá seznam překreslit - žádný požadavek na server, protože
+// appka má v `smlouvySeznamAktualni` už všechny smlouvy pohromadě.
+// Hledání jede na `input` (výsledek se mění pod rukama, ať Jan nemusí mačkat
+// Enter), roletky na `change`.
+document.getElementById('sm-filtr-hledat').addEventListener('input', (e) => {
+  smlouvyFiltr.hledat = e.target.value;
+  prekresliSmlouvyPoFiltru();
+});
+document.getElementById('sm-filtr-firma').addEventListener('change', (e) => {
+  smlouvyFiltr.firma = e.target.value;
+  prekresliSmlouvyPoFiltru();
+});
+document.getElementById('sm-filtr-stredisko').addEventListener('change', (e) => {
+  smlouvyFiltr.stredisko = e.target.value;
+  prekresliSmlouvyPoFiltru();
+});
+document.getElementById('sm-filtr-typ').addEventListener('change', (e) => {
+  smlouvyFiltr.typ = e.target.value;
+  prekresliSmlouvyPoFiltru();
+});
+document.getElementById('sm-filtr-razeni').addEventListener('change', (e) => {
+  smlouvyRazeni = e.target.value;
+  prekresliSmlouvyPoFiltru();
+});
 document.getElementById('tlacitko-pridat-jizdu').addEventListener('click', pridatJizdu);
 document.getElementById('tlacitko-pridat-jednotku').addEventListener('click', pridatJednotku);
 document.getElementById('tlacitko-nem-platby-nacist').addEventListener('click', nactiKontrolaUhradyNajmu);

@@ -43,6 +43,7 @@ const { VYDANE_FAKTURY_POLOZKY_HEADERS } = require('../../lib/vydaneFakturyPoloz
 const { NEMOVITOSTI_JEDNOTKY_HEADERS } = require('../../lib/nemovitostiJednotkySchema');
 const {
   KLICE_HEADERS, MERIDLA_HEADERS, MERIDLA_ODECTY_HEADERS, REVIZE_HEADERS,
+  PRISTUPOVE_KODY_HEADERS,
 } = require('../../lib/nemovitostiDetailySchema');
 const { NEMOVITOSTI_VYUCTOVANI_HEADERS } = require('../../lib/nemovitostiVyuctovaniSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
@@ -174,6 +175,15 @@ const LISTY = [
     // Klíče (key control) - viz lib/nemovitostiDetailySchema.js.
     nazev: 'Klice',
     hlavicky: KLICE_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Přístupové kódy k závoře/vratům (od v4.53) - vlastní list vedle
+    // Klíčů, ne další typ klíče: klíč je kus železa (počet kusů, jeden
+    // držitel), kód je informace (zná ho víc lidí, platí od-do).
+    // Viz lib/nemovitostiDetailySchema.js.
+    nazev: 'Pristupove_kody',
+    hlavicky: PRISTUPOVE_KODY_HEADERS,
     ukazka: [],
   },
   {

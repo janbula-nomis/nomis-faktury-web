@@ -268,6 +268,79 @@ nav.zalozky button .pocitadlo {
 .tlacitko-nahrat-cta:hover,
 .tlacitko-nahrat-cta.aktivni { background: #b32a23; border-color: #b32a23; }
 
+/* ---------- ROZBALOVACÍ „NAHRÁT DOKLADY“ (v4.56) ----------
+   Jan (2026-08-07): *"v tlačítku Nahrát doklady bude zarolována možnost
+   Vyfotit / Nahrát soubor"*, z náhledů si vybral variantu „B - vedle sebe“
+   a chování „Jen rozbalit“.
+
+   Proč vůbec: doklad se do teď nahrával tak, že člověk klepl na „Nahrát
+   doklady“, appka ho přehodila na jinou záložku a TEPRVE tam si vybral mezi
+   fotoaparátem a souborem. Dvě klepnutí a mezitím se pod rukama vymění celá
+   obrazovka. Teď se volba vyroluje rovnou pod tlačítkem, člověk zůstane na
+   Dashboardu a na záložku Nahrát doklad appka skočí až s vybranou volbou.
+
+   Panel je součástí toku stránky (ne `position: absolute`), takže obsah pod
+   ním odsune a nic nepřekryje - na telefonu by plovoucí panel překryl první
+   kartu Dashboardu a vypadalo by to jako rozbitá appka.
+
+   `max-height` místo `height: auto`: na `auto` se přechod animovat nedá.
+   Hodnota je schválně větší, než panel kdy potřebuje - kdyby byla těsná,
+   delší text volby by se na úzkém displeji uřízl. */
+.radek-nahrat-cta { position: relative; }
+/* Šipka dolů/nahoru vpravo. `margin-left: auto` ji odtlačí k pravému okraji,
+   takže popisek zůstane opticky uprostřed tlačítka jako dosud. */
+.tlacitko-nahrat-cta .ikona-rozbalit {
+  flex: none;
+  margin-left: auto;
+  transition: transform 0.18s ease;
+}
+.radek-nahrat-cta.rozbaleno .tlacitko-nahrat-cta .ikona-rozbalit { transform: rotate(180deg); }
+/* Rozbalené tlačítko má dole hranaté rohy, ať vypadá srostlé s panelem pod
+   sebou - jinak by mezi nimi prosvítal proužek pozadí. */
+.radek-nahrat-cta.rozbaleno .tlacitko-nahrat-cta {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.rozbaleni-nahrat {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.22s ease;
+}
+.radek-nahrat-cta.rozbaleno .rozbaleni-nahrat { max-height: 260px; }
+.rozbaleni-nahrat-vnitrek {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  background: var(--barva-karta);
+  border: 1px solid var(--barva-hranice);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+/* Varianta B: dvě dlaždice vedle sebe, ikona nad názvem. `flex: 1 1 0`
+   (ne `1 1 auto`) je tu schválně - obě dlaždice tak mají stejnou šířku bez
+   ohledu na to, že „Nahrát soubor“ je delší slovo než „Vyfotit“. */
+.volba-nahrat {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 12px 8px;
+  text-align: center;
+  background: transparent;
+  color: var(--barva-text);
+  border: 1px solid var(--barva-hranice);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.volba-nahrat:hover { background: var(--barva-pozadi); }
+.volba-nahrat-ikona { font-size: 20px; line-height: 1; flex: none; }
+.volba-nahrat-text { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.volba-nahrat-text strong { font-size: 13.5px; font-weight: 700; }
+.volba-nahrat-text small { font-size: 11.5px; font-weight: 400; color: var(--barva-text-tlumena); line-height: 1.35; }
+
 /* Hlavička appky. Do v4.40 appka do `.uzivatel` naskládala čtyři prvky vedle
    sebe (výběr skinu, den/noc, jméno, Odhlásit) a samotnému `#jmeno-uzivatele`
    nedávala ŽÁDNÉ vlastní pravidlo. Jako flex položka uvnitř flex položky se
@@ -539,6 +612,69 @@ nav.zalozky button .pocitadlo {
    nad tabulkou). Doklady těchhle kombinací zůstanou bez účtu, appka žádný
    náhradní nedosazuje (Janova volba *"Nechat prázdné a upozornit"*). */
 tr.radek-bez-uctu { background: #fffaf0; }
+
+/* (v4.53) Přístupové kódy k závoře - viz vykresliSekciKody v app.js.
+   Neplatný kód se NEMAŽE (Janova volba "Nechat se stavem Neplatný"), jen
+   zeslábne a spadne na konec seznamu - řádek musí zůstat čitelný, ne
+   zmizet, ať je za rok dohledatelné, kdo jaký kód znal. Proto tlumené
+   šedé podbarvení a ne display:none. */
+tr.radek-kod-neplatny { background: #f4f5f7; }
+tr.radek-kod-neplatny input,
+tr.radek-kod-neplatny select { color: var(--barva-text-tlumena); }
+
+/* Hodnota kódu - monospace se stejně širokými číslicemi. Kód se čte nahlas
+   do telefonu, tak ať se v něm nedá splést 0/O a 1/l. Kód se schválně
+   NEMASKUJE (Janova volba "Rovnou vidět") - **nepřidávat sem žádné
+   skrývání**, to pravidlo patří platebním kartám, ne tomuhle. */
+.kod-hodnota { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.5px; }
+
+/* Poznámka "po platnosti" pod datem - appka jen upozorní, stav nepřepne. */
+.kod-po-platnosti { font-size: 10.5px; font-weight: 600; color: var(--barva-varovani); margin-top: 2px; }
+
+/* Sbalená hlavička řádku kódu. Na desktopu je SKRYTÁ - tam je tabulka
+   pořád tabulka a hlavička by jen duplikovala první sloupec. Ukáže se až
+   v mobilním @media bloku (Janova volba 2026-08-05 *"Na mobilu zabalit do
+   řádku"*), viz .tabulka-kodu níž. */
+.tabulka-kodu td.kod-hlava, .tabulka-kodu thead th:first-child { display: none; }
+
+/* Devět sloupců je na tabulku hodně a dvě pole s datem si berou pevnou
+   šířku, takže bez tohohle se textová pole (včetně samotného KÓDU) usekla
+   po třech znacích a roletka Stavu neukázala ani slovo "Platný".
+
+   Appka zůstává u automatického rozvržení (table-layout: auto) - pevné
+   rozvržení tady nefunguje, protože nativní <input type="date"> se pod svoji
+   vlastní šířku nesmrskne a přetekl by do vedlejšího sloupce. Místo toho
+   appka zmenší vycpávku políček, PŘIZNÁ datům a roletce pevnou šířku,
+   textovým sloupcům dá spodní hranici a zbytek nechá prohlížeči.
+
+   Rozpočet je tvrdý: `#app` má max-width 900px, takže na tabulku zbývá
+   834px a devět sloupců se do nich musí vejít BEZ vodorovného posuvníku.
+   Proto menší písmo v polích, užší datumy a tlačítka Uložit/Smazat pod
+   sebou - jinak Poznámka i celý sloupec Akce vypadnou za pravý okraj.
+
+   Scopováno na .tabulka-kodu schválně: ostatní seznamy u Jednotky mají
+   sloupců míň a vejdou se i bez toho. Čísla sloupců počítají i skrytou
+   hlavičku kod-hlava (display:none z ní sloupec neubere), takže
+   nth-child(4) je opravdu Kód. */
+.tabulka-kodu td, .tabulka-kodu th { padding: 6px 4px; }
+.tabulka-kodu td input, .tabulka-kodu td select { padding: 5px 5px; font-size: 12px; }
+/* Datum musí být vidět CELÉ včetně roku - useknuté "01/01/20" je horší než
+   useknutá poznámka. Ikonka kalendáře se proto zmáčkne na minimum (zůstává
+   klikatelná, jen nebere 20px), ne schová. */
+.tabulka-kodu td input[type="date"] { width: 106px; font-size: 11px; padding: 5px 2px; }
+.tabulka-kodu td input[type="date"]::-webkit-calendar-picker-indicator { margin: 0; padding: 0; }
+/* Název, Umístění, Předáno komu, Poznámka - ať je vidět víc než dvě písmena. */
+.tabulka-kodu td:nth-child(2),
+.tabulka-kodu td:nth-child(3),
+.tabulka-kodu td:nth-child(7),
+.tabulka-kodu td:nth-child(9) { min-width: 89px; }
+.tabulka-kodu td:nth-child(4) { min-width: 82px; }   /* Kód se nesmí useknout */
+.tabulka-kodu td:nth-child(8) { min-width: 90px; }   /* ať je čitelné "Neplatný" */
+/* Akce: Uložit a Smazat pod sebou. Vedle sebe si berou 133px, což je přesně
+   to, co na pravé straně chybělo. */
+.tabulka-kodu td:last-child { width: 1px; white-space: nowrap; }
+.tabulka-kodu td:last-child button { display: block; width: 100%; margin: 0 0 4px; font-size: 11px; padding: 4px 8px; }
+.tabulka-kodu td:last-child button:last-child { margin-bottom: 0; }
 
 /* Stav karty "Aktivní" - protějšek .badge-chybi ("Doplnit"), stejný tvar
    jako ostatní odznaky v appce. */
@@ -846,6 +982,62 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
   padding: 2px;
 }
 .smlouva-tahadlo:active { cursor: grabbing; }
+/* (v4.54) Vypnuté tahadlo appka nechá VIDĚT (jen zesvětlené a bez kurzoru
+   "chytit"), ne schová - kdyby zmizelo, řádek by poskočil a vypadalo by to,
+   že appka o přetahování přišla. Proč zrovna teď nejde, řekne title a věta
+   pod filtrem. */
+.smlouva-tahadlo.vypnute { cursor: default; opacity: 0.3; }
+
+/* (v4.54) Filtr a řazení Registru smluv --------------------------------- */
+/* Spodní mezera drží filtr oddělený od hlavičky sloupců (ČÍSLO / NÁZEV /
+   ...) - bez ní se roletky a popisky sloupců slily do jednoho bloku. */
+.smlouvy-filtr { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+/* Hledací pole je přes celou šířku a nad roletkami - devětkrát z deseti se
+   hledá konkrétní smlouva, ne skupina. */
+.smlouvy-filtr input[type="search"] { width: 100%; margin: 0; }
+.smlouvy-filtr select { margin: 0; }
+/* Odznaky zapnutého filtru. Musí být VIDĚT, jinak se člověk za měsíc dívá
+   na zkrácený registr a myslí si, že mu appka smlouvy ztratila. */
+.filtr-stitky { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.filtr-stitky:empty { display: none; }
+.filtr-stitek {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  border: 1px solid var(--barva-primarni);
+  border-radius: 999px;
+  background: rgba(60, 90, 200, 0.10);
+  color: var(--barva-text);
+}
+.filtr-stitek span { font-size: 14px; line-height: 1; color: var(--barva-text-tlumena); }
+.filtr-stitek:hover span { color: var(--barva-chyba); }
+/* "Zobrazeno 7 z 41." a vysvětlení vypnutého přetahování - běžný text, ne
+   odznak, ať se to nepere o pozornost se samotným filtrem. */
+.filtr-pocet { font-size: 12px; }
+
+/* Skupiny podle střediska (Janova volba 2026-08-06: "U každé nemovitosti
+   vidíš nájem, elektřinu i leasing pohromadě. Skupiny se dají sbalit."). */
+.smlouvy-skupina {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 4px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(127, 127, 127, 0.10);
+  border-left: 3px solid var(--barva-primarni);
+  cursor: pointer;
+  user-select: none;
+}
+.smlouvy-skupina:first-child { margin-top: 4px; }
+.smlouvy-skupina:hover { filter: brightness(0.97); }
+.smlouvy-skupina-sipka { display: inline-block; transition: transform 0.15s; transform: rotate(90deg); font-size: 11px; color: var(--barva-text-tlumena); }
+.smlouvy-skupina.sbalena .smlouvy-skupina-sipka { transform: rotate(0deg); }
+.smlouvy-skupina-nazev { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smlouvy-skupina-pocet { margin-left: auto; font-size: 12px; color: var(--barva-text-tlumena); white-space: nowrap; }
 /* Appka řádek zrovna taženy vizuálně ztlumí, ať je jasné, který řádek se
    přesouvá (stejný princip jako appka jinde značí "aktivní"/"vybraný" stav). */
 .smlouva-radek.tazeny { opacity: 0.4; }
@@ -1133,6 +1325,16 @@ input[type="file"] { margin-top: 8px; }
   }
   .smlouva-radek-hlava > span:nth-child(6), .smlouva-radek-hlavicka > span:nth-child(6) { display: none; }
 
+  /* (v4.54) Filtr smluv na mobilu. Roletky appka dá pod sebe do dvou sloupců
+     (`.mriz-filtru` výš už to umí), jen jim vrátí svislou mezeru - v původní
+     mřížce je `gap: 0 12px`, což při zalomení na dva řádky slepí roletky k
+     sobě. Písmo 16px, jinak iOS při kliknutí do pole zoomne celou stránku. */
+  .smlouvy-filtr .mriz-filtru { gap: 8px; }
+  .smlouvy-filtr input[type="search"], .smlouvy-filtr select { font-size: 16px; }
+  /* Hlavička skupiny je na mobilu dotykový cíl (rozbaluje/sbaluje), proto
+     vyšší než na desktopu. */
+  .smlouvy-skupina { min-height: 38px; margin-top: 12px; }
+
   /* (v4.35) VF má teď 7 sloupců (přibylo evidenční číslo) - appka na
      mobilu schovává Firmu (nth-child(6), dřív to bylo nth-child(5) u
      starší 6sloupcové mřížky). */
@@ -1178,6 +1380,40 @@ input[type="file"] { margin-top: 8px; }
      odsunulo celý řádek k pravému okraji, appka ho tam proto nechává vlevo
      jako zbytek stránky. */
   td.cislo { text-align: left; }
+
+  /* (v4.53) Přístupové kódy na mobilu - Janova volba *"Na mobilu zabalit do
+     řádku"*. Osm políček pod sebou je na 320 px dlouhé rolování a hlavní
+     důvod, proč se sem člověk dívá, je PŘEČÍST kód do telefonu. Sbalený
+     řádek proto ukazuje Název + Kód (+ odznak, když něco není v pořádku) a
+     zbytek se rozklikne. Je to jediný z pěti seznamů u Jednotky, který se
+     takhle chová - schválně, ostatní se nečtou nahlas.
+     **Nezapínat to na desktopu** - tam je tabulka přehledná celá. */
+  .tabulka-kodu td.kod-hlava { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; padding: 4px 0; }
+  .tabulka-kodu td.kod-hlava::before { content: none; }
+  .tabulka-kodu tr:not(.rozbaleno) td:not(.kod-hlava) { display: none; }
+  .kod-sipka { display: inline-block; transition: transform 0.15s; color: var(--barva-text-tlumena); font-size: 17px; line-height: 1.2; }
+  .rozbaleno .kod-sipka { transform: rotate(90deg); }
+  .kod-hlava-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .kod-hlava-umisteni { font-size: 11.5px; color: var(--barva-text-tlumena); }
+  .kod-hlava-kod { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.5px; font-size: 15px; margin-top: 1px; }
+  /* Odznak nesmí ukrojit místo kódu, když je název dlouhý. */
+  .tabulka-kodu td.kod-hlava .stav-chip { flex: none; align-self: center; }
+
+  /* Zpátky vzít desktopové stlačení sloupců. Na mobilu je z buňky blok přes
+     celou šířku, takže `width: 1px` + `width: 100%` na tlačítkách (což je na
+     desktopu jediný způsob, jak se Uložit a Smazat vejdou vedle Poznámky) by
+     tady vyrobilo dvě jednopixelová tlačítka s přetékajícím textem. */
+  .tabulka-kodu td, .tabulka-kodu th { padding: 4px 0; }
+  .tabulka-kodu td:last-child { width: auto; white-space: normal; }
+  .tabulka-kodu td:last-child button { display: inline-block; width: auto; margin: 0 6px 0 0; font-size: 12.5px; padding: 7px 12px; }
+  .tabulka-kodu td input, .tabulka-kodu td select { font-size: 16px; padding: 8px 10px; }
+  .tabulka-kodu td input[type="date"] { width: auto; font-size: 16px; padding: 8px 10px; }
+  .tabulka-kodu td:nth-child(2),
+  .tabulka-kodu td:nth-child(3),
+  .tabulka-kodu td:nth-child(4),
+  .tabulka-kodu td:nth-child(7),
+  .tabulka-kodu td:nth-child(8),
+  .tabulka-kodu td:nth-child(9) { min-width: 0; }
 
   /* Na opravdu úzkém mobilu appka schová i předposlední sloupec skládaných
      řádků (Částka/Ujeté km), ať zbydou jen 4 nejdůležitější pole vedle
@@ -1599,6 +1835,10 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .badge-bezdokladu,
 :root[data-motiv="tmavy"] .stav-neaktivni,
 :root[data-motiv="tmavy"] .smlouva-radek.radek-stav-neaktivni,
+/* (v4.53) Neplatný přístupový kód - ve světlém motivu má světle šedé
+   podbarvení, které by v tmavém svítilo. Stejné pozadí jako ostatní
+   "už neplatí" stavy. */
+:root[data-motiv="tmavy"] tr.radek-kod-neplatny,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-bezdokladu { background: #2a2e38; color: var(--barva-text-tlumena); }
 :root[data-motiv="tmavy"] .badge-trvalyprikaz,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-trvalyprikaz { background: #2f2440; color: #c6a6f5; }
@@ -1606,8 +1846,19 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-prijemprirazen { background: #163832; color: #4fd0bf; }
 :root[data-motiv="tmavy"] .tlacitko-nahrat-cta:hover,
 :root[data-motiv="tmavy"] .tlacitko-nahrat-cta.aktivni { background: #c94f47; border-color: #c94f47; }
+/* (v4.56) Rozbalovací „Nahrát doklady“. `--barva-hranice` je ve světlém
+   motivu skoro bílá (#e2e5ea) a na tmavém pozadí by dlaždice orámovala
+   svítícím obrysem, proto tmavý motiv bere vlastní tlumený tón. */
+:root[data-motiv="tmavy"] .rozbaleni-nahrat-vnitrek { border-color: #2f3542; }
+:root[data-motiv="tmavy"] .volba-nahrat { border-color: #2f3542; }
+:root[data-motiv="tmavy"] .volba-nahrat:hover { background: rgba(255, 255, 255, 0.05); }
 :root[data-motiv="tmavy"] .prepinac-sekce-tlacitko.aktivni { color: #14161c; }
 :root[data-motiv="tmavy"] input[type="date"] { color-scheme: dark; }
+/* (v4.54) Filtr a skupiny smluv. Průhledná šedá `rgba(127,127,127,.10)` na
+   tmavém pozadí skoro zmizí, proto appka hlavičce skupiny dá vlastní tón. */
+:root[data-motiv="tmavy"] .smlouvy-skupina { background: #262a33; }
+:root[data-motiv="tmavy"] .smlouvy-skupina:hover { filter: brightness(1.15); }
+:root[data-motiv="tmavy"] .filtr-stitek { background: #232a3d; }
 
 /* ========== SKINY (volitelné vzhledy appky, v4.15/v4.16) ==========
    Jan chtěl "moderní, černá, zlatá a navy" redesign appky - appka
@@ -1866,3 +2117,63 @@ body.sken-okno-otevreno { overflow: hidden; }
   max-width: 420px;
 }
 .sken-okno-hlaska strong { color: #e6cd98; }
+
+/* Zvýraznění tlačítka „Vyfotit“, když appku otevřel zástupce z plochy
+   telefonu (v4.55, viz otevriZeZastupce() v app.js). Jan (2026-08-06):
+   *"zjednodušit nahrání dokladu - např z hlavní obrazovky"*, volba
+   „Ikona na ploše → rovnou focení".
+
+   Proč vůbec: telefon appce nedovolí otevřít fotoaparát sám od sebe -
+   fotoaparát se otevře jen jako reakce na klepnutí člověka. Zbývá tedy
+   přesně jedno klepnutí a tohle zvýraznění je jediná věc, která člověku
+   říká, KAM klepnout. Appka ho sundá hned po prvním klepnutí, ať kolem
+   tlačítka nesvítí kroužek celou dobu, co se doklad nahrává.
+
+   Appka tlačítko schválně nepřebarvuje na plné - zůstává to pořád stejné
+   „Vyfotit“, které tam bylo předtím, jen kolem něj svítí prstenec. Kdyby
+   appka měnila i barvu výplně, vypadalo by po klepnutí jako jiné tlačítko.
+
+   Proč zlatá a ne `--barva-primarni`: primární barva se mění podle vzhledu
+   (Modrý #2454ff, Navy i Gold #16294f) - v Navy/Gold by prstenec vyšel tmavě
+   modrý, tedy skoro k nerozeznání od obyčejného okraje tlačítka. Zlatá
+   #c9a227 je v appce barva jediné zdůrazněné akce (přesně tou svítí pruh
+   „Nahrát doklady“ hned nad tímhle tlačítkem) a vypadá stejně ve všech třech
+   vzhledech.
+
+   Obrys appka píše výslovně (`outline`), i když tlačítko zároveň dostane
+   focus. Prohlížeč kolem zaostřeného tlačítka kreslí vlastní dvoubarevný
+   kroužek a ten by se s prstencem překrýval - vedle sebe to vypadalo jako
+   tři rámečky přes sebe. Vlastní `outline` prohlížečův přebije, takže
+   zvýraznění je jedna věc, ne tři. */
+#tlacitko-vyfotit.vyfotit-ceka {
+  border-color: #c9a227;
+  outline: 2px solid #c9a227;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(201, 162, 39, 0.18);
+  animation: vyfotit-ceka-puls 1.6s ease-in-out 3;
+}
+@keyframes vyfotit-ceka-puls {
+  0%, 100% { box-shadow: 0 0 0 6px rgba(201, 162, 39, 0.18); }
+  50% { box-shadow: 0 0 0 11px rgba(201, 162, 39, 0.06); }
+}
+/* Tmavý motiv: sytá zlatá na tmavém pozadí trochu zhasne, appka proto bere
+   světlejší odstín ze stejné rodiny (#e0bf4f - tím appka ve vzhledu Gold
+   překresluje pruh „Nahrát doklady“ při najetí myší). Tlačítko je uvnitř
+   #view-app, takže na rozdíl od přihlašovací obrazovky tenhle protějšek
+   být MUSÍ. */
+:root[data-motiv="tmavy"] #tlacitko-vyfotit.vyfotit-ceka {
+  border-color: #e0bf4f;
+  outline-color: #e0bf4f;
+  box-shadow: 0 0 0 6px rgba(224, 191, 79, 0.20);
+  animation-name: vyfotit-ceka-puls-tmavy;
+}
+@keyframes vyfotit-ceka-puls-tmavy {
+  0%, 100% { box-shadow: 0 0 0 6px rgba(224, 191, 79, 0.20); }
+  50% { box-shadow: 0 0 0 11px rgba(224, 191, 79, 0.07); }
+}
+/* Kdo má v telefonu vypnuté animace, uvidí jen klidný prstenec - blikání by
+   pro něj bylo obtěžující, ale zvýraznění samo o sobě zmizet nesmí, jinak
+   by nebylo poznat, kam klepnout. */
+@media (prefers-reduced-motion: reduce) {
+  #tlacitko-vyfotit.vyfotit-ceka { animation: none; }
+}
