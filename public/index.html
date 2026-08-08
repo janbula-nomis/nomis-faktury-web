@@ -467,6 +467,24 @@
            nemovitosti-platby-prehled.js. Appka platbu zařazuje do měsíce
            podle data, kdy skutečně přišla na účet (zjednodušení, appka ho
            v kódu funkce dokumentuje). -->
+      <!-- (v4.58) Kontrola přiřazení nájemních plateb ke smlouvám. Jan
+           2026-08-08: "můžeš systémově zkontrolovat přijaté platby za nájmy
+           ke smlouvám a upravit jejich přiřazení?" - volba "navrhnout, vy
+           potvrdíte". Appka tedy jen vypíše nálezy a u jednoznačných
+           nabídne tlačítko; sama nic nepřepisuje. Logika je v
+           lib/kontrolaNajmu.js, endpoint netlify/functions/kontrola-najmu.js. -->
+      <details class="panel-skladaci">
+        <summary>Kontrola přiřazení nájmů</summary>
+        <p class="popis">Appka projde přijaté nájemní platby za zvolený rok a porovná je se smlouvami –
+          hledá platby na smlouvě bez nájemní jednotky, částky, které nesedí na předpis, chybějící
+          nebo zdvojené měsíce a platby na smlouvu po platnosti. <strong>Nic nepřepíše sama</strong>;
+          u nálezů, kde je oprava jednoznačná, nabídne tlačítko.</p>
+        <label for="kontrola-najmu-rok">Rok</label>
+        <select id="kontrola-najmu-rok"></select>
+        <button id="tlacitko-kontrola-najmu">Zkontrolovat</button>
+        <div id="kontrola-najmu-vysledek"></div>
+      </details>
+
       <details class="panel-skladaci">
         <summary>Kontrola úhrady nájmu</summary>
         <p class="popis">Appka porovná očekávanou platbu (čistý nájem + záloha na služby) u každé aktivní

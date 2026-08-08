@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.57 – 2026-08-07';
+const APP_VERZE = 'v4.58 – 2026-08-08';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -7787,6 +7787,7 @@ async function nactiNemovitosti() {
     // Měsíc pro odznak úhrady na sbaleném řádku - vždycky ten aktuální.
     // (Sekce „Kontrola úhrady nájmu" níž má vlastní přepínač měsíce, ten
     // tenhle odznak nemění - jsou to dvě různé otázky.)
+    vyplnRokyKontrolyNajmu();
     nemovitostiPlatbyMesic = new Date().toISOString().slice(0, 7);
 
     const [dataJednotky, dataFirmy, dataStrediska, dataSmlouvy, dataPlatby] = await Promise.all([
@@ -7911,6 +7912,173 @@ async function pridatJednotku() {
     await nactiNemovitosti();
   } catch (e) {
     zprava.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+
+/* ---------- KONTROLA PŘIŘAZENÍ NÁJMŮ (v4.58) ----------
+ *
+ * Jan 2026-08-08: *"můžeš systémově zkontrolovat přijaté platby za nájmy ke
+ * smlouvám a upravit jejich přiřazení?"*, volba **„Navrhnout, vy potvrdíte"**.
+ *
+ * Appka tedy vypíše nálezy a u těch, kde je oprava jednoznačná, nabídne
+ * jedno tlačítko. **Nic nepřepisuje sama** a nemá hromadné „opravit vše" -
+ * Jan si vybral potvrzování po jednom a přepsat desítky přiřazení plateb
+ * jedním klepnutím je přesně ta operace, kterou nejde vzít zpět.
+ *
+ * Výpočet je celý na serveru (lib/kontrolaNajmu.js). Tady se jen vykresluje
+ * a odesílají se běžné PATCHe, které appka měla už dřív:
+ *   - přehození platby na jinou smlouvu -> PATCH /banka
+ *   - doplnění nájemní jednotky u smlouvy -> PATCH /smlouvy
+ */
+const KONTROLA_NAJMU_POPISKY = {
+  'bez-jednotky': 'Smlouva bez nájemní jednotky',
+  'castka-nesedi': 'Částka nesedí na předpis',
+  'chybi-platba': 'Chybějící platba',
+  'dvoji-platba': 'Dvě platby v jednom měsíci',
+  'po-platnosti': 'Platba na smlouvu po platnosti',
+};
+
+function vyplnRokyKontrolyNajmu() {
+  const vyber = document.getElementById('kontrola-najmu-rok');
+  if (!vyber || vyber.options.length > 0) return;
+  const letos = new Date().getFullYear();
+  // Pět let zpátky stačí - starší data se stejně už nepřepisují.
+  for (let r = letos; r >= letos - 4; r -= 1) {
+    const o = document.createElement('option');
+    o.value = String(r);
+    o.textContent = String(r);
+    vyber.appendChild(o);
+  }
+  vyber.value = String(letos);
+}
+
+async function spustKontroluNajmu() {
+  const tlacitko = document.getElementById('tlacitko-kontrola-najmu');
+  const el = document.getElementById('kontrola-najmu-vysledek');
+  const rok = document.getElementById('kontrola-najmu-rok').value;
+  if (!rok) { alert('Vyberte rok.'); return; }
+
+  tlacitko.disabled = true;
+  el.innerHTML = '<div class="nacitani">Kontroluji…</div>';
+  try {
+    const data = await zavolejApi('/kontrola-najmu?rok=' + encodeURIComponent(rok), { method: 'GET' });
+    vykresliVysledekKontrolyNajmu(el, data);
+  } catch (e) {
+    el.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  } finally {
+    tlacitko.disabled = false;
+  }
+}
+
+function vykresliVysledekKontrolyNajmu(el, data) {
+  el.innerHTML = '';
+  const nalezy = data.nalezy || [];
+  const prehled = data.prehled || {};
+
+  const souhrn = document.createElement('div');
+  souhrn.className = nalezy.length === 0 ? 'zprava uspech' : 'popis';
+  souhrn.style.marginTop = '10px';
+  souhrn.textContent = 'Zkontrolováno ' + (prehled.zkontrolovanoPlateb || 0) + ' plateb u '
+    + (prehled.zkontrolovanoSmluv || 0) + ' nájemních smluv za rok ' + data.rok + '. '
+    + (nalezy.length === 0
+      ? 'Nic nesedícího appka nenašla.'
+      : 'Nalezeno ' + (prehled.chyb || 0) + ' chyb a ' + (prehled.varovani || 0)
+        + ' varování, z toho ' + (prehled.sNavrhem || 0) + ' s návrhem opravy.');
+  el.appendChild(souhrn);
+  if (nalezy.length === 0) return;
+
+  nalezy.forEach((n) => el.appendChild(vytvorNalezKontrolyNajmu(n)));
+}
+
+function vytvorNalezKontrolyNajmu(n) {
+  const box = document.createElement('div');
+  box.className = 'kontrola-nalez kontrola-nalez-' + (n.zavaznost === 'chyba' ? 'chyba' : 'varovani');
+
+  const hlava = document.createElement('div');
+  hlava.className = 'kontrola-nalez-hlava';
+  const stitek = document.createElement('span');
+  stitek.className = 'kontrola-nalez-stitek';
+  stitek.textContent = KONTROLA_NAJMU_POPISKY[n.typ] || n.typ;
+  hlava.appendChild(stitek);
+  if (n.stredisko) {
+    const stred = document.createElement('span');
+    stred.className = 'jednotka-prehled-popisek';
+    stred.textContent = n.stredisko;
+    hlava.appendChild(stred);
+  }
+  box.appendChild(hlava);
+
+  const popis = document.createElement('div');
+  popis.className = 'kontrola-nalez-popis';
+  popis.textContent = n.popis;
+  box.appendChild(popis);
+
+  // Návrh opravy. Když ho server nedal, je to schválně: buď na platbu
+  // seděly dvě smlouvy stejně dobře, nebo se opravit nedá vůbec (chybějící
+  // platbu appka nevymyslí). Místo tlačítka se proto napíše, co s tím.
+  if (n.navrh) {
+    const btn = document.createElement('button');
+    btn.className = 'maly sekundarni akce-potvrdit';
+    btn.textContent = n.navrh.popis;
+    btn.onclick = () => provedOpravuKontrolyNajmu(n, btn, box);
+    box.appendChild(btn);
+  } else {
+    const rada = document.createElement('div');
+    rada.className = 'popis';
+    rada.style.margin = '4px 0 0';
+    rada.textContent = n.typ === 'chybi-platba'
+      ? 'Appka nepozná, jestli nájemník nezaplatil, nebo se platba jen nespárovala – najděte ji v Bankovních výpisech.'
+      : (n.typ === 'dvoji-platba'
+        ? 'Která platba je navíc, appka nepozná – obě sedí na stejnou smlouvu. Vyřešte v Bankovních výpisech.'
+        : 'Appka nenašla jednoznačnou opravu – opravte přiřazení ručně v Bankovních výpisech.');
+    box.appendChild(rada);
+  }
+
+  return box;
+}
+
+async function provedOpravuKontrolyNajmu(nalez, tlacitko, box) {
+  const navrh = nalez.navrh;
+  if (!navrh) return;
+  if (!confirm(navrh.popis + '?\n\n' + nalez.popis)) return;
+
+  tlacitko.disabled = true;
+  try {
+    if (navrh.akce === 'prirad-pohyb') {
+      // Stav_parovani se posílá schválně - PATCH /banka podle něj pozná, že
+      // jde o POTVRZENÉ přiřazení, a převezme středisko ze smlouvy.
+      await zavolejApi('/banka', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          id: navrh.pohybId,
+          zmeny: { Smlouva_ID: navrh.smlouvaId, Stav_parovani: 'Trvalý příkaz' },
+        }),
+      });
+    } else if (navrh.akce === 'nastav-jednotku') {
+      await zavolejApi('/smlouvy', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          id: navrh.smlouvaId,
+          zmeny: { Najemni_jednotka_ID: navrh.najemniJednotkaId },
+        }),
+      });
+    } else {
+      throw new Error('Neznámá akce opravy: ' + navrh.akce);
+    }
+    box.className = 'kontrola-nalez kontrola-nalez-hotovo';
+    box.innerHTML = '';
+    const hotovo = document.createElement('div');
+    hotovo.textContent = 'Opraveno: ' + navrh.popis;
+    box.appendChild(hotovo);
+    const pozn = document.createElement('div');
+    pozn.className = 'popis';
+    pozn.style.margin = '4px 0 0';
+    pozn.textContent = 'Spusťte kontrolu znovu, ať se přepočítají i ostatní nálezy.';
+    box.appendChild(pozn);
+  } catch (e) {
+    alert('Opravu se nepodařilo uložit: ' + e.message);
+    tlacitko.disabled = false;
   }
 }
 
@@ -10441,6 +10609,7 @@ document.getElementById('sm-filtr-razeni').addEventListener('change', (e) => {
 });
 document.getElementById('tlacitko-pridat-jizdu').addEventListener('click', pridatJizdu);
 document.getElementById('tlacitko-pridat-jednotku').addEventListener('click', pridatJednotku);
+document.getElementById('tlacitko-kontrola-najmu').addEventListener('click', spustKontroluNajmu);
 document.getElementById('tlacitko-nem-platby-nacist').addEventListener('click', nactiKontrolaUhradyNajmu);
 document.getElementById('tlacitko-import-jizd').addEventListener('click', importovatKnihaJizdCsv);
 document.getElementById('kj-sekce-jizdy').addEventListener('click', () => prepniKnihaJizdSekci('jizdy'));

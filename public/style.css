@@ -2278,3 +2278,21 @@ body.sken-okno-otevreno { overflow: hidden; }
   margin-bottom: 6px;
 }
 :root[data-motiv="tmavy"] .smlouva-v-jednotce { border-top-color: #2f3542; }
+
+/* (v4.58) Nálezy kontroly přiřazení nájmů. Barevný pruh vlevo podle
+   závažnosti - stejný princip, jakým appka odlišuje stavy dokladů. */
+.kontrola-nalez {
+  border: 1px solid var(--barva-hranice);
+  border-left: 3px solid var(--barva-text-tlumena);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+.kontrola-nalez-chyba { border-left-color: var(--barva-chyba); }
+.kontrola-nalez-varovani { border-left-color: var(--barva-varovani); }
+.kontrola-nalez-hotovo { border-left-color: var(--barva-uspech); color: var(--barva-uspech); }
+.kontrola-nalez-hlava { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.kontrola-nalez-stitek { font-size: 11.5px; font-weight: 700; }
+.kontrola-nalez-popis { font-size: 13px; margin: 3px 0 6px; }
+.kontrola-nalez button { margin-top: 0; }
+:root[data-motiv="tmavy"] .kontrola-nalez { border-color: #2f3542; }
