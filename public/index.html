@@ -409,6 +409,8 @@
         <select id="nova-nem-firma"></select>
         <label for="nova-nem-stredisko">Středisko (jen typu "Nemovitost", bez už založené jednotky)</label>
         <select id="nova-nem-stredisko"></select>
+        <label for="nova-nem-nazev">Název jednotky (nepovinný)</label>
+        <input type="text" id="nova-nem-nazev" placeholder="např. Byt 3, Vinohrady" />
         <label for="nova-nem-adresa">Adresa</label>
         <input type="text" id="nova-nem-adresa" />
         <div class="mriz-2">
@@ -433,6 +435,18 @@
             <input type="text" id="nova-nem-podlazi" />
           </div>
         </div>
+        <div class="mriz-2">
+          <div>
+            <label for="nova-nem-wifi-sit">WiFi – název sítě</label>
+            <input type="text" id="nova-nem-wifi-sit" />
+          </div>
+          <div>
+            <label for="nova-nem-wifi-heslo">WiFi – heslo</label>
+            <input type="text" id="nova-nem-wifi-heslo" />
+          </div>
+        </div>
+        <p class="popis">Heslo se ukládá čitelně a uvidí ho každý, kdo má přístup do tabulky – stejně jako
+          přístupové kódy. Hesla do banky nebo e-mailu sem nepatří.</p>
         <label for="nova-nem-poznamka">Poznámka</label>
         <input type="text" id="nova-nem-poznamka" />
         <button id="tlacitko-pridat-jednotku">Přidat jednotku</button>
@@ -440,6 +454,10 @@
       </details>
 
       <div id="nemovitosti-nacitani" class="nacitani">Načítám…</div>
+      <!-- (v4.57) Končící nájemní smlouvy. Appka na to má všechna data od
+           v3.19 (Smlouvy.Platnost_do), jen se z nich nikdy nic nepočítalo -
+           konec smlouvy se musel hlídat ručně v Registru smluv. -->
+      <div id="nemovitosti-konci"></div>
       <div id="nemovitosti-seznam"></div>
 
       <!-- Kontrola úhrady nájmu (od v4.37, Jan: "lze kontrolovat uhrazení

@@ -44,6 +44,7 @@ const { NEMOVITOSTI_JEDNOTKY_HEADERS } = require('../../lib/nemovitostiJednotkyS
 const {
   KLICE_HEADERS, MERIDLA_HEADERS, MERIDLA_ODECTY_HEADERS, REVIZE_HEADERS,
   PRISTUPOVE_KODY_HEADERS,
+  NAJEMNI_JEDNOTKY_HEADERS,
 } = require('../../lib/nemovitostiDetailySchema');
 const { NEMOVITOSTI_VYUCTOVANI_HEADERS } = require('../../lib/nemovitostiVyuctovaniSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
@@ -169,6 +170,15 @@ const LISTY = [
     // Stredisko beze změny.
     nazev: 'Nemovitosti_Jednotky',
     hlavicky: NEMOVITOSTI_JEDNOTKY_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Nájemní jednotky (od v4.57) - části bytu pronajímané zvlášť
+    // (Holečkova 1a/1b). Byt nese náklady, nájemní jednotka výnos, viz
+    // lib/nemovitostiDetailySchema.js. Ukázková data schválně žádná:
+    // jednotky si Jan zakládá sám podle skutečného rozdělení bytů.
+    nazev: 'Najemni_jednotky',
+    hlavicky: NAJEMNI_JEDNOTKY_HEADERS,
     ukazka: [],
   },
   {

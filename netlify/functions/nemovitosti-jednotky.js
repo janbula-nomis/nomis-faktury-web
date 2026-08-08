@@ -87,12 +87,19 @@ exports.handler = async (event) => {
         ID: crypto.randomUUID(),
         Firma: firma,
         Stredisko: stredisko,
+        // (v4.57) Nazev je nepovinný - když ho Jan nevyplní, appka jednotku
+        // popíše Střediskem jako před v4.57 (viz schéma).
+        Nazev: String(telo.Nazev || '').trim(),
         Adresa: String(telo.Adresa || '').trim(),
         Katastralni_uzemi: String(telo.Katastralni_uzemi || '').trim(),
         Cislo_LV: String(telo.Cislo_LV || '').trim(),
         Plocha_m2: telo.Plocha_m2 !== undefined ? String(telo.Plocha_m2).trim() : '',
         Dispozice: String(telo.Dispozice || '').trim(),
         Podlazi: String(telo.Podlazi || '').trim(),
+        // (v4.57) WiFi heslo se ukládá ČITELNĚ - rozbor proč je v hlavičce
+        // lib/nemovitostiJednotkySchema.js. Sem nepatří nic citlivějšího.
+        Wifi_sit: String(telo.Wifi_sit || '').trim(),
+        Wifi_heslo: String(telo.Wifi_heslo || '').trim(),
         Poznamka: String(telo.Poznamka || '').trim(),
       };
       await appendRow(sheets, spreadsheetId, 'Nemovitosti_Jednotky', NEMOVITOSTI_JEDNOTKY_HEADERS, jednotka);

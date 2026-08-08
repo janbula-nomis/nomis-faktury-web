@@ -35,12 +35,18 @@ const { readSheetObjects, appendRow, updateRow, deleteRow } = require('../../lib
 const {
   KLICE_HEADERS, MERIDLA_HEADERS, MERIDLA_ODECTY_HEADERS, REVIZE_HEADERS,
   PRISTUPOVE_KODY_HEADERS,
+  NAJEMNI_JEDNOTKY_HEADERS,
 } = require('../../lib/nemovitostiDetailySchema');
 const { json } = require('../../lib/http');
 const crypto = require('crypto');
 
 const ENTITY_CONFIG = {
   klice: { sheet: 'Klice', headers: KLICE_HEADERS, klicPole: 'Stredisko' },
+  // (v4.57) Nájemní jednotky - části bytu pronajímané zvlášť (Holečkova
+  // 1a/1b). Klíčem je pořád Stredisko, tedy byt: přístup se odvozuje
+  // stejně jako u klíčů/měřidel/revizí a nic nového se kvůli tomu
+  // nezavádí. Viz lib/nemovitostiDetailySchema.js.
+  najemni_jednotky: { sheet: 'Najemni_jednotky', headers: NAJEMNI_JEDNOTKY_HEADERS, klicPole: 'Stredisko' },
   kody: { sheet: 'Pristupove_kody', headers: PRISTUPOVE_KODY_HEADERS, klicPole: 'Stredisko' },
   meridla: { sheet: 'Meridla', headers: MERIDLA_HEADERS, klicPole: 'Stredisko' },
   meridla_odecty: { sheet: 'Meridla_Odecty', headers: MERIDLA_ODECTY_HEADERS, klicPole: 'Meridlo_ID' },
@@ -89,7 +95,7 @@ exports.handler = async (event) => {
   const entita = String(qs.entita || '').trim();
   const konfig = ENTITY_CONFIG[entita];
   if (!konfig) {
-    return json(400, { error: 'Neznámá entita. Očekává se klice, kody, meridla, meridla_odecty nebo revize.' });
+    return json(400, { error: 'Neznámá entita. Očekává se klice, kody, najemni_jednotky, meridla, meridla_odecty nebo revize.' });
   }
 
   const sheets = await getSheetsClient();

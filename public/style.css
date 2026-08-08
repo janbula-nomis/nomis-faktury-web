@@ -1775,6 +1775,82 @@ input[type="file"] { margin-top: 8px; }
 }
 .karta-jednotka .sekce-jednotky h4 { font-size: 13px; margin: 0 0 8px; }
 .karta-jednotka table { font-size: 13px; }
+
+/* ---------- KARTA BYTU: HLAVIČKA A ČTECÍ PŘEHLED (v4.57) ----------
+   Jan 2026-08-07: *"potřeba editovat záznam, návrh sestavení karty bytu,
+   možnost uložit wifi a heslo, přidat název jednotky"*. Z návrhu si vybral
+   čtecí přehled s tlačítkem Upravit a na sbaleném řádku nájemníka s výší
+   nájmu + stav platby za tenhle měsíc.
+
+   Sbalený řádek je flex se zalomením: na desktopu odznaky doplavou doprava,
+   na telefonu se zalomí pod název. Bez `flex-wrap` by odznaky na úzkém
+   displeji vytlačily název mimo kartu. */
+.karta-jednotka summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+/* Šipka je vlastní `content`, ne `list-style` - ve flexu by se jako
+   ::before pseudo-prvek chovala jako další flex položka a odsadila by
+   text. `flex: none` ji drží na místě. */
+.karta-jednotka summary::before { flex: none; align-self: center; }
+.jednotka-hlava-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.jednotka-hlava-podnadpis { font-size: 11.5px; font-weight: 400; color: var(--barva-text-tlumena); }
+.jednotka-hlava-odznaky { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.jednotka-odznak {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--barva-pozadi);
+  color: var(--barva-text-tlumena);
+  border: 1px solid var(--barva-hranice);
+  white-space: nowrap;
+}
+/* Stav úhrady nájmu. Stejné tři barvy, jaké appka používá u stavů dokladů -
+   zelená zaplaceno, teplá částečně, červená nezaplaceno. */
+.jednotka-odznak-ok { background: #e7f6ef; color: #14663f; border-color: #bfe6d3; }
+.jednotka-odznak-castecne { background: #fdf3e0; color: #7a5405; border-color: #f0dcae; }
+.jednotka-odznak-chybi { background: #fbeceb; color: #97231d; border-color: #f2c9c6; }
+
+.jednotka-sekce-hlavicka { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.jednotka-sekce-hlavicka h4 { margin: 0; }
+.jednotka-sekce-hlavicka button { margin-top: 0; }
+
+/* Čtecí přehled. `auto-fit` s minimem 150 px sám zvolí počet sloupců - na
+   telefonu vyjde jeden, na desktopu tři. Bez pevného počtu sloupců se to
+   nemusí hlídat v media query. */
+.jednotka-prehled {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 16px;
+  margin-top: 4px;
+}
+.jednotka-prehled-polozka { display: flex; flex-direction: column; min-width: 0; }
+.jednotka-prehled-popisek { font-size: 11px; color: var(--barva-text-tlumena); }
+.jednotka-prehled-hodnota { font-size: 13px; word-break: break-word; }
+.jednotka-prehled-prazdno { color: var(--barva-text-tlumena); }
+
+.jednotka-wifi {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--barva-hranice);
+}
+.jednotka-wifi-hodnoty { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 3px; }
+/* Monospace, ať se heslo dá spolehlivě přečíst do telefonu - stejný důvod
+   jako u přístupových kódů. Heslo se NEMASKUJE, viz rozbor v hlavičce
+   lib/nemovitostiJednotkySchema.js. */
+.jednotka-wifi-kod {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: var(--barva-pozadi);
+  border: 1px solid var(--barva-hranice);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+}
+.jednotka-wifi-hodnoty button { margin-top: 0; }
 .vyuctovani-vysledek {
   background: var(--barva-pozadi);
   border: 1px solid var(--barva-hranice);
@@ -1846,6 +1922,16 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-prijemprirazen { background: #163832; color: #4fd0bf; }
 :root[data-motiv="tmavy"] .tlacitko-nahrat-cta:hover,
 :root[data-motiv="tmavy"] .tlacitko-nahrat-cta.aktivni { background: #c94f47; border-color: #c94f47; }
+/* (v4.57) Karta bytu. Světlé pastelové podklady odznaků a monospace rámeček
+   WiFi hesla by na tmavém pozadí svítily - tmavý motiv proto bere vlastní
+   tlumené tóny ze stejné rodiny, jakou appka používá u stavů dokladů. */
+:root[data-motiv="tmavy"] .jednotka-odznak { background: #23262e; color: var(--barva-text-tlumena); border-color: #2f3542; }
+:root[data-motiv="tmavy"] .jednotka-odznak-ok { background: #17352a; color: #4fd0a0; border-color: #24513f; }
+:root[data-motiv="tmavy"] .jednotka-odznak-castecne { background: #3a2f18; color: #e0b455; border-color: #55452170; }
+:root[data-motiv="tmavy"] .jednotka-odznak-chybi { background: #3a2222; color: #e88a84; border-color: #5a3230; }
+:root[data-motiv="tmavy"] .jednotka-wifi-kod { background: #23262e; border-color: #2f3542; }
+:root[data-motiv="tmavy"] .jednotka-wifi { border-top-color: #2f3542; }
+
 /* (v4.56) Rozbalovací „Nahrát doklady“. `--barva-hranice` je ve světlém
    motivu skoro bílá (#e2e5ea) a na tmavém pozadí by dlaždice orámovala
    svítícím obrysem, proto tmavý motiv bere vlastní tlumený tón. */
@@ -2177,3 +2263,18 @@ body.sken-okno-otevreno { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   #tlacitko-vyfotit.vyfotit-ceka { animation: none; }
 }
+
+/* (v4.57) Víc nájemních smluv na jednom bytě - Holečkova 1a/1b. Do v4.56
+   se ukazovala jen jedna, takže oddělovač nebyl potřeba. */
+.smlouva-v-jednotce { border-top: 1px dashed var(--barva-hranice); padding-top: 10px; margin-top: 12px; }
+.smlouva-v-jednotce:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+.smlouva-v-jednotce-hlava {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+:root[data-motiv="tmavy"] .smlouva-v-jednotce { border-top-color: #2f3542; }

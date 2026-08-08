@@ -67,6 +67,7 @@ const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects } = require('../../lib/sheetsHelpers');
 const { parsujCastkuZListu } = require('../../lib/bankHelpers');
 const { jeKategorieSluzba } = require('../../lib/vyuctovaniKategorie');
+const { podilJednotky, naHalere } = require('../../lib/vyuctovaniPodily');
 const { json } = require('../../lib/http');
 
 function maPristupKFirme(uzivatel, firma) {
@@ -154,10 +155,50 @@ exports.handler = async (event) => {
     const zalohaNaSluzby = parsujCastkuZListu(smlouva.Zaloha_na_sluzby);
     const zalohyPrijate = pocetZaplacenychZaloh * zalohaNaSluzby;
 
+    // 2b) ROZÚČTOVÁNÍ MEZI NÁJEMNÍ JEDNOTKY (v4.57).
+    //
+    //     Náklady výš jsou za CELÝ BYT - doklad za energie přijde na
+    //     středisko, ne na nájemníka. Když je byt rozdělený mezi víc
+    //     nájemníků (Holečkova 1a/1b), musí se náklad rozdělit, jinak by
+    //     každý nájemník dostal vyúčtování na spotřebu celého bytu.
+    //
+    //     Klíč dělení: PLOCHA (Janova volba 2026-08-07). Byt bez nájemních
+    //     jednotek, nebo s jedinou, dostane podíl 1 - tedy přesně to, co
+    //     appka dělala do v4.56.
+    //
+    //     Když plocha u některé jednotky chybí, appka rozúčtování ODMÍTNE
+    //     (400) místo aby si ji domyslela. Tohle číslo jde nájemníkovi do
+    //     vyúčtování podle zákona č. 67/2013 Sb. - tichý odhad by vypadal
+    //     jako spočítaný údaj a nebyl by. **Nepředělávat na fallback.**
+    const { rows: najemniJednotkyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Najemni_jednotky')
+      .catch(() => ({ rows: [] }));
+    const najemniJednotkyBytu = (najemniJednotkyVsechny || []).filter((n) => n.Stredisko === smlouva.Stredisko);
+    const podil = podilJednotky(najemniJednotkyBytu, smlouva.Najemni_jednotka_ID);
+
+    if (podil.podil === null) {
+      if (podil.duvod === 'chybi-plocha') {
+        return json(400, {
+          error: 'Byt je rozdělený na víc nájemních jednotek, ale u některé chybí plocha. '
+            + 'Doplňte plochu u všech nájemních jednotek – podle ní se náklady rozdělují.',
+        });
+      }
+      return json(400, {
+        error: 'Smlouva ukazuje na nájemní jednotku, která u tohohle bytu neexistuje. '
+          + 'Vyberte u smlouvy správnou nájemní jednotku.',
+      });
+    }
+
+    // Zálohy se NErozúčtovávají - ty zaplatil konkrétní nájemník celé.
+    // Dělí se jen náklady bytu.
+    const nakladySluzbyCelyByt = nakladySluzby;
+    const nakladyVlastniCelyByt = nakladyVlastni;
+    nakladySluzby = naHalere(nakladySluzby * podil.podil);
+    nakladyVlastni = naHalere(nakladyVlastni * podil.podil);
+
     // 3) Rozdíl appka počítá JEN ze služeb (nakladyVlastni appka záměrně
     //    vynechává - viz komentář nahoře, zákon appce nedovoluje promítnout
     //    vlastní náklad pronajímatele do vyúčtování služeb nájemníkovi).
-    const rozdil = zalohyPrijate - nakladySluzby;
+    const rozdil = naHalere(zalohyPrijate - nakladySluzby);
 
     const vysledek = {
       stredisko: smlouva.Stredisko,
@@ -169,6 +210,17 @@ exports.handler = async (event) => {
       zalohyPrijate,
       rozdil,
       kauce: null,
+      // Rozklad rozúčtování jde ven vždycky, ať je ve vyúčtování vidět,
+      // proč tam je zrovna tohle číslo, a ne náklad celého bytu.
+      rozuctovani: {
+        podil: podil.podil,
+        duvod: podil.duvod,
+        plochaJednotky: podil.plocha,
+        plochaBytu: podil.celkovaPlocha,
+        nakladySluzbyCelyByt,
+        nakladyVlastniCelyByt,
+        pocetNajemnichJednotek: najemniJednotkyBytu.length,
+      },
     };
 
     // 4) Kauce (na vyžádání) - appka škody bere jen jako vstupní parametr
