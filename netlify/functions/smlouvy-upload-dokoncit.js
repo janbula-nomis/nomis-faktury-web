@@ -80,6 +80,15 @@ exports.handler = async (event) => {
     // znovu negeneruje nové.
     const cisloSmlouvy = smlouva.Cislo_smlouvy || vygenerujCisloSmlouvy(existujiciSmlouvy, new Date().getFullYear());
 
+    // (v4.59) Rozpad nájmu z AI. Appka si ho NEDOMÝŠLÍ: prompt výslovně
+    // říká, ať AI u souhrnné částky vrátí u obou polí nulu místo odhadu -
+    // špatně tipnutý rozpad by zkreslil roční vyúčtování služeb.
+    const cistyNajem = Number(extrakce.cisty_najem) > 0 ? Number(extrakce.cisty_najem) : 0;
+    const zaloha = Number(extrakce.zaloha_na_sluzby) > 0 ? Number(extrakce.zaloha_na_sluzby) : 0;
+    const ocekavanaCelkem = (cistyNajem + zaloha) > 0
+      ? cistyNajem + zaloha
+      : (extrakce.ocekavana_castka || '');
+
     const aktualizovana = Object.assign({}, smlouva, {
       Cislo_smlouvy: cisloSmlouvy,
       Firma: extrakce.firma_odhad || '',
@@ -88,7 +97,24 @@ exports.handler = async (event) => {
       Stredisko: extrakce.stredisko_odhad || '',
       Typ: extrakce.typ || '',
       Perioda: extrakce.perioda || '',
-      Ocekavana_castka: extrakce.ocekavana_castka || '',
+      // (v4.59) Rozpad nájmu, kauce a podklady pro předpis plateb. Jan:
+      // "zajisti aby se nájemní smlouva vytěžila AI a vznikl předpis
+      // plateb, včetně kauce, zálohy". Do v4.58 se vytěžila jen jedna
+      // souhrnná částka a rozpad se musel psát ručně u každé smlouvy.
+      //
+      // Ocekavana_castka se drží jako SOUČET nájmu a zálohy, když AI
+      // rozpad našla - párování bankovních plateb podle částky
+      // (lib/bankHelpers.js) na ni spoléhá a nesmí se mu pod rukama
+      // změnit význam. Když rozpad AI nenašla, zůstane jedno číslo z
+      // dokumentu, jako dřív.
+      Cisty_najem: cistyNajem > 0 ? String(cistyNajem) : '',
+      Zaloha_na_sluzby: zaloha > 0 ? String(zaloha) : '',
+      Ocekavana_castka: String(ocekavanaCelkem || ''),
+      Kauce_castka: extrakce.kauce_castka ? String(extrakce.kauce_castka) : '',
+      Kauce_splatnost: extrakce.kauce_splatnost || '',
+      Den_splatnosti: extrakce.den_splatnosti ? String(extrakce.den_splatnosti) : '',
+      Splatnost_predem: String(extrakce.splatnost_predem || '').toUpperCase() === 'ANO' ? 'ANO' : '',
+      Variabilni_symbol: extrakce.variabilni_symbol || '',
       Mena: extrakce.mena || 'CZK',
       Platnost_od: extrakce.platnost_od || '',
       Platnost_do: extrakce.platnost_do || '',

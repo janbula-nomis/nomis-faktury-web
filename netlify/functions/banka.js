@@ -676,7 +676,8 @@ exports.handler = async (event) => {
     }
 
     if (event.httpMethod === 'PATCH') {
-      const { id, zmeny } = JSON.parse(event.body || '{}');
+      const telo = JSON.parse(event.body || '{}');
+      const { id, zmeny } = telo;
       if (!id) return json(400, { error: 'Chybí ID pohybu.' });
 
       const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
@@ -757,6 +758,15 @@ exports.handler = async (event) => {
         }
       }
 
+      // (v4.59) Predpis_ID na pohybu. Musí se doplnit TADY, před zápisem
+      // řádku - zápis níž už se neopakuje. Bere se z prvního předpisu
+      // potvrzeného rozpadu, když ho volající neposlal výslovně.
+      const rozpadZTela = Array.isArray(telo.rozpad) ? telo.rozpad : [];
+      if (rozpadZTela.length > 0 && !zmenyBezpecne.Predpis_ID
+        && zmenyBezpecne.Stav_parovani === 'Trvalý příkaz') {
+        zmenyBezpecne.Predpis_ID = rozpadZTela[0].predpisId || '';
+      }
+
       const aktualizovany = Object.assign({}, pohyb, zmenyBezpecne);
       await updateRow(sheets, spreadsheetId, 'Bankovni_pohyby', BANKOVNI_HEADERS, pohyb._row, aktualizovany);
 
@@ -814,7 +824,47 @@ exports.handler = async (event) => {
         }
       }
 
-      return json(200, { ok: true, autoNavrzenoDalsich, fakturaAktualizovana: !!fakturaKAktualizaci });
+      // (v4.59) Zápis úhrady na PŘEDPIS PLATEB. Jan: "…a to je nutné
+      // párovat s bankovními výpisy".
+      //
+      // Volající pošle `rozpad` - pole { predpisId, castka } - které přišlo
+      // z návrhu (lib/predpisPlateb.js, navrhniRozpadPlatby +
+      // rozdelCastkuNaPredpisy) a které člověk potvrdil. Appka si rozdělení
+      // schválně NEPOČÍTÁ znovu: u sloučené platby (kauce + první nájem)
+      // je to rozhodnutí, které padlo na obrazovce, a přepočet ze samotné
+      // částky by ho nemusel zopakovat stejně.
+      //
+      // Píše se jen při POTVRZENÉM přiřazení, ne u návrhu - stejné pravidlo
+      // jako všude: appka navrhne, člověk potvrdí.
+      let predpisyAktualizovano = 0;
+      const rozpad = rozpadZTela;
+      if (rozpad.length > 0 && zmenyBezpecne.Stav_parovani === 'Trvalý příkaz') {
+        const { rows: predpisyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Predpis_plateb')
+          .catch(() => ({ rows: [] }));
+        const { PREDPIS_HEADERS } = require('../../lib/predpisSchema');
+
+        for (const polozka of rozpad) {
+          const predpis = (predpisyVsechny || []).find((x) => x.ID === polozka.predpisId);
+          if (!predpis) continue;
+          // Předpis musí patřit té smlouvě, na kterou se platba věší -
+          // jinak by šlo zaplatit cizí předpis.
+          const smlouvaIdPohybu = zmenyBezpecne.Smlouva_ID || pohyb.Smlouva_ID;
+          if (predpis.Smlouva_ID !== smlouvaIdPohybu) continue;
+
+          const celkem = parsujCastkuZListu(predpis.Castka_celkem);
+          const uhrazenoDosud = parsujCastkuZListu(predpis.Uhrazeno);
+          const pridat = parsujCastkuZListu(polozka.castka);
+          const uhrazenoNove = Math.round((uhrazenoDosud + pridat) * 100) / 100;
+          // Stav se odvozuje z čísel, ne z toho, co poslal klient.
+          const stav = uhrazenoNove >= celkem ? 'Uhrazeno' : (uhrazenoNove > 0 ? 'Částečně' : predpis.Stav);
+
+          await updateRow(sheets, spreadsheetId, 'Predpis_plateb', PREDPIS_HEADERS, predpis._row,
+            Object.assign({}, predpis, { Uhrazeno: String(uhrazenoNove), Pohyb_ID: pohyb.ID, Stav: stav }));
+          predpisyAktualizovano += 1;
+        }
+      }
+
+      return json(200, { ok: true, autoNavrzenoDalsich, predpisyAktualizovano, fakturaAktualizovana: !!fakturaKAktualizaci });
     }
 
     if (event.httpMethod === 'DELETE') {

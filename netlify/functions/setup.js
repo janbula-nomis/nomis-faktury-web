@@ -46,6 +46,7 @@ const {
   PRISTUPOVE_KODY_HEADERS,
   NAJEMNI_JEDNOTKY_HEADERS,
 } = require('../../lib/nemovitostiDetailySchema');
+const { PREDPIS_HEADERS } = require('../../lib/predpisSchema');
 const { NEMOVITOSTI_VYUCTOVANI_HEADERS } = require('../../lib/nemovitostiVyuctovaniSchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
 const { json } = require('../../lib/http');
@@ -170,6 +171,15 @@ const LISTY = [
     // Stredisko beze změny.
     nazev: 'Nemovitosti_Jednotky',
     hlavicky: NEMOVITOSTI_JEDNOTKY_HEADERS,
+    ukazka: [],
+  },
+  {
+    // Předpis plateb (od v4.59) - co se má u nájemní smlouvy zaplatit a
+    // kdy, včetně kauce jako vlastního řádku. Bankovní platba se páruje
+    // na TENHLE řádek, ne na smlouvu jako celek. Viz lib/predpisPlateb.js.
+    // Ukázková data žádná - řádky generuje appka ze smlouvy.
+    nazev: 'Predpis_plateb',
+    hlavicky: PREDPIS_HEADERS,
     ukazka: [],
   },
   {
