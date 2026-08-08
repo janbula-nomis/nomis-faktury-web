@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.59 – 2026-08-08';
+const APP_VERZE = 'v4.60 – 2026-08-08';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -7860,6 +7860,18 @@ function vykresliKontrolaUhradyNajmu(el, radky) {
     if (r.stav === 'Zaplaceno') trida = 'badge-potvrzeno';
     else if (r.stav === 'Částečně') trida = 'badge-navrzeno';
     tr.children[4].innerHTML = '<span class="' + trida + '">' + escapeHtml(r.stav) + '</span>';
+
+    // (v4.60) Peníze, které dorazily, ale čekají na potvrzení v Bankovních
+    // výpisech. Bez téhle věty by řádek tvrdil „Nezaplaceno" u nájmu,
+    // který na účtu leží - jen ho nikdo neodklepl.
+    if (r.navrzeno > 0) {
+      const pozn = document.createElement('div');
+      pozn.className = 'popis';
+      pozn.style.margin = '2px 0 0';
+      pozn.textContent = 'Čeká na potvrzení: ' + formatCastkaSMenou(r.navrzeno, r.mena || 'CZK')
+        + ' – odklepněte v Bankovních výpisech.';
+      tr.children[4].appendChild(pozn);
+    }
     telo.appendChild(tr);
   });
   tabulka.appendChild(telo);

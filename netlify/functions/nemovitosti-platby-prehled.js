@@ -23,6 +23,7 @@ const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient } = require('../../lib/google');
 const { readSheetObjects } = require('../../lib/sheetsHelpers');
 const { parsujCastkuZListu } = require('../../lib/bankHelpers');
+const { uhradyPoMesicich } = require('../../lib/uhradyNajmu');
 const { json } = require('../../lib/http');
 
 function maPristupKFirme(uzivatel, firma) {
@@ -75,14 +76,17 @@ exports.handler = async (event) => {
         ? cistyNajem + zalohaNaSluzby
         : parsujCastkuZListu(s.Ocekavana_castka);
 
-      const uhrazeno = pohybyVsechny
-        .filter((p) =>
-          p.Smlouva_ID === s.ID
-          && p.Stav_parovani === 'Trvalý příkaz'
-          && String(p.Datum || '') >= od
-          && String(p.Datum || '') <= doDatum
-        )
-        .reduce((soucet, p) => soucet + parsujCastkuZListu(p.Castka), 0);
+      // (v4.60) Úhrada se počítá PŘIŘAZENÍM plateb k měsícům, ne součtem
+      // plateb s datem v daném měsíci.
+      //
+      // Do v4.59 se sčítaly platby, jejichž datum padlo do vybraného
+      // kalendářního měsíce. Nájem se ale platí dopředu - ten za červenec
+      // dorazí koncem června - takže červenec vycházel jako nezaplacený,
+      // i když zaplacený byl. Jan to nahlásil snímkem 2026-08-08.
+      // Podrobně i s tím, proč nestačí posunout okno, viz hlavičku
+      // lib/uhradyNajmu.js.
+      const rozdeleni = uhradyPoMesicich(s, pohybyVsechny, mesic);
+      const uhrazeno = rozdeleni.uhrazeno;
 
       let stav = 'Nezaplaceno';
       if (uhrazeno >= ocekavano && ocekavano > 0) stav = 'Zaplaceno';
@@ -99,6 +103,13 @@ exports.handler = async (event) => {
         ocekavano,
         uhrazeno,
         stav,
+        // Peníze, které dorazily, ale čekají na potvrzení. Do úhrady se
+        // nepočítají (potvrdit je musí člověk), ale obrazovka o nich musí
+        // říct - tichá nula u platby, která přišla, je horší než nic.
+        navrzeno: rozdeleni.navrzeno,
+        // Kolik z přijatých peněz zbylo po zaplnění měsíců do dotázaného -
+        // typicky nájem zaplacený dopředu na další měsíc.
+        prebytek: rozdeleni.prebytek,
       };
     });
 

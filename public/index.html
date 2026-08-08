@@ -488,7 +488,9 @@
       <details class="panel-skladaci">
         <summary>Kontrola úhrady nájmu</summary>
         <p class="popis">Appka porovná očekávanou platbu (čistý nájem + záloha na služby) u každé aktivní
-          nájemní smlouvy s tím, co bylo ve zvoleném měsíci napárováno z banky jako "Trvalý příkaz".</p>
+          nájemní smlouvy s tím, co k danému měsíci dorazilo. Platby <strong>přiřazuje k měsícům</strong>
+          od nejstaršího nezaplaceného – nájem placený dopředu (koncem předchozího měsíce) se tak počítá
+          do měsíce, za který je. Nepotvrzené návrhy se do úhrady nepočítají, ale appka je u řádku napíše.</p>
         <label for="nem-platby-mesic">Měsíc</label>
         <input type="month" id="nem-platby-mesic" />
         <button id="tlacitko-nem-platby-nacist">Zobrazit</button>
