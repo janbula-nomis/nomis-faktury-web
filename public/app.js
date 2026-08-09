@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.60 – 2026-08-08';
+const APP_VERZE = 'v4.61 – 2026-08-08';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -2636,6 +2636,23 @@ function vytvorDashFirmaKarta(f) {
   if (f.pohybyNesparovane > 0) {
     upozorneni.push(
       '<div class="polozka-upozorneni">⚠ ' + f.pohybyNesparovane + '× nespárovaný bankovní pohyb</div>'
+    );
+  }
+  // (v4.61) Příjmy, které dorazily na účet, ale nikdo je nezařadil. Do
+  // příjmů výš se nepočítají (jsou nerozhodnuté) a do v4.60 o nich appka
+  // vůbec neřekla - "Nespárováno" je od v4.51 stav jen pro ODCHOZÍ platby.
+  // Firma tak mohla mít všechny nájmy na účtu a Dashboard tvrdil 0 Kč.
+  // Částka je tu schválně: bez ní není poznat, jestli jde o drobnou platbu,
+  // nebo o celý měsíční nájem.
+  if (f.prijmyKeKontrole > 0) {
+    const castky = f.prijmyKeKontroleCastky || {};
+    const rozpis = Object.keys(castky)
+      .map((m) => formatCastkaSMenou(castky[m], m))
+      .join(' + ');
+    upozorneni.push(
+      '<div class="polozka-upozorneni">⚠ ' + f.prijmyKeKontrole + '× příjem čeká na zařazení'
+      + (rozpis ? ' (' + escapeHtml(rozpis) + ')' : '')
+      + ' – do příjmů se započítá až po zařazení v Bankovních výpisech</div>'
     );
   }
   if (upozorneni.length === 0) {

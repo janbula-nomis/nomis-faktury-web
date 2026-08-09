@@ -412,6 +412,35 @@ exports.handler = async (event) => {
       ).length;
       const pohybyNesparovane = pohybyTetoFirmy.filter((p) => p.Stav_parovani === 'Nespárováno').length;
 
+      // (v4.61) PŘÍJMY ČEKAJÍCÍ NA ZAŘAZENÍ.
+      //
+      // Jan 2026-08-08 poslal snímek Dashboardu, kde měly Byty Holečkova
+      // příjmy 0 Kč a "Žádná data", a napsal *"žádné výnosy u Bytu"*.
+      //
+      // Příčina byla slepé místo: od v4.51 mají nerozhodnuté PŘÍJMY vlastní
+      // stav "Příjem ke kontrole" (dřív "Bez dokladu"), kdežto "Nespárováno"
+      // zůstalo jen pro ODCHOZÍ platby. Dashboard ale do příjmů počítá jen
+      // čtyři POTVRZENÉ stavy (výš) a do upozornění se díval JEN na
+      // "Nespárováno". Nerozhodnutý příjem tedy nebyl vidět nikde: do
+      // příjmů se nepočítal (správně, je nerozhodnutý) a nikdo o něm
+      // neřekl (špatně).
+      //
+      // Firma tak mohla mít všechny nájmy na účtu a Dashboard tvrdil
+      // příjmy 0 Kč a upozorňoval jen na výdaje. Tohle je horší než
+      // chybějící číslo - vypadá to jako fakt.
+      //
+      // "Bez dokladu" je tu kvůli starým řádkům, které migrace na v4.51
+      // nepřepnula. Do příjmů se ani jeden z těch stavů NEPOČÍTÁ - zařadit
+      // je musí člověk, appka o nich jen řekne.
+      const prijmyKeKontroleSeznam = pohybyTetoFirmy.filter((p) =>
+        (p.Stav_parovani === 'Příjem ke kontrole' || p.Stav_parovani === 'Bez dokladu')
+        && parsujCastkuZListu(p.Castka) > 0);
+      const prijmyKeKontrole = prijmyKeKontroleSeznam.length;
+      const prijmyKeKontroleCastky = {};
+      prijmyKeKontroleSeznam.forEach((p) => {
+        pripoctiCelkem(prijmyKeKontroleCastky, menaPohybu(p), parsujCastkuZListu(p.Castka));
+      });
+
       // (v4.48) Jan: "na dashboard zobrazit v tlačítku kolik čeká na
       // vyřízení?" - k tlačítku Vydané faktury patří počet faktur PO
       // SPLATNOSTI. Ten se do téhle chvíle nikde nepočítal: frontend si ho
@@ -450,6 +479,8 @@ exports.handler = async (event) => {
         strediskaVydaje,
         dokladyKeSchvaleni,
         pohybyNesparovane,
+        prijmyKeKontrole,
+        prijmyKeKontroleCastky,
         fakturyPoSplatnosti,
         cizeMeny: { pocet: cizeMenyPocet, castky: cizeMenyCastky },
       };
@@ -474,6 +505,9 @@ exports.handler = async (event) => {
           firma: f.firma,
           dokladyKeSchvaleni: f.dokladyKeSchvaleni,
           pohybyNesparovane: f.pohybyNesparovane,
+          // (v4.61) Počet, ne částka - tahle větev je pro odznaky na
+          // tlačítkách menu a vidí ji i běžná role, která čísla nemá vidět.
+          prijmyKeKontrole: f.prijmyKeKontrole,
           fakturyPoSplatnosti: f.fakturyPoSplatnosti,
         })),
         googleAuthVarovani: false,
