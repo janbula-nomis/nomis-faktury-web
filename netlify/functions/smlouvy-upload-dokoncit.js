@@ -16,6 +16,22 @@
  *
  * Appka NIKDY sama nic nepotvrzuje - vytažené údaje čekají na kontrolu/
  * úpravu v appce (záložka Smlouvy), přesně jako AI odhad u Dokladů.
+ *
+ * (v4.62) DVA REŽIMY - a proč tu ten druhý je
+ *
+ * POST { id }                      -> první zpracování placeholderu
+ * POST { id, rezim: 'dovytezeni' } -> dovytěžení HOTOVÉ smlouvy
+ *
+ * Do v4.61 tu žádná pojistka nebyla: zavolat tuhle funkci na hotovou
+ * smlouvu šlo a přepsalo to celý řádek podle nové AI extrakce - včetně
+ * `Stredisko`, což je od v4.23 jediný účetní klíč. Tichá změna střediska
+ * by přeházela zaúčtování bankovních pohybů i vyúčtování.
+ *
+ * Od v4.62 tedy hotovou smlouvu tahle funkce bez výslovného režimu
+ * NEPŘEPÍŠE (vrátí 409) a v režimu 'dovytezeni' jede přes
+ * lib/dovytezeniSmlouvy.js: doplní jen prázdná pole, chráněná nezapíše
+ * vůbec a rozdíly vrátí k odklepnutí. Zapisuje se tedy MÉNĚ než dřív, ne
+ * víc.
  */
 const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
@@ -23,6 +39,7 @@ const { readSheetObjects, updateRow } = require('../../lib/sheetsHelpers');
 const { extrahujDataZeSmlouvy } = require('../../lib/gemini');
 const { SMLOUVY_HEADERS } = require('../../lib/smlouvySchema');
 const { vygenerujCisloSmlouvy } = require('../../lib/cisloSmlouvy');
+const { sestavDovytezeni } = require('../../lib/dovytezeniSmlouvy');
 const { json } = require('../../lib/http');
 
 exports.handler = async (event) => {
@@ -40,13 +57,26 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { id } = JSON.parse(event.body || '{}');
+    const { id, rezim } = JSON.parse(event.body || '{}');
     if (!id) return json(400, { error: 'Chybí ID smlouvy.' });
 
     const sheets = await getSheetsClient();
     const { rows: existujiciSmlouvy } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Smlouvy');
     const smlouva = existujiciSmlouvy.find((r) => r.ID === id);
     if (!smlouva) return json(404, { error: 'Smlouva nenalezena.' });
+
+    // (v4.62) Pojistka. Hotová smlouva se přepsat nedá - musí se výslovně
+    // říct „dovytěžit", a to je jiná, mnohem opatrnější cesta (níž).
+    const jePlaceholder = String(smlouva.Stav || '') === 'Zpracovává se';
+    const chceDovytezit = String(rezim || '') === 'dovytezeni';
+    if (!jePlaceholder && !chceDovytezit) {
+      return json(409, {
+        error: 'Tahle smlouva je už zpracovaná. Opakované vytěžení by přepsalo i středisko, '
+          + 'které je účetní klíč. Použijte „Dovytěžit z přílohy“ – doplní jen prázdná pole '
+          + 'a rozdíly vám dá odklepnout.',
+        jeZpracovana: true,
+      });
+    }
 
     // Placeholder smlouva ještě nemá potvrzenou Firmu, takže klasickou
     // kontrolu přístupu podle firmy nejde použít - dokončit zpracování smí
@@ -72,6 +102,27 @@ exports.handler = async (event) => {
 
     const { rows: firmy } = await readSheetObjects(sheets, process.env.SPREADSHEET_ID, 'Firmy');
     const extrakce = await extrahujDataZeSmlouvy(buffer, mimeType, firmy);
+
+    // --- (v4.62) Dovytěžení hotové smlouvy -------------------------------
+    // Zapíše se jen to, co bylo prázdné a není chráněné. Zbytek se vrátí
+    // jako `rozdily` a čeká na člověka - appka si u smlouvy, která už
+    // někde figuruje v účetnictví, nesmí nic přepsat sama.
+    if (chceDovytezit && !jePlaceholder) {
+      const { doplneno, rozdily } = sestavDovytezeni(smlouva, extrakce);
+      const pocetDoplnenych = Object.keys(doplneno).length;
+      if (pocetDoplnenych > 0) {
+        await updateRow(sheets, process.env.SPREADSHEET_ID, 'Smlouvy', SMLOUVY_HEADERS,
+          smlouva._row, Object.assign({}, smlouva, doplneno));
+      }
+      return json(200, {
+        ok: true,
+        rezim: 'dovytezeni',
+        doplneno,
+        pocetDoplnenych,
+        rozdily,
+        smlouva: Object.assign({}, smlouva, doplneno),
+      });
+    }
 
     // Číslo smlouvy appka přiděluje až TEĎ, po úspěšném AI zpracování (od
     // v4.2) - ne už při založení placeholderu (stejný princip jako Firma,

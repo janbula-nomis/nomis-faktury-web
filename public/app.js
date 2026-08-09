@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.61 – 2026-08-08';
+const APP_VERZE = 'v4.62 – 2026-08-09';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -7805,6 +7805,7 @@ async function nactiNemovitosti() {
     // (Sekce „Kontrola úhrady nájmu" níž má vlastní přepínač měsíce, ten
     // tenhle odznak nemění - jsou to dvě různé otázky.)
     vyplnRokyKontrolyNajmu();
+    vyplnRokyNajemne();
     nemovitostiPlatbyMesic = new Date().toISOString().slice(0, 7);
 
     const [dataJednotky, dataFirmy, dataStrediska, dataSmlouvy, dataPlatby] = await Promise.all([
@@ -7894,6 +7895,327 @@ function vykresliKontrolaUhradyNajmu(el, radky) {
   tabulka.appendChild(telo);
   el.innerHTML = '';
   el.appendChild(tabulka);
+}
+
+// ---------- NÁJEMNÉ: rozpis a úhrady napříč všemi byty (v4.62) ----------
+//
+// Jan 2026-08-09: *„chci tam rozpis nájmu, vytěžení nájemních smluv a
+// přehled - uhrazeno, po splatnosti"* a k rozvržení *„jeden seznam všech
+// bytů"*.
+//
+// Tahle obrazovka je první místo, odkud se vůbec volá /predpis-plateb -
+// backend ho uměl od v4.59, ale appka ho nevolala ani jednou, takže celý
+// předpis byl nedosažitelný. Řetěz je: dovytěžit smlouvu -> vygenerovat
+// předpis -> teprve pak má rozpis co ukazovat, a přesně v tomhle pořadí
+// obrazovka nabízí tlačítka.
+//
+// DVĚ VĚCI, KTERÉ SE TU NESMÍ ZMĚNIT
+//
+// 1) „Po splatnosti" se POČÍTÁ z data (backend, `poSplatnosti` u řádku).
+//    Do sloupce Stav se nezapisuje - stav by se jinak měnil jen tím, že
+//    si někdo obrazovku otevřel.
+// 2) Kč a EUR se nesčítají. Souhrn se bere z `souhrn.podleMeny`, nikdy
+//    z plochého `souhrn.predepsano`.
+let najemneData = null;
+
+function vyplnRokyNajemne() {
+  const vyber = document.getElementById('najemne-rok');
+  if (!vyber || vyber.options.length > 0) return;
+  const letos = new Date().getFullYear();
+  // O rok dopředu schválně: předpis se generuje na celou dobu platnosti,
+  // takže příští rok už řádky mít bude a má jít zkontrolovat.
+  for (let r = letos + 1; r >= letos - 4; r -= 1) {
+    const o = document.createElement('option');
+    o.value = String(r);
+    o.textContent = String(r);
+    vyber.appendChild(o);
+  }
+  vyber.value = String(letos);
+}
+
+async function nactiNajemne() {
+  const el = document.getElementById('najemne-vysledek');
+  const rok = document.getElementById('najemne-rok').value;
+  if (!el) return;
+  el.innerHTML = '<div class="nacitani">Načítám…</div>';
+  try {
+    najemneData = await zavolejApi('/predpis-plateb?vse=1&rok=' + encodeURIComponent(rok), { method: 'GET' });
+    vykresliNajemne(el, najemneData);
+  } catch (e) {
+    el.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function vykresliNajemne(el, data) {
+  const filtr = (document.getElementById('najemne-filtr') || {}).value || 'vse';
+  const vsechny = data.predpisy || [];
+  const radky = vsechny.filter((p) => {
+    if (filtr === 'nezaplacene') {
+      return p.Stav !== 'Odpuštěno'
+        && parsujCastkuZListu(p.Uhrazeno) < parsujCastkuZListu(p.Castka_celkem);
+    }
+    if (filtr === 'posplatnosti') return !!p.poSplatnosti;
+    return true;
+  });
+
+  el.innerHTML = '';
+
+  // --- Souhrn, po měnách -------------------------------------------------
+  const souhrn = (data.souhrn && data.souhrn.podleMeny) || [];
+  if (souhrn.length) {
+    const box = document.createElement('div');
+    box.className = 'najemne-souhrn';
+    souhrn.forEach((m) => {
+      const karta = document.createElement('div');
+      karta.className = 'najemne-souhrn-karta';
+      const dluh = document.createElement('div');
+      dluh.className = 'najemne-souhrn-cislo' + (m.dluh > 0 ? ' najemne-dluh' : '');
+      dluh.textContent = formatCastkaSMenou(m.dluh, m.mena);
+      const popis = document.createElement('div');
+      popis.className = 'popis';
+      popis.textContent = 'Dluh · předepsáno ' + formatCastkaSMenou(m.predepsano, m.mena)
+        + ', uhrazeno ' + formatCastkaSMenou(m.uhrazeno, m.mena)
+        + ' · po splatnosti ' + m.poSplatnosti + '×';
+      karta.appendChild(dluh);
+      karta.appendChild(popis);
+      box.appendChild(karta);
+    });
+    el.appendChild(box);
+  }
+
+  // --- Smlouvy, ze kterých předpis ještě nevznikl -------------------------
+  // Záměrně NAD tabulkou: prázdný rozpis neznamená „nikdo nedluží", ale
+  // „ještě to nemáme založené". Ta věta musí být vidět dřív než ta nula.
+  const bez = data.bezPredpisu || [];
+  if (bez.length) {
+    const blok = document.createElement('div');
+    blok.className = 'zprava varovani';
+    const nadpis = document.createElement('p');
+    nadpis.innerHTML = '<strong>' + bez.length + '× nájemní smlouva zatím nemá předpis plateb.</strong> '
+      + 'Dokud ho nemá, do rozpisu níž se nedostane a nejde u ní poznat, co je po splatnosti.';
+    blok.appendChild(nadpis);
+
+    bez.forEach((s) => {
+      const radek = document.createElement('div');
+      radek.className = 'najemne-bez-predpisu';
+      const popis = document.createElement('span');
+      popis.textContent = (s.Stredisko || '(bez střediska)') + ' – ' + (s.Druha_strana || s.Nazev || 'smlouva')
+        + (s.chybi && s.chybi.length ? ' · chybí: ' + s.chybi.join(', ') : '');
+      radek.appendChild(popis);
+
+      const akce = document.createElement('span');
+      akce.className = 'najemne-bez-predpisu-akce';
+      if (s.chybi && s.chybi.length) {
+        // Bez částky nebo bez data platnosti předpis vzniknout nemůže -
+        // nabídne se tedy krok, který ta pole umí doplnit z přílohy.
+        const dovyt = document.createElement('button');
+        dovyt.className = 'sekundarni';
+        dovyt.textContent = 'Dovytěžit z přílohy';
+        dovyt.addEventListener('click', () => dovytezSmlouvu(s.ID, dovyt));
+        akce.appendChild(dovyt);
+      } else {
+        const gen = document.createElement('button');
+        gen.className = 'sekundarni';
+        gen.textContent = 'Vygenerovat předpis';
+        gen.addEventListener('click', () => vygenerujPredpisProSmlouvu(s.ID, gen));
+        akce.appendChild(gen);
+      }
+      radek.appendChild(akce);
+      blok.appendChild(radek);
+    });
+    el.appendChild(blok);
+  }
+
+  // --- Rozpis ------------------------------------------------------------
+  if (!radky.length) {
+    const p = document.createElement('p');
+    p.className = 'popis';
+    p.textContent = vsechny.length
+      ? 'Za zvolený rok tomuhle filtru neodpovídá žádný řádek předpisu.'
+      : 'Za zvolený rok zatím žádný předpis plateb není.';
+    el.appendChild(p);
+    return;
+  }
+
+  const tabulka = document.createElement('table');
+  tabulka.innerHTML = '<thead><tr><th>Splatnost</th><th>Byt</th><th>Nájemník</th><th>Období</th>'
+    + '<th>Předepsáno</th><th>Uhrazeno</th><th>Stav</th></tr></thead>';
+  const telo = document.createElement('tbody');
+
+  radky.forEach((p) => {
+    const celkem = parsujCastkuZListu(p.Castka_celkem);
+    const uhrazeno = parsujCastkuZListu(p.Uhrazeno);
+    const mena = p.Mena || 'CZK';
+    const tr = document.createElement('tr');
+    if (p.poSplatnosti) tr.className = 'radek-po-splatnosti';
+    tr.innerHTML = '<td data-label="Splatnost"></td><td data-label="Byt"></td><td data-label="Nájemník"></td>'
+      + '<td data-label="Období"></td><td data-label="Předepsáno"></td><td data-label="Uhrazeno"></td>'
+      + '<td data-label="Stav"></td>';
+    tr.children[0].textContent = p.Splatnost || '';
+    tr.children[1].textContent = p.stredisko || '';
+    tr.children[2].textContent = p.druhaStrana || '';
+
+    // Kauce nemá období - místo prázdné buňky se napíše, co to je, ať se
+    // nepoplete s nájmem.
+    tr.children[3].textContent = p.Typ === 'Kauce' ? 'Kauce' : (p.Obdobi || '');
+
+    tr.children[4].textContent = formatCastkaSMenou(celkem, mena);
+    const najem = parsujCastkuZListu(p.Castka_najem);
+    const zaloha = parsujCastkuZListu(p.Castka_zaloha);
+    if (zaloha > 0) {
+      const rozpad = document.createElement('div');
+      rozpad.className = 'popis';
+      rozpad.style.margin = '2px 0 0';
+      rozpad.textContent = 'nájem ' + formatCastkaSMenou(najem, mena)
+        + ' + zálohy ' + formatCastkaSMenou(zaloha, mena);
+      tr.children[4].appendChild(rozpad);
+    }
+    tr.children[5].textContent = formatCastkaSMenou(uhrazeno, mena);
+
+    let trida = 'badge-chybi';
+    let text = 'Nezaplaceno';
+    if (p.Stav === 'Odpuštěno') { trida = 'badge-navrzeno'; text = 'Odpuštěno'; }
+    else if (uhrazeno >= celkem && celkem > 0) { trida = 'badge-potvrzeno'; text = 'Uhrazeno'; }
+    else if (uhrazeno > 0) { trida = 'badge-navrzeno'; text = 'Částečně'; }
+    tr.children[6].innerHTML = '<span class="' + trida + '">' + escapeHtml(text) + '</span>';
+
+    if (p.poSplatnosti) {
+      const pozn = document.createElement('div');
+      pozn.className = 'popis najemne-po-splatnosti';
+      pozn.style.margin = '2px 0 0';
+      pozn.textContent = 'Po splatnosti – chybí ' + formatCastkaSMenou(celkem - uhrazeno, mena);
+      tr.children[6].appendChild(pozn);
+    }
+    telo.appendChild(tr);
+  });
+  tabulka.appendChild(telo);
+  el.appendChild(tabulka);
+}
+
+async function vygenerujPredpisProSmlouvu(smlouvaId, tlacitko) {
+  tlacitko.disabled = true;
+  const puvodni = tlacitko.textContent;
+  tlacitko.textContent = 'Generuji…';
+  try {
+    const data = await zavolejApi('/predpis-plateb', {
+      method: 'POST',
+      body: JSON.stringify({ smlouva_id: smlouvaId }),
+    });
+    // Strop u doby neurčité se neschovává - jinak by za pět let předpisy
+    // tiše došly a nikdo by nevěděl proč.
+    alert('Vygenerováno řádků: ' + data.pridano
+      + (data.preskoceno ? ' (už existovalo: ' + data.preskoceno + ')' : '')
+      + (data.upozorneni ? '\n\n' + data.upozorneni : ''));
+    await nactiNajemne();
+  } catch (e) {
+    alert('Předpis se nepodařilo vygenerovat: ' + e.message);
+    tlacitko.disabled = false;
+    tlacitko.textContent = puvodni;
+  }
+}
+
+/*
+ * Dovytěžení hotové smlouvy z přílohy na Drive (v4.62).
+ *
+ * Appka doplní jen PRÁZDNÁ pole. Všechno, co už vyplněné je a AI to čte
+ * jinak, se ukáže vedle sebe („v appce" × „AI našla") a čeká na kliknutí -
+ * appka to nepřepíše sama. U chráněných polí (Středisko, Firma, Typ,
+ * Název, Poznámka) se nezapíše nic ani do prázdna: Středisko je účetní
+ * klíč a jeho tichá změna by přeházela zaúčtování.
+ */
+async function dovytezSmlouvu(smlouvaId, tlacitko) {
+  if (!confirm('Appka znovu přečte přílohu smlouvy pomocí AI.\n\n'
+    + 'Doplní jen pole, která jsou prázdná. Nic vyplněného nepřepíše – rozdíly vám ukáže '
+    + 'k odklepnutí. Pokračovat?')) return;
+  tlacitko.disabled = true;
+  const puvodni = tlacitko.textContent;
+  tlacitko.textContent = 'Vytěžuji…';
+  try {
+    const data = await zavolejApi('/smlouvy-upload-dokoncit', {
+      method: 'POST',
+      body: JSON.stringify({ id: smlouvaId, rezim: 'dovytezeni' }),
+    });
+    tlacitko.textContent = puvodni;
+    const rozdily = data.rozdily || [];
+    if (!rozdily.length) {
+      alert('Hotovo. Doplněných polí: ' + (data.pocetDoplnenych || 0)
+        + '.\nŽádný rozdíl proti tomu, co už v appce bylo.');
+      await nactiNajemne();
+      return;
+    }
+    vykresliRozdilyDovytezeni(smlouvaId, data, tlacitko);
+  } catch (e) {
+    alert('Dovytěžení se nepovedlo: ' + e.message);
+    tlacitko.disabled = false;
+    tlacitko.textContent = puvodni;
+  }
+}
+
+function vykresliRozdilyDovytezeni(smlouvaId, data, tlacitko) {
+  const rodic = tlacitko.closest('.najemne-bez-predpisu') || tlacitko.parentElement;
+  const stary = document.getElementById('rozdily-' + smlouvaId);
+  if (stary) stary.remove();
+
+  const blok = document.createElement('div');
+  blok.id = 'rozdily-' + smlouvaId;
+  blok.className = 'najemne-rozdily';
+
+  const uvod = document.createElement('p');
+  uvod.className = 'popis';
+  uvod.innerHTML = 'Doplněno rovnou (bylo prázdné): <strong>' + (data.pocetDoplnenych || 0) + '</strong>. '
+    + 'Níž je to, co appka <strong>nepřepsala</strong> – zaškrtněte, co se má převzít z AI.';
+  blok.appendChild(uvod);
+
+  (data.rozdily || []).forEach((r, i) => {
+    const radek = document.createElement('label');
+    radek.className = 'najemne-rozdil';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.dataset.pole = r.pole;
+    box.dataset.hodnota = r.zAi;
+    box.id = 'rozdil-' + smlouvaId + '-' + i;
+    radek.appendChild(box);
+
+    const text = document.createElement('span');
+    const vApp = r.vApp ? r.vApp : '(prázdné)';
+    text.innerHTML = '<strong>' + escapeHtml(r.popisek) + '</strong>: v appce '
+      + '<em>' + escapeHtml(vApp) + '</em> → AI našla <em>' + escapeHtml(r.zAi) + '</em>'
+      + (r.chranene ? ' <span class="badge-chybi">účetně citlivé</span>' : '');
+    radek.appendChild(text);
+    blok.appendChild(radek);
+  });
+
+  const ulozit = document.createElement('button');
+  ulozit.textContent = 'Převzít zaškrtnuté';
+  ulozit.addEventListener('click', () => ulozRozdilyDovytezeni(smlouvaId, blok, ulozit));
+  blok.appendChild(ulozit);
+
+  rodic.appendChild(blok);
+}
+
+async function ulozRozdilyDovytezeni(smlouvaId, blok, tlacitko) {
+  const zmeny = {};
+  let citlive = 0;
+  blok.querySelectorAll('input[type="checkbox"]:checked').forEach((b) => {
+    zmeny[b.dataset.pole] = b.dataset.hodnota;
+    if (b.dataset.pole === 'Stredisko' || b.dataset.pole === 'Firma') citlive += 1;
+  });
+  if (Object.keys(zmeny).length === 0) { alert('Nic není zaškrtnuté.'); return; }
+  // Středisko je JEDINÝ účetní klíč (od v4.23). Jeho změna se ptá zvlášť,
+  // i když ji člověk právě zaškrtl - je to jediná změna na téhle
+  // obrazovce, kterou by šlo poznat až na dashboardu.
+  if (citlive && !confirm('Měníte středisko nebo firmu na smlouvě. Podle střediska se účtují '
+    + 'bankovní pohyby i vyúčtování – už zaúčtované pohyby se tím zpětně nepřepíšou.\n\nOpravdu uložit?')) return;
+
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/smlouvy', { method: 'PATCH', body: JSON.stringify({ id: smlouvaId, zmeny }) });
+    blok.remove();
+    await nactiNajemne();
+  } catch (e) {
+    alert('Uložení se nepovedlo: ' + e.message);
+    tlacitko.disabled = false;
+  }
 }
 
 // Appka do nabídky nabízí jen střediska typu "Nemovitost", která ještě
@@ -10640,6 +10962,12 @@ document.getElementById('tlacitko-pridat-jizdu').addEventListener('click', prida
 document.getElementById('tlacitko-pridat-jednotku').addEventListener('click', pridatJednotku);
 document.getElementById('tlacitko-kontrola-najmu').addEventListener('click', spustKontroluNajmu);
 document.getElementById('tlacitko-nem-platby-nacist').addEventListener('click', nactiKontrolaUhradyNajmu);
+document.getElementById('tlacitko-najemne-nacist').addEventListener('click', nactiNajemne);
+// Filtr překresluje z už načtených dat - přepnout „jen po splatnosti" nemá
+// znamenat další kolo dotazů do Sheets.
+document.getElementById('najemne-filtr').addEventListener('change', () => {
+  if (najemneData) vykresliNajemne(document.getElementById('najemne-vysledek'), najemneData);
+});
 document.getElementById('tlacitko-import-jizd').addEventListener('click', importovatKnihaJizdCsv);
 document.getElementById('kj-sekce-jizdy').addEventListener('click', () => prepniKnihaJizdSekci('jizdy'));
 document.getElementById('kj-sekce-souhrn').addEventListener('click', () => prepniKnihaJizdSekci('souhrn'));

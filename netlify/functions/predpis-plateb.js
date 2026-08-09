@@ -8,6 +8,7 @@
  *
  * GET    ?smlouva_id=X            -> { predpisy: [ … ], souhrn: { … } }
  * GET    ?stredisko=X[&rok=RRRR]  -> totéž napříč smlouvami jednoho bytu
+ * GET    ?vse=1[&rok=RRRR]        -> celé portfolio v jednom seznamu (v4.62)
  * POST   { smlouva_id }           -> vygeneruje chybějící předpisy
  * PATCH  { id, zmeny }            -> ruční úprava jednoho řádku
  * DELETE ?id=X                    -> smazání jednoho řádku
@@ -44,13 +45,33 @@ function spocitejSouhrn(predpisy, dnes) {
   let predepsano = 0;
   let uhrazeno = 0;
   let poSplatnosti = 0;
+  // (v4.62) Portfolio může míchat Kč a EUR. Sečíst je do jednoho čísla se
+  // v téhle appce nesmí nikde - souhrn se proto drží i po měnách a
+  // obrazovka bere JEN `podleMeny`. Plochá čísla zůstávají kvůli starším
+  // voláním na jednu smlouvu, kde je měna vždycky jen jedna.
+  const podleMeny = {};
   predpisy.forEach((p) => {
     if (p.Stav === 'Odpuštěno') return;
     const celkem = parsujCastkuZListu(p.Castka_celkem);
     const zaplaceno = parsujCastkuZListu(p.Uhrazeno);
     predepsano += celkem;
     uhrazeno += zaplaceno;
-    if (zaplaceno < celkem && String(p.Splatnost || '') && String(p.Splatnost) < dnes) poSplatnosti += 1;
+    const mena = String(p.Mena || 'CZK').trim() || 'CZK';
+    if (!podleMeny[mena]) podleMeny[mena] = { mena, predepsano: 0, uhrazeno: 0, dluh: 0, poSplatnosti: 0, pocet: 0 };
+    const m = podleMeny[mena];
+    m.pocet += 1;
+    m.predepsano += celkem;
+    m.uhrazeno += zaplaceno;
+    if (zaplaceno < celkem && String(p.Splatnost || '') && String(p.Splatnost) < dnes) {
+      poSplatnosti += 1;
+      m.poSplatnosti += 1;
+    }
+  });
+  Object.keys(podleMeny).forEach((k) => {
+    const m = podleMeny[k];
+    m.predepsano = Math.round(m.predepsano * 100) / 100;
+    m.uhrazeno = Math.round(m.uhrazeno * 100) / 100;
+    m.dluh = Math.round((m.predepsano - m.uhrazeno) * 100) / 100;
   });
   return {
     pocet: predpisy.length,
@@ -58,6 +79,7 @@ function spocitejSouhrn(predpisy, dnes) {
     uhrazeno,
     dluh: Math.round((predepsano - uhrazeno) * 100) / 100,
     poSplatnosti,
+    podleMeny: Object.keys(podleMeny).sort().map((k) => podleMeny[k]),
   };
 }
 
@@ -91,7 +113,8 @@ exports.handler = async (event) => {
       const smlouvaId = String(qs.smlouva_id || '').trim();
       const stredisko = String(qs.stredisko || '').trim();
       const rok = String(qs.rok || '').trim();
-      if (!smlouvaId && !stredisko) return json(400, { error: 'Zadejte smlouva_id nebo stredisko.' });
+      const vse = String(qs.vse || '') === '1';
+      if (!smlouvaId && !stredisko && !vse) return json(400, { error: 'Zadejte smlouva_id, stredisko nebo vse=1.' });
 
       const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Predpis_plateb');
       let predpisy = (rows || []).filter((p) => viditelne.has(p.Smlouva_ID));
@@ -99,7 +122,7 @@ exports.handler = async (event) => {
       if (smlouvaId) {
         if (!viditelne.has(smlouvaId)) return json(403, { error: 'Nemáte přístup k této smlouvě.' });
         predpisy = predpisy.filter((p) => p.Smlouva_ID === smlouvaId);
-      } else {
+      } else if (stredisko) {
         const smlouvyStrediska = new Set((smlouvyVsechny || [])
           .filter((s) => s.Stredisko === stredisko && viditelne.has(s.ID))
           .map((s) => s.ID));
@@ -110,7 +133,57 @@ exports.handler = async (event) => {
       if (rok) predpisy = predpisy.filter((p) => String(p.Splatnost || '').slice(0, 4) === rok || String(p.Obdobi || '').slice(0, 4) === rok);
       predpisy.sort((a, b) => (String(a.Splatnost) < String(b.Splatnost) ? -1 : 1));
 
-      return json(200, { predpisy, souhrn: spocitejSouhrn(predpisy, dnes) });
+      if (!vse) return json(200, { predpisy, souhrn: spocitejSouhrn(predpisy, dnes) });
+
+      // --- (v4.62) Jeden seznam za celé portfolio ------------------------
+      // Janova volba: *„jeden seznam všech bytů"*. Řádek předpisu sám o
+      // sobě neřekne, čí je - proto se sem přibalí středisko a nájemník ze
+      // smlouvy. Je to jen POPISEK pro zobrazení; zdroj pravdy zůstává
+      // smlouva a nic z toho se nikam neukládá.
+      const obohacene = predpisy.map((p) => {
+        const s = smlouvyById.get(p.Smlouva_ID) || {};
+        return Object.assign({}, p, {
+          stredisko: s.Stredisko || '',
+          druhaStrana: s.Druha_strana || '',
+          smlouvaNazev: s.Nazev || '',
+          firma: s.Firma || '',
+          // „Po splatnosti" se POČÍTÁ z data, nikam se nezapisuje - jinak by
+          // se stav měnil jen tím, že si někdo otevřel appku.
+          poSplatnosti: p.Stav !== 'Odpuštěno'
+            && parsujCastkuZListu(p.Uhrazeno) < parsujCastkuZListu(p.Castka_celkem)
+            && !!String(p.Splatnost || '') && String(p.Splatnost) < dnes,
+        });
+      });
+
+      // Smlouvy, ze kterých ještě žádný předpis nevznikl. Bez tohohle by
+      // prázdná obrazovka vypadala jako „nikdo nic nedluží" - přitom to
+      // znamená „ještě jsme to nezaložili".
+      const maPredpis = new Set((rows || []).map((p) => p.Smlouva_ID));
+      const bezPredpisu = (smlouvyVsechny || [])
+        .filter((s) => s.Typ === 'Nájem' && viditelne.has(s.ID) && !maPredpis.has(s.ID)
+          && String(s.Stav || '') !== 'Zpracovává se')
+        .map((s) => ({
+          ID: s.ID,
+          Nazev: s.Nazev || '',
+          Stredisko: s.Stredisko || '',
+          Druha_strana: s.Druha_strana || '',
+          Platnost_od: s.Platnost_od || '',
+          Platnost_do: s.Platnost_do || '',
+          // Proč to zatím nejde založit. Appka to řekne rovnou, ať se na
+          // to nepřijde až po kliknutí na tlačítko.
+          chybi: [
+            !/^\d{4}-\d{2}-\d{2}$/.test(String(s.Platnost_od || '').slice(0, 10)) ? 'platnost od' : '',
+            parsujCastkuZListu(s.Ocekavana_castka) > 0 || parsujCastkuZListu(s.Cisty_najem) > 0
+              ? '' : 'částka',
+          ].filter(Boolean),
+        }));
+
+      return json(200, {
+        predpisy: obohacene,
+        souhrn: spocitejSouhrn(predpisy, dnes),
+        bezPredpisu,
+        dnes,
+      });
     }
 
     if (event.httpMethod === 'POST') {

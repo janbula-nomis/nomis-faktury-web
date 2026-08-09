@@ -1895,6 +1895,21 @@ input[type="file"] { margin-top: 8px; }
 :root[data-motiv="tmavy"] .vf-radek.radek-vf-zpracovava,
 :root[data-motiv="tmavy"] .vf-radek.radek-vf-castecne,
 :root[data-motiv="tmavy"] .banka-radek.stav-radek-navrzeno { background: #22314f; color: var(--barva-primarni-tmava); }
+
+/* (v4.62) OPRAVA ČITELNOSTI. Odznak „Navrženo"/„Částečně" bral barvu textu
+   z --barva-primarni-tmava, jenže ta je ZÁVISLÁ NA SKINU: ve výchozím
+   tmavém motivu je to světlá modrá (#7d9dff, čitelná), ale skiny navy
+   a gold ji přepisují na #0f1f3d - tedy skoro černou na tmavě modrém
+   pozadí #22314f. V kombinaci „gold + tmavý motiv" byl odznak prakticky
+   neviditelný. Barva se proto píše natvrdo, nezávisle na skinu - stejná
+   past a stejné řešení jako u zvýraznění ve v4.55. */
+:root[data-motiv="tmavy"] .badge-navrzeno,
+:root[data-motiv="tmavy"] .stav-zpracovava,
+:root[data-motiv="tmavy"] .doklad-radek.radek-stav-zpracovava,
+:root[data-motiv="tmavy"] .smlouva-radek.radek-stav-zpracovava,
+:root[data-motiv="tmavy"] .vf-radek.radek-vf-zpracovava,
+:root[data-motiv="tmavy"] .vf-radek.radek-vf-castecne,
+:root[data-motiv="tmavy"] .banka-radek.stav-radek-navrzeno { color: #9db4ff; }
 /* (v4.51) Tipy a varování u příjmu: v tmavém motivu nesmí zůstat světlé
    podbarvení, jinak z detailu svítí bílý obdélník. Barva textu se dědí z
    `--barva-text`, takže se tu nastavuje jen pozadí. */
@@ -2296,3 +2311,50 @@ body.sken-okno-otevreno { overflow: hidden; }
 .kontrola-nalez-popis { font-size: 13px; margin: 3px 0 6px; }
 .kontrola-nalez button { margin-top: 0; }
 :root[data-motiv="tmavy"] .kontrola-nalez { border-color: #2f3542; }
+
+/* (v4.62) Nájemné - rozpis a úhrady napříč všemi byty.
+   Jan: „jeden seznam všech bytů". Souhrn je po měnách (Kč a EUR se v téhle
+   appce nikde nesčítají do jednoho čísla), proto grid, ne jedno číslo. */
+.najemne-souhrn { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 14px; }
+.najemne-souhrn-karta {
+  flex: 1 1 220px;
+  border: 1px solid var(--barva-hranice);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.najemne-souhrn-cislo { font-size: 20px; font-weight: 700; }
+/* Dluh je jediné číslo na obrazovce, které má být hned vidět. */
+.najemne-dluh { color: var(--barva-chyba); }
+
+.najemne-bez-predpisu {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.najemne-bez-predpisu-akce button { margin: 0; }
+
+/* Řádek po splatnosti. Nese i vlastní text („Po splatnosti - chybí X"),
+   takže to není poznat jen podle barvy - stejné pravidlo jako u odznaků. */
+.radek-po-splatnosti > td:first-child { box-shadow: inset 3px 0 0 var(--barva-chyba); }
+/* Datum splatnosti se nesmí lámat na dva řádky - „2026-07-" a „25" pod sebou
+   se čte hůř než cokoli jiného v tabulce. */
+#najemne-vysledek td[data-label="Splatnost"] { white-space: nowrap; }
+.najemne-po-splatnosti { color: var(--barva-chyba); }
+
+/* Porovnání „v appce × AI našla" po dovytěžení smlouvy. */
+.najemne-rozdily {
+  border: 1px solid var(--barva-hranice);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-top: 8px;
+  flex-basis: 100%;
+}
+.najemne-rozdil { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; margin: 6px 0; }
+.najemne-rozdil input { margin-top: 3px; }
+
+:root[data-motiv="tmavy"] .najemne-souhrn-karta,
+:root[data-motiv="tmavy"] .najemne-rozdily { border-color: #2f3542; }

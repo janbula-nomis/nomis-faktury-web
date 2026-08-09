@@ -460,6 +460,39 @@
       <div id="nemovitosti-konci"></div>
       <div id="nemovitosti-seznam"></div>
 
+      <!-- (v4.62) NÁJEMNÉ - jeden seznam za celé portfolio. Jan
+           2026-08-09: *„prověř znova správnou evidenci plateb nájmu v
+           záložce Nemovitosti, chci tam rozpis nájmu, vytěžení nájemních
+           smluv a přehled - uhrazeno, po splatnosti"*, a na otázku, jestli
+           má být rozpis u bytu, nebo napříč, odpověděl *„jeden seznam všech
+           bytů"*.
+           Předpis plateb existoval od v4.59 na backendu, ale frontend ho
+           nevolal ani jednou - tohle je ta chybějící obrazovka. „Po
+           splatnosti" se počítá z data, do tabulky se nezapisuje. -->
+      <details class="panel-skladaci" id="panel-najemne">
+        <summary>Nájemné – rozpis a úhrady (všechny byty)</summary>
+        <p class="popis">Předpis plateb říká, <strong>co se mělo zaplatit a kdy</strong> – měsíc po měsíci,
+          s rozpadem na čistý nájem a zálohu na služby; kauce má vlastní řádek. Přijatá platba se páruje
+          na konkrétní řádek předpisu, takže je vidět, co je uhrazené a co je po splatnosti.
+          <strong>Po splatnosti appka počítá z data</strong>, do tabulky nic takového nezapisuje.</p>
+        <div class="mriz-2">
+          <div>
+            <label for="najemne-rok">Rok</label>
+            <select id="najemne-rok"></select>
+          </div>
+          <div>
+            <label for="najemne-filtr">Zobrazit</label>
+            <select id="najemne-filtr">
+              <option value="vse">Vše</option>
+              <option value="nezaplacene">Jen nezaplacené</option>
+              <option value="posplatnosti">Jen po splatnosti</option>
+            </select>
+          </div>
+        </div>
+        <button id="tlacitko-najemne-nacist">Zobrazit</button>
+        <div id="najemne-vysledek"></div>
+      </details>
+
       <!-- Kontrola úhrady nájmu (od v4.37, Jan: "lze kontrolovat uhrazení
            nájmu") - appka porovná očekávanou platbu aktivních nájemních
            smluv napříč jednotkami s tím, co appka za zvolený měsíc
