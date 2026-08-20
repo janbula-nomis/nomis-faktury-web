@@ -138,7 +138,39 @@ exports.handler = async (event) => {
         }
       }
 
+      // (v4.63) „Zaúčtováno" - Jan 2026-08-20: *„nové zaškrtávátko
+      // Zaúčtováno, které účetní ručně zaškrtne, pokud zaúčtuje"*.
+      //
+      // Tři pojistky, které se tu nesmí změkčit:
+      //  1. Zaškrtnout smí JEN admin/účetní. Je to tvrzení „tenhle doklad
+      //     je v účetnictví" - běžná role ho udělat nemůže.
+      //  2. Zaškrtnout jde jen SCHVÁLENÝ doklad. Zaúčtovat něco, co ještě
+      //     nikdo neodklepl, nedává smysl a rozbilo by to i pojmenování
+      //     scanů (evidenční číslo vzniká až při schválení).
+      //  3. `Zauctovano_kdy` a `Zauctoval` appka zapisuje SAMA tady na
+      //     serveru. Kdyby je brala z prohlížeče, dal by se podepsat kdokoli
+      //     kdykoli - a je to jediná stopa, na kterou se dá spolehnout.
+      const meniZauctovano = !!(zmeny && zmeny.Zauctovano !== undefined);
+      const budeZauctovano = meniZauctovano
+        && String(zmeny.Zauctovano || '').trim().toUpperCase() === 'ANO';
+      if (meniZauctovano) {
+        if (!jeUcetniNeboAdmin(uzivatel)) {
+          return json(403, { error: 'Zaúčtování smí označit jen administrátor nebo účetní.' });
+        }
+        if (budeZauctovano && doklad.Stav !== 'Schváleno') {
+          return json(400, { error: 'Zaúčtovat jde jen schválený doklad – nejdřív ho schvalte.' });
+        }
+      }
+
       const aktualizovany = Object.assign({}, doklad, zmeny || {});
+
+      if (meniZauctovano) {
+        aktualizovany.Zauctovano = budeZauctovano ? 'ANO' : '';
+        // Odškrtnutí stopu MAŽE - nechat u nezaúčtovaného dokladu viset
+        // staré „zaúčtoval Jan 5. 8." by bylo horší než prázdno.
+        aktualizovany.Zauctovano_kdy = budeZauctovano ? new Date().toISOString().slice(0, 10) : '';
+        aktualizovany.Zauctoval = budeZauctovano ? (uzivatel.jmeno || '') : '';
+      }
 
       // v4.34 (Jan: "kód např FP..., pořadové číslo dle přidání a rok dle
       // DUZP") - appka evidenční číslo přiřazuje AŽ PŘI SCHVÁLENÍ (viz

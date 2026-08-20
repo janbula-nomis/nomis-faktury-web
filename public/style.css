@@ -786,15 +786,21 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
    (viz komentáře tam) - flexbox nechával šířku každého políčka (hlavně
    stavového a párovacího odznaku) měnit se podle délky textu, takže
    dodavatel/datum/částka nebyly zarovnané pod sebou. */
-.doklad-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 6px; font-size: 13px; }
+/* (v4.65) Jan: „nekompaktní". Při 116 schválených dokladech na obrazovce
+   se každé ušetřené 4 px na řádku počítají - dřív se jich vešlo osm, teď
+   jedenáct. Písmo zůstává 13px, zmenšuje se jen prázdné místo. */
+.doklad-radek { border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm); margin-bottom: 4px; font-size: 13px; }
 .doklad-radek-hlava, .doklad-radek-hlavicka {
   display: grid;
-  grid-template-columns: 16px 92px 62px 92px minmax(140px, 1fr) 90px 110px;
+  /* (v4.63) Osmý sloupec = „Zaúčtováno". Přidaný na KONEC schválně -
+     mobilní bloky níž schovávají sloupce přes nth-child(4)/(6), takže
+     vložit ho doprostřed by ta pravidla posunulo na jiné buňky. */
+  grid-template-columns: 16px 92px 62px 92px minmax(140px, 1fr) 90px 110px 62px;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
-.doklad-radek-hlava { padding: 8px 10px; cursor: pointer; }
+.doklad-radek-hlava { padding: 5px 10px; cursor: pointer; }
 .doklad-radek-hlava > span, .doklad-radek-hlavicka > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .doklad-radek-hlavicka { padding: 0 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; }
 .doklad-radek-hlava:hover { filter: brightness(0.97); }
@@ -1351,7 +1357,7 @@ input[type="file"] { margin-top: 8px; }
   /* (v4.35) Doklady appka na mobilu schovává Datum (nth-child(6)) -
      zbytek (číslo/stav/banka/dodavatel/částka) je důležitější. */
   .doklad-radek-hlava, .doklad-radek-hlavicka {
-    grid-template-columns: 14px 62px 48px 66px minmax(90px, 1fr) 80px;
+    grid-template-columns: 14px 62px 48px 66px minmax(90px, 1fr) 80px 54px;
   }
   .doklad-radek-hlava > span:nth-child(6), .doklad-radek-hlavicka > span:nth-child(6) { display: none; }
 
@@ -1433,7 +1439,7 @@ input[type="file"] { margin-top: 8px; }
 
   /* (v4.35) Doklady na opravdu úzkém mobilu appka schová ještě odznak
      spárování s bankou (nth-child(4)) - Datum je schované už od 640px. */
-  .doklad-radek-hlava, .doklad-radek-hlavicka { grid-template-columns: 14px 55px 48px minmax(80px, 1fr) 70px; }
+  .doklad-radek-hlava, .doklad-radek-hlavicka { grid-template-columns: 14px 55px 48px minmax(80px, 1fr) 70px 48px; }
   .doklad-radek-hlava > span:nth-child(4), .doklad-radek-hlavicka > span:nth-child(4) { display: none; }
 
   /* (v4.35) Bankovní výpisy na opravdu úzkém mobilu appka schová ještě
@@ -1615,7 +1621,14 @@ input[type="file"] { margin-top: 8px; }
   .doklad-radek-hlava > span.cislo-evid { display: none; }
   .doklad-radek-hlava .doklad-sipka { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
   .doklad-radek-hlava .dodavatel { grid-column: 2; grid-row: 1; }
-  .doklad-radek-hlava .castka { grid-column: 3 / -1; grid-row: 1; justify-self: end; }
+  .doklad-radek-hlava .castka { grid-column: 3; grid-row: 1; justify-self: end; }
+  /* (v4.63) Zaškrtávátko „Zaúčtováno" v kartě: vpravo nahoře, vedle
+     částky. V kartě se k němu ukazuje i popisek - hlavička s názvy
+     sloupců je tady schovaná, takže samotný čtvereček by nic neřekl. */
+  .doklad-radek-hlava .doklad-zauct-bunka {
+    grid-column: 4; grid-row: 1; justify-self: end; overflow: visible;
+  }
+  .doklad-radek-hlava .zauct-popisek { display: inline; }
   .doklad-radek-hlava .doklad-datum {
     grid-column: 2; grid-row: 2;
     font-size: 11.5px; color: var(--barva-text-tlumena);
@@ -2358,3 +2371,18 @@ body.sken-okno-otevreno { overflow: hidden; }
 
 :root[data-motiv="tmavy"] .najemne-souhrn-karta,
 :root[data-motiv="tmavy"] .najemne-rozdily { border-color: #2f3542; }
+
+/* (v4.63) Sloupec „Zaúčtováno" v seznamu přijatých faktur.
+   Jan 2026-08-20: *„nové zaškrtávátko Zaúčtováno, které účetní ručně
+   zaškrtne, pokud zaúčtuje"* - volba „přímo v řádku", ať se dá odklikat
+   shora dolů bez rozklikávání. */
+/* Vyšší specificita schválně: `.doklad-radek-hlava > span` výš nastavuje
+   overflow:hidden všem buňkám a zaškrtávátko s popiskem by ořízlo. */
+.doklad-radek-hlava > span.doklad-zauct-bunka,
+.doklad-radek-hlavicka > span.doklad-zauct-bunka { overflow: visible; text-align: center; }
+.zauct-prepinac { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.zauct-prepinac input { margin: 0; cursor: pointer; width: 16px; height: 16px; }
+.zauct-prepinac input:disabled { cursor: default; }
+/* Popisek se ukazuje jen v kartovém (nejužším) rozvržení, kde je hlavička
+   s názvy sloupců schovaná - jinde by dubloval nadpis sloupce. */
+.zauct-popisek { display: none; font-size: 11px; color: var(--barva-text-tlumena); }
