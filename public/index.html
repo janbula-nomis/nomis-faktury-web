@@ -212,6 +212,60 @@
         <button type="button" id="dokl-sekce-ke-schvaleni" class="prepinac-sekce-tlacitko aktivni" data-sekce="keSchvaleni">Ke schválení</button>
         <button type="button" id="dokl-sekce-schvalene" class="prepinac-sekce-tlacitko" data-sekce="schvalene">Schválené</button>
       </div>
+
+      <!-- (v4.63) Výběr firmy ve schválených dokladech. Jan 2026-08-20:
+           *„po schválení nutno rozlišit podle firem, aby se dalo kontrolovat
+           podle účetnictví, rolovací menu jako je v Bankovní výpisy"*.
+           Volba: výběr firmy je POVINNÝ, přesně jako u Bankovních výpisů -
+           schválené doklady se kontrolují s účetní po jedné firmě, míchat
+           je dohromady nedává smysl. Sekce „Ke schválení" zůstává přes
+           všechny firmy, tam jde o to nic nepřehlédnout. -->
+      <!-- (v4.64) Filtr pro účetní. Jan 2026-08-20: *„udelej ješte to
+           filtrování pro účetní"* - navazuje na v4.63, kde šlo zaúčtování
+           jen přečíst, ne si podle něj seznam zúžit. Období se bere podle
+           DUZP (a když chybí, podle data dokladu) - stejné pravidlo jako
+           v Daňovém přehledu, Exportu i při pojmenování scanů, ať „srpen
+           2026" znamená všude totéž. -->
+      <div id="doklady-filtr-firmy" class="skryto" style="margin:10px 0">
+        <div class="mriz-filtru">
+          <div>
+            <label for="doklady-vyber-firmy">Firma</label>
+            <select id="doklady-vyber-firmy"></select>
+          </div>
+          <div>
+            <label for="doklady-filtr-mesic">Měsíc</label>
+            <select id="doklady-filtr-mesic">
+              <option value="">Všechny měsíce</option>
+              <option value="01">Leden</option>
+              <option value="02">Únor</option>
+              <option value="03">Březen</option>
+              <option value="04">Duben</option>
+              <option value="05">Květen</option>
+              <option value="06">Červen</option>
+              <option value="07">Červenec</option>
+              <option value="08">Srpen</option>
+              <option value="09">Září</option>
+              <option value="10">Říjen</option>
+              <option value="11">Listopad</option>
+              <option value="12">Prosinec</option>
+            </select>
+          </div>
+          <div>
+            <label for="doklady-filtr-rok">Rok</label>
+            <select id="doklady-filtr-rok"></select>
+          </div>
+          <div>
+            <label for="doklady-filtr-zauctovano">Zaúčtování</label>
+            <select id="doklady-filtr-zauctovano">
+              <option value="">Vše</option>
+              <option value="ne">Jen nezaúčtované</option>
+              <option value="ano">Jen zaúčtované</option>
+            </select>
+          </div>
+        </div>
+        <div id="doklady-souhrn-firmy" class="popis"></div>
+      </div>
+
       <!-- Srovnání číslování (v4.49) - Jan: "je možné ještě všechny doklady
            roku 2026 upravit a doplnit číslování, než se to pošle účetní?".
            Jen pro admina/účetní - appka blok běžné roli schová (zobrazApp v
@@ -247,6 +301,11 @@
           <span>Dodavatel</span>
           <span>Datum</span>
           <span class="castka">Částka</span>
+          <!-- (v4.63) Zaúčtováno. Sloupec je přidaný ZÁMĚRNĚ AŽ NA KONEC -
+               mobilní rozvržení schovává sloupce přes nth-child(4) a
+               nth-child(6), takže vložit ho doprostřed by ta pravidla
+               posunulo na jiné buňky. -->
+          <span class="doklad-zauct-bunka">Zaúčt.</span>
         </div>
         <div id="doklady-seznam"></div>
       </div>
@@ -820,6 +879,31 @@
         <div id="export-money-s3-zprava" class="zprava skryto" style="margin-top:8px"></div>
         <div id="export-excel-zprava" class="zprava skryto" style="margin-top:8px"></div>
       </div>
+
+      <!-- (v4.63) Hromadné pojmenování scanů na Disku. Jan 2026-08-20:
+           *„jestli je možné nějak exportovat hromadně doklady - scany, které
+           budou mít předem daný text souboru, který získají, např.
+           Z - zaúčtováno, S - spárováno a pak číslo dle systému"*.
+           Vybral variantu „přejmenovat na Disku a stáhnout si složku" -
+           zip skládaný v Netlify funkci by u většího výběru narazil na
+           limit velikosti odpovědi. Appka nejdřív ukáže náhled a teprve
+           po potvrzení sahá na soubory. -->
+      <details class="panel-skladaci" id="panel-prejmenovat-scany" style="margin-top:16px">
+        <summary>Pojmenovat scany na Disku (pro účetní)</summary>
+        <p class="popis">Appka přejmenuje scany schválených dokladů na Google Disku do tvaru
+          <strong>„ZS FP 001-2026 – ČEZ Prodej.pdf“</strong>, kde <strong>Z</strong> = zaúčtováno
+          a <strong>S</strong> = spárováno s bankou (nebo hrazeno hotově). Předpona je na začátku
+          schválně – složka na Disku se pak sama seřadí na hotové a nedodělané. Na Disku si potom
+          celou složku stáhnete jedním klikem, zip poskládá Google.</p>
+        <p class="popis">Mění se <strong>jen název souboru</strong> – nic se nepřesouvá, nemaže
+          ani nepřepisuje, a doklad v appce zůstává na stejný soubor navázaný. Appka nejdřív ukáže
+          náhled; teprve druhé tlačítko soubory skutečně přejmenuje. Použije se výběr firmy,
+          měsíce a roku z filtru nahoře – <strong>firma je povinná</strong>.</p>
+        <div class="tlacitka-nahrani">
+          <button type="button" id="tlacitko-scany-nahled" class="sekundarni">Zobrazit náhled</button>
+        </div>
+        <div id="scany-vysledek" style="margin-top:12px"></div>
+      </details>
     </div>
 
     <!-- NASTAVENÍ -->

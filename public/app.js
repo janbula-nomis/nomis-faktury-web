@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.62 – 2026-08-09';
+const APP_VERZE = 'v4.64 – 2026-08-20';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1202,15 +1202,99 @@ function dokladStavZkratka(stavText) {
 // Znovupoužívá stejné CSS třídy jako badge u Bankovních výpisů
 // (badge-potvrzeno/navrzeno/chybi/bezdokladu), ať appka vizuálně nezavádí
 // další paletu barev jen pro tohle.
+/*
+ * (v4.63) Zaškrtávátko „Zaúčtováno" přímo v řádku seznamu.
+ *
+ * Jan 2026-08-20: *„nové zaškrtávátko Zaúčtováno, které účetní ručně
+ * zaškrtne, pokud zaúčtuje"*, a k umístění vybral „přímo v řádku" - účetní
+ * projede seznam shora dolů a odklikává, bez rozklikávání dvaceti dokladů.
+ *
+ * Appka tenhle příznak NIKDY nenastaví sama (viz lib/dokladySchema.js).
+ * Nabízí se jen u schváleného dokladu a jen účetní/adminovi; backend to
+ * kontroluje znovu (netlify/functions/doklady.js) - tohle je jen proto,
+ * aby se běžná role neklepala do něčeho, co jí stejně nepůjde.
+ *
+ * Doklad se zaškrtnutím NEZAMYKÁ - odškrtnout jde zpátky. Appka si k tomu
+ * ukládá, kdo a kdy, a napíše to do tooltipu.
+ */
+function vytvorZauctovanoPrepinac(d) {
+  const obal = document.createElement('label');
+  obal.className = 'zauct-prepinac';
+
+  if (d.Stav !== 'Schváleno') {
+    // Zaúčtovat nejde něco, co ještě nikdo neschválil - a hlavně to ještě
+    // nemá evidenční číslo. Prázdno je srozumitelnější než zašedlé pole.
+    return obal;
+  }
+  const smi = stav.role === 'admin' || stav.role === 'ucetni';
+
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = String(d.Zauctovano || '').trim() === 'ANO';
+  box.disabled = !smi;
+  box.title = box.checked
+    ? 'Zaúčtováno' + (d.Zauctoval ? ' – ' + d.Zauctoval : '') + (d.Zauctovano_kdy ? ', ' + d.Zauctovano_kdy : '')
+    : (smi ? 'Označit jako zaúčtované' : 'Označit smí jen účetní nebo admin');
+
+  box.addEventListener('click', (e) => e.stopPropagation());
+  box.addEventListener('change', async (e) => {
+    e.stopPropagation();
+    const hodnota = box.checked ? 'ANO' : '';
+    box.disabled = true;
+    try {
+      await zavolejApi('/doklady', {
+        method: 'PATCH',
+        body: JSON.stringify({ id: d.ID, zmeny: { Zauctovano: hodnota } }),
+      });
+      // Lokální kopie se srovná taky, ať přepnutí sekce neukáže starý stav
+      // (seznam se překresluje z dokladySeznamAktualni, ne z API).
+      d.Zauctovano = hodnota;
+      box.disabled = false;
+      // (v4.64) Seznam se schválně NEPŘEKRESLUJE. Při filtru „jen
+      // nezaúčtované" by zaškrtnutý řádek zmizel zpod kurzoru a další by se
+      // posunul nahoru - další klepnutí by pak trefilo jiný doklad, než na
+      // který se účetní dívala. Řádek zůstane, přepočítá se jen souhrn; ze
+      // seznamu zmizí až při dalším přepnutí filtru.
+      aktualizujSouhrnFirmyDokladu();
+    } catch (err) {
+      box.checked = !box.checked;
+      box.disabled = false;
+      alert('Nepodařilo se uložit zaúčtování: ' + err.message);
+    }
+  });
+
+  const popisek = document.createElement('span');
+  popisek.className = 'zauct-popisek';
+  popisek.textContent = 'Zaúčt.';
+
+  obal.appendChild(box);
+  obal.appendChild(popisek);
+  return obal;
+}
+
+// Přepočet věty „…z toho N× zaúčtováno" po zaškrtnutí. Celý seznam se
+// kvůli tomu překreslovat nesmí - rozbalený detail dokladu by se zavřel.
+function aktualizujSouhrnFirmyDokladu() {
+  const souhrnEl = document.getElementById('doklady-souhrn-firmy');
+  const vyber = document.getElementById('doklady-vyber-firmy');
+  if (!souhrnEl || !vyber || dokladySekce !== 'schvalene' || !vyber.value) return;
+  const schvalene = dokladySeznamAktualni.filter((d) => d.Stav === 'Schváleno');
+  souhrnEl.textContent = souhrnTextDokladu(filtrSchvalenychDokladu(schvalene));
+}
+
 // (v4.35) Viditelný text appka zkrátila kvůli přechodu na pevnou grid
 // mřížku - plné znění appka nechává v `title` atributu (tooltip).
 function bankSparovaniBadge(d) {
   if (d.Stav !== 'Schváleno') return '';
+  // (v4.63) Hotovost se NEPÁRUJE - Janova volba: doklad hrazený mimo účet
+  // je vyřízený tím, že je zaplacený, a dostane rovnou ✓. Do v4.62 tu
+  // svítilo šedé „Mimo účet", což vedle „Spárováno" vypadalo jako
+  // nedodělek, přitom nic nechybělo.
   if (String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO') {
-    return '<span class="badge-bezdokladu" title="Doklad je označený jako hrazený mimo účet - appka u něj protějšek v bance nehledá (Mimo účet)">Mimo účet</span>';
+    return '<span class="badge-potvrzeno" title="Doklad je hrazený mimo účet (hotovost) - protějšek v bance se u něj nehledá, je vyřízený">✓ Hotovost</span>';
   }
   if (d.Stav_parovani_bankou === 'Potvrzeno') {
-    return '<span class="badge-potvrzeno" title="Appka našla a účetní potvrdila odpovídající bankovní pohyb (Spárováno s bankou)">Spárováno</span>';
+    return '<span class="badge-potvrzeno" title="Appka našla a účetní potvrdila odpovídající bankovní pohyb (Spárováno s bankou)">✓ Spárováno</span>';
   }
   if (d.Stav_parovani_bankou === 'Navrženo') {
     return '<span class="badge-navrzeno" title="Appka navrhla odpovídající bankovní pohyb, čeká na potvrzení v záložce Bankovní výpisy (Navrženo spárování)">Návrh</span>';
@@ -1253,14 +1337,50 @@ async function nactiDoklady() {
     uctovaOsnovaSeznam = dataOsnova.ucty || [];
     predkontaceSeznam = dataPredkontace.predkontace || [];
     nacitani.classList.add('skryto');
+    vyplnVyberFiremDokladu(dataDoklady.doklady || []);
     vykresliDoklady(dataDoklady.doklady || []);
   } catch (e) {
     nacitani.textContent = 'Nepodařilo se načíst doklady: ' + e.message;
   }
 }
 
+// (v4.63) Firma u schválených dokladů. Stejný číselník jako všude jinde
+// (list Firmy), ne ruční opis - viz moznostiFirmySeznam níž pro důvod.
+// Výchozí hodnota je prázdná: appka nevybere firmu za člověka, protože
+// „schválené doklady firmy X" je tvrzení, které má na obrazovce vzniknout
+// až po vědomém výběru.
+function vyplnVyberFiremDokladu(doklady) {
+  const vyber = document.getElementById('doklady-vyber-firmy');
+  if (!vyber) return;
+  const puvodni = vyber.value;
+  vyber.innerHTML = '<option value="">— vyberte firmu —</option>' +
+    firmyProVyberDokladu.map((n) =>
+      '<option value="' + escapeAttr(n) + '">' + escapeHtml(n) + '</option>').join('');
+  if (puvodni && firmyProVyberDokladu.includes(puvodni)) vyber.value = puvodni;
+
+  // (v4.64) Roky se berou z toho, co v dokladech opravdu je, plus letošek -
+  // stejný postup jako u filtru v Exportu. Napevno daný rozsah by u starších
+  // dokladů buď chyběl, nebo by nabízel roky, ve kterých nic není.
+  const selRok = document.getElementById('doklady-filtr-rok');
+  if (!selRok) return;
+  const vybranyRok = selRok.value;
+  const leta = new Set([String(new Date().getFullYear())]);
+  (doklady || []).forEach((d) => {
+    const rok = String(d.DUZP || d.Datum_dokladu || '').slice(0, 4);
+    if (/^\d{4}$/.test(rok)) leta.add(rok);
+  });
+  selRok.innerHTML = '<option value="">Všechny roky</option>' +
+    Array.from(leta).sort((a, b) => b.localeCompare(a))
+      .map((r) => '<option value="' + r + '"' + (r === vybranyRok ? ' selected' : '') + '>' + r + '</option>')
+      .join('');
+}
+
 function prepniDokladySekci(sekce) {
   dokladySekce = sekce;
+  // Výběr firmy patří jen ke schváleným (Janova volba). „Ke schválení"
+  // zůstává přes všechny firmy - tam jde o to nic nepřehlédnout.
+  const filtr = document.getElementById('doklady-filtr-firmy');
+  if (filtr) filtr.classList.toggle('skryto', sekce !== 'schvalene');
   // Scoped jen na tuhle záložku (#zalozka-doklady) - od v3.21 mají stejnou
   // CSS třídu ".prepinac-sekce-tlacitko" i přepínače v záložce Registr smluv
   // (Aktivní/Neaktivní), obecný dotaz přes celou stránku by jim omylem
@@ -1557,19 +1677,102 @@ function vykresliDoklady(doklady) {
   document.getElementById('dokl-sekce-ke-schvaleni').textContent = 'Ke schválení (' + keSchvaleniPocet + ')';
   document.getElementById('dokl-sekce-schvalene').textContent = 'Schválené (' + schvalenePocet + ')';
 
-  const filtrovane = doklady.filter((d) =>
+  let filtrovane = doklady.filter((d) =>
     dokladySekce === 'schvalene' ? d.Stav === 'Schváleno' : d.Stav !== 'Schváleno'
   );
+
+  // (v4.63) Ve schválených je výběr firmy POVINNÝ - stejně jako
+  // v Bankovních výpisech. Dokud firma vybraná není, appka nic nevypíše;
+  // schválené doklady se s účetní procházejí po jedné firmě.
+  const souhrnEl = document.getElementById('doklady-souhrn-firmy');
+  let prazdnyText = 'Nic ke schválení.';
+  if (dokladySekce === 'schvalene') {
+    const vyber = document.getElementById('doklady-vyber-firmy');
+    if (!vyber || !vyber.value) {
+      kontejner.innerHTML = '<div class="nacitani">Vyberte firmu…</div>';
+      if (souhrnEl) souhrnEl.textContent = '';
+      return;
+    }
+    const vyber2 = filtrSchvalenychDokladu(filtrovane);
+    filtrovane = vyber2.kZobrazeni;
+    prazdnyText = vyber2.zauctovani
+      ? 'Tomuhle filtru neodpovídá žádný doklad – zkuste zrušit zúžení na '
+        + (vyber2.zauctovani === 'ano' ? 'zaúčtované.' : 'nezaúčtované.')
+      : 'U téhle firmy a období zatím žádné schválené doklady nejsou.';
+    if (souhrnEl) souhrnEl.textContent = souhrnTextDokladu(vyber2);
+  } else if (souhrnEl) {
+    souhrnEl.textContent = '';
+  }
+
   const serazene = filtrovane.slice().sort((a, b) => (b.Datum_zpracovani || '').localeCompare(a.Datum_zpracovani || ''));
 
   kontejner.innerHTML = '';
   serazene.forEach((d) => kontejner.appendChild(vytvorRadekDoklad(d)));
 
   if (serazene.length === 0) {
-    kontejner.innerHTML = '<div class="nacitani">' +
-      (dokladySekce === 'schvalene' ? 'Zatím žádné schválené doklady.' : 'Nic ke schválení.') +
-      '</div>';
+    kontejner.innerHTML = '<div class="nacitani">' + escapeHtml(prazdnyText) + '</div>';
   }
+}
+
+/*
+ * (v4.64) Filtr pro účetní: firma + období + zaúčtování.
+ *
+ * Jan 2026-08-20: *„udelej ješte to filtrování pro účetní"*. Ve v4.63 šlo
+ * zaúčtování jen přečíst, ne si podle něj seznam zúžit - a přesně to účetní
+ * dělá: „ukaž mi, co za srpen ještě není zaúčtované".
+ *
+ * Vrací dvě různě široké množiny a to rozlišení je důležité:
+ *   vBloku     - firma + období (bez ohledu na zaúčtování). Z TOHO se počítá
+ *                souhrn, aby věta „z toho 3× zaúčtováno" dávala smysl i
+ *                tehdy, když je zapnuté „jen nezaúčtované" a v seznamu
+ *                žádný zaúčtovaný vidět není.
+ *   kZobrazeni - to samé zúžené filtrem zaúčtování. To se vypisuje.
+ *
+ * Kdyby se souhrn počítal z `kZobrazeni`, hlásil by při filtru „jen
+ * nezaúčtované" vždycky „z toho 0× zaúčtováno" - technicky pravda, ale
+ * účetní by z toho četla, že nemá hotové nic.
+ */
+function filtrSchvalenychDokladu(schvalene) {
+  const hodnota = (id) => {
+    const el = document.getElementById(id);
+    return el ? el.value : '';
+  };
+  const firma = hodnota('doklady-vyber-firmy');
+  const mesic = hodnota('doklady-filtr-mesic');
+  const rok = hodnota('doklady-filtr-rok');
+  const zauctovani = hodnota('doklady-filtr-zauctovano');
+
+  const vBloku = (schvalene || []).filter((d) => {
+    if ((d.Firma_potvrzena || d.Firma_AI_odhad || '') !== firma) return false;
+    // Období podle DUZP, a když chybí, podle data dokladu - stejné pravidlo
+    // jako v Daňovém přehledu a v Exportu.
+    const obdobi = String(d.DUZP || d.Datum_dokladu || '');
+    if (rok && obdobi.slice(0, 4) !== rok) return false;
+    if (mesic && obdobi.slice(5, 7) !== mesic) return false;
+    return true;
+  });
+
+  const kZobrazeni = vBloku.filter((d) => {
+    if (!zauctovani) return true;
+    const je = String(d.Zauctovano || '').trim().toUpperCase() === 'ANO';
+    return zauctovani === 'ano' ? je : !je;
+  });
+
+  return { firma, mesic, rok, zauctovani, vBloku, kZobrazeni };
+}
+
+function souhrnTextDokladu(vyber) {
+  const zauctovanych = vyber.vBloku.filter((d) =>
+    String(d.Zauctovano || '').trim().toUpperCase() === 'ANO').length;
+  let text = vyber.vBloku.length + '× schválený doklad, z toho ' + zauctovanych + '× zaúčtováno.';
+  // Když filtr něco skrývá, appka to NAPÍŠE. Jinak by se dalo snadno
+  // uzavřít měsíc s tím, že „už tam nic není", a ono tam bylo - jen
+  // schované filtrem.
+  if (vyber.zauctovani) {
+    text += ' Zobrazeno: ' + vyber.kZobrazeni.length + '× '
+      + (vyber.zauctovani === 'ano' ? 'zaúčtovaný' : 'nezaúčtovaný') + '.';
+  }
+  return text;
 }
 
 // Skládací řádek Dokladu (od v3.7, stejný vzor jako vytvorRadekBanka níž) -
@@ -1830,7 +2033,16 @@ function vytvorRadekDoklad(d) {
     // (v4.46) Datum má vlastní třídu `doklad-datum` - stejný důvod jako
     // u bankovního řádku výš (v mobilním režimu se přesouvá, ne schovává).
     '<span class="doklad-datum">' + escapeHtml(d.Datum_dokladu || '') + '</span>' +
-    '<span class="castka">' + (d.Stav === 'Zpracovává se' ? '' : formatCastkaSMenou(d.Castka, d.Mena)) + '</span>';
+    '<span class="castka">' + (d.Stav === 'Zpracovává se' ? '' : formatCastkaSMenou(d.Castka, d.Mena)) + '</span>' +
+    // (v4.63) Buňka „Zaúčtováno". Je tu VŽDY (i prázdná), ať mřížka drží
+    // pevný počet sloupců - stejný důvod jako u buňky s odznakem banky.
+    '<span class="doklad-zauct-bunka"></span>';
+
+  // Zaškrtávátko se vkládá až tady, ne do innerHTML - potřebuje vlastní
+  // posluchač a hlavně stopPropagation, jinak by klepnutí na něj zároveň
+  // rozbalilo detail dokladu.
+  const zauctBunka = hlava.querySelector('.doklad-zauct-bunka');
+  if (zauctBunka) zauctBunka.appendChild(vytvorZauctovanoPrepinac(d));
 
   const detail = document.createElement('div');
   detail.className = 'doklad-radek-detail';
@@ -10915,6 +11127,12 @@ document.getElementById('pole-soubor').addEventListener('change', (e) => zpracuj
 document.getElementById('tlacitko-nahrat').addEventListener('click', nahratDoklad);
 document.getElementById('dokl-sekce-ke-schvaleni').addEventListener('click', () => prepniDokladySekci('keSchvaleni'));
 document.getElementById('dokl-sekce-schvalene').addEventListener('click', () => prepniDokladySekci('schvalene'));
+// (v4.63) Změna firmy jen překreslí už načtený seznam - do Sheets se kvůli
+// přepnutí firmy nechodí znovu.
+['doklady-vyber-firmy', 'doklady-filtr-mesic', 'doklady-filtr-rok', 'doklady-filtr-zauctovano']
+  .forEach((id) => {
+    document.getElementById(id).addEventListener('change', () => vykresliDoklady(dokladySeznamAktualni));
+  });
 document.getElementById('tlacitko-pridat-uzivatele').addEventListener('click', pridatUzivatele);
 document.getElementById('tlacitko-pridat-firmu').addEventListener('click', pridatFirmu);
 document.getElementById('tlacitko-pridat-auto').addEventListener('click', pridatAuto);
@@ -11115,6 +11333,118 @@ document.getElementById('tlacitko-export-excel').addEventListener('click', async
   }
   tlacitko.disabled = false;
 });
+
+/*
+ * (v4.63) Hromadné pojmenování scanů na Disku.
+ *
+ * Jan 2026-08-20 se ptal, jestli jde scany hromadně vyexportovat pod
+ * předem daným názvem („Z - zaúčtováno, S - spárováno a pak číslo dle
+ * systému"), a vybral variantu **přejmenovat je na Disku** a složku si
+ * pak stáhnout z Disku. Zip skládaný tady v appce by u většího výběru
+ * narazil na limit velikosti odpovědi Netlify funkce - a spadl by až po
+ * minutě čekání.
+ *
+ * Dvě fáze: náhled (server nic nemění) a potvrzení. Bez toho by šlo
+ * jedním klepnutím přejmenovat desítky souborů, což zpátky vzít nejde.
+ */
+async function scanyNahledNeboProvedeni(potvrdit, tlacitko) {
+  const el = document.getElementById('scany-vysledek');
+  const firma = document.getElementById('export-firma').value;
+  if (!firma) {
+    el.innerHTML = '<div class="zprava chyba">Nejdřív vyberte konkrétní firmu ve filtru nahoře '
+      + '(ne „Všechny firmy“).</div>';
+    return;
+  }
+  const mesic = document.getElementById('export-mesic').value;
+  const rok = document.getElementById('export-rok').value;
+
+  if (tlacitko) tlacitko.disabled = true;
+  el.innerHTML = '<div class="nacitani">' + (potvrdit ? 'Přejmenovávám…' : 'Načítám náhled…') + '</div>';
+  try {
+    const data = await zavolejApi('/doklady-prejmenovat-scany', {
+      method: 'POST',
+      body: JSON.stringify({ firma, rok, mesic, potvrdit }),
+    });
+    vykresliVysledekScanu(el, data);
+  } catch (e) {
+    el.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+  if (tlacitko) tlacitko.disabled = false;
+}
+
+function vykresliVysledekScanu(el, data) {
+  el.innerHTML = '';
+
+  const shrnuti = document.createElement('div');
+  shrnuti.className = 'zprava ' + (data.rezim === 'provedeno' ? 'uspech' : 'info');
+  shrnuti.textContent = data.rezim === 'provedeno'
+    ? 'Přejmenováno souborů: ' + data.prejmenovano
+      + (data.bezeZmeny ? ', beze změny: ' + data.bezeZmeny : '')
+      + (data.preskoceno ? ', přeskočeno: ' + data.preskoceno : '') + '.'
+    : 'K přejmenování: ' + data.kPrejmenovani
+      + (data.bezeZmeny ? ', už správně pojmenováno: ' + data.bezeZmeny : '')
+      + (data.preskoceno ? ', přeskočeno: ' + data.preskoceno : '') + '.';
+  el.appendChild(shrnuti);
+
+  // Strop na jeden běh se NESCHOVÁVÁ - tiché uříznutí by vypadalo jako
+  // „hotovo", a přitom by půlka složky zůstala nepojmenovaná.
+  if (data.zbyva > 0) {
+    const zbytek = document.createElement('div');
+    zbytek.className = 'zprava varovani';
+    zbytek.textContent = 'Do jednoho běhu se vejde omezený počet dokladů. Zbývá jich ještě '
+      + data.zbyva + ' – po dokončení spusťte tlačítko znovu.';
+    el.appendChild(zbytek);
+  }
+
+  if (!data.polozky || !data.polozky.length) {
+    const p = document.createElement('p');
+    p.className = 'popis';
+    p.textContent = 'Pro tenhle výběr appka nenašla žádný schválený doklad s uloženým souborem.';
+    el.appendChild(p);
+    return;
+  }
+
+  const tabulka = document.createElement('table');
+  tabulka.innerHTML = '<thead><tr><th>Teď</th><th>Nově</th><th>Stav</th></tr></thead>';
+  const telo = document.createElement('tbody');
+  data.polozky.forEach((p) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td data-label="Teď"></td><td data-label="Nově"></td><td data-label="Stav"></td>';
+    tr.children[0].textContent = p.stary || '(soubor nenalezen)';
+    tr.children[1].textContent = p.novy || '—';
+    let trida = 'badge-navrzeno';
+    let text = 'Přejmenovat';
+    if (p.akce === 'prejmenovano') { trida = 'badge-potvrzeno'; text = 'Přejmenováno'; }
+    else if (p.akce === 'beze-zmeny') { trida = 'badge-potvrzeno'; text = 'Beze změny'; }
+    else if (p.akce === 'preskoceno') { trida = 'badge-chybi'; text = 'Přeskočeno'; }
+    tr.children[2].innerHTML = '<span class="' + trida + '">' + escapeHtml(text) + '</span>';
+    if (p.duvod) {
+      const pozn = document.createElement('div');
+      pozn.className = 'popis';
+      pozn.style.margin = '2px 0 0';
+      pozn.textContent = p.duvod;
+      tr.children[2].appendChild(pozn);
+    }
+    telo.appendChild(tr);
+  });
+  tabulka.appendChild(telo);
+  el.appendChild(tabulka);
+
+  if (data.rezim === 'nahled' && data.kPrejmenovani > 0) {
+    const potvrd = document.createElement('button');
+    potvrd.textContent = 'Přejmenovat ' + data.kPrejmenovani + ' souborů na Disku';
+    potvrd.addEventListener('click', () => {
+      if (!confirm('Appka přejmenuje ' + data.kPrejmenovani + ' souborů na Google Disku.\n\n'
+        + 'Mění se jen název – nic se nepřesouvá ani nemaže a doklady v appce zůstanou '
+        + 'navázané na stejné soubory. Zpátky to jde jen ručně, soubor po souboru.\n\nPokračovat?')) return;
+      scanyNahledNeboProvedeni(true, potvrd);
+    });
+    el.appendChild(potvrd);
+  }
+}
+
+document.getElementById('tlacitko-scany-nahled').addEventListener('click', (e) =>
+  scanyNahledNeboProvedeni(false, e.target));
 
 document.getElementById('tlacitko-export-excel-vf').addEventListener('click', async (e) => {
   const tlacitko = e.target;
