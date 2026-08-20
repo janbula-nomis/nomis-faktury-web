@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.70 – 2026-08-20';
+const APP_VERZE = 'v4.71 – 2026-08-20';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1211,8 +1211,42 @@ function zpravaPoZpracovaniDokladu(odpoved) {
 }
 
 /*
+ * (v4.71) Poznávání minutového limitu Google API.
+ *
+ * Sheets má strop 60 čtecích požadavků za minutu na uživatele a jeden
+ * nahraný doklad jich spotřebuje zhruba šest. Při třiceti souborech
+ * poslaných hned za sebou limit spolehlivě přeteče - Janovi z třiceti
+ * dokladů spadlo deset právě na tohle.
+ *
+ * Server si krátké výkyvy odchytí sám (lib/opakuj.js), tohle je pro ten
+ * případ, kdy je potřeba počkat desítky vteřin - v Netlify funkci se tak
+ * dlouho čekat nedá, ale v prohlížeči ano.
+ */
+function jeLimitGoogleFront(e) {
+  const text = String((e && e.message) || '');
+  return /Quota exceeded|rateLimitExceeded|userRateLimitExceeded|quotaExceeded|429/i.test(text);
+}
+
+function pockejMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Jak dlouho počkat před dalším pokusem o TENTÝŽ soubor a kolikrát to
+// zkusit. Minutový limit se resetuje po minutě, takže čekání roste až
+// k ní - kratší čekání by jen znovu narazilo.
+const CEKANI_PRI_LIMITU_MS = [20000, 40000, 60000];
+// Jakmile jednou narazíme, dál se mezi soubory dělá pauza. Šest čtení na
+// doklad při stropu 60/min znamená zhruba jeden doklad za 7 vteřin.
+const PAUZA_PO_LIMITU_MS = 7000;
+
+/*
  * Projde frontu vybraných souborů. Pravidlo 1: postupně, ne souběžně.
  * Pravidlo 2: chyba u jednoho fronta nezastaví.
+ *
+ * (v4.71) Náraz na limit Google NENÍ chyba souboru - fronta u něj počká a
+ * zkusí to znovu. Označit takový soubor za nenahraný by znamenalo poslat
+ * člověka hledat, které z třiceti dokladů chybí, kvůli něčemu, co se samo
+ * spraví za minutu.
  */
 async function nahratDoklad() {
   const zprava = document.getElementById('nahrat-zprava');
@@ -1227,28 +1261,56 @@ async function nahratDoklad() {
   let cekaNaDokonceni = 0;
   let nepovedlo = 0;
   let navic = 0;          // doklady navíc z jednoho scanu
+  let brzdeno = false;    // narazili jsme cestou na limit Googlu?
+  let pauzaMs = 0;
 
   for (let poradi = 0; poradi < kNahrani.length; poradi += 1) {
     const { soubor, index } = kNahrani[poradi];
+    if (pauzaMs) await pockejMs(pauzaMs);
+
     zprava.innerHTML = '<div class="zprava">Nahrávám ' + (poradi + 1) + ' z ' + kNahrani.length
       + ': ' + escapeHtml(soubor.nazev) + '…</div>';
-    stavSouboruVeFronte(index, '<span class="badge-navrzeno">Nahrávám…</span>');
 
-    let doklad;
-    try {
-      const odpoved = await zavolejApi('/upload', {
-        method: 'POST',
-        body: JSON.stringify({
-          filename: soubor.nazev,
-          mimeType: soubor.mimeType,
-          dataBase64: soubor.data,
-        }),
-      });
-      doklad = odpoved.doklad;
-    } catch (e) {
+    let doklad = null;
+    let chybaNahrani = null;
+    // `souborId` drží soubor, který se na Disk nahrál, ale nestihl se
+    // zapsat do Dokladů - další pokus ho použije místo nahrání znovu.
+    let souborId = '';
+
+    for (let pokus = 0; pokus <= CEKANI_PRI_LIMITU_MS.length; pokus += 1) {
+      stavSouboruVeFronte(index, '<span class="badge-navrzeno">Nahrávám…</span>');
+      try {
+        const telo = souborId
+          ? { souborId }
+          : { filename: soubor.nazev, mimeType: soubor.mimeType, dataBase64: soubor.data };
+        const odpoved = await zavolejApi('/upload', { method: 'POST', body: JSON.stringify(telo) });
+        doklad = odpoved.doklad;
+        chybaNahrani = null;
+        break;
+      } catch (e) {
+        chybaNahrani = e;
+        if (e.data && e.data.souborId) souborId = e.data.souborId;
+        if (!jeLimitGoogleFront(e) || pokus === CEKANI_PRI_LIMITU_MS.length) break;
+
+        brzdeno = true;
+        pauzaMs = PAUZA_PO_LIMITU_MS;
+        const cekani = CEKANI_PRI_LIMITU_MS[pokus];
+        stavSouboruVeFronte(index,
+          '<span class="badge-navrzeno">Čekám na Google…</span>',
+          'Google na chvíli omezil počet dotazů za minutu. Appka počká '
+            + Math.round(cekani / 1000) + ' s a zkusí to znovu – nic nedělejte.');
+        await pockejMs(cekani);
+      }
+    }
+
+    if (!doklad) {
       // Pravidlo 2: fronta jede dál.
       nepovedlo += 1;
-      stavSouboruVeFronte(index, '<span class="badge-chybi">Nenahráno</span>', e.message);
+      const naDisku = souborId
+        ? ' Soubor je na Disku už uložený, takže o něj nepřijdete – při dalším pokusu se použije znovu.'
+        : '';
+      stavSouboruVeFronte(index, '<span class="badge-chybi">Nenahráno</span>',
+        (chybaNahrani ? chybaNahrani.message : 'Nepodařilo se nahrát.') + naDisku);
       continue;
     }
 
@@ -1268,6 +1330,7 @@ async function nahratDoklad() {
       // Pravidlo 4: soubor je uložený, jen ho AI nepřečetla. Doklad čeká
       // v seznamu ve stavu „Zpracovává se" a dokončí se odtud jedním
       // tlačítkem - nahrávat znovu se nemusí nic.
+      if (jeLimitGoogleFront(e)) { brzdeno = true; pauzaMs = PAUZA_PO_LIMITU_MS; }
       cekaNaDokonceni += 1;
       stavSouboruVeFronte(index, '<span class="badge-navrzeno">Uloženo, čeká na AI</span>',
         'Soubor je bezpečně uložený, jen se ho teď nepodařilo přečíst. Najdete ho v Přijatých '
@@ -1292,6 +1355,7 @@ async function nahratDoklad() {
   if (vadne) casti.push('nešlo nahrát: ' + vadne);
   const trida = (nepovedlo || vadne) ? 'info' : 'uspech';
   zprava.innerHTML = '<div class="zprava ' + trida + '">Hotovo – ' + casti.join(', ') + '.'
+    + (brzdeno ? ' Google cestou omezil počet dotazů za minutu, takže to trvalo déle – appka kvůli tomu zpomalila a čekala.' : '')
     + (kNahrani.length > 1 ? ' Podrobnosti u jednotlivých souborů níž.' : '') + '</div>';
 }
 

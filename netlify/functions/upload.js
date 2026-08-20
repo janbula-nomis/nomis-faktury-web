@@ -56,30 +56,49 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { filename, mimeType, dataBase64 } = JSON.parse(event.body || '{}');
-    if (!filename || !mimeType || !dataBase64) {
+    // (v4.71) `souborId` posílá klient při OPAKOVÁNÍ pokusu, který minule
+    // spadl až na zápisu do Sheets - soubor je tehdy na Disku už nahraný.
+    // Bez toho by každý další pokus vyrobil na Disku další kopii.
+    const { filename, mimeType, dataBase64, souborId } = JSON.parse(event.body || '{}');
+    const opakovanaCast = String(souborId || '').trim();
+    if (!opakovanaCast && (!filename || !mimeType || !dataBase64)) {
       return json(400, { error: 'Chybí soubor (filename/mimeType/dataBase64).' });
     }
 
-    const buffer = Buffer.from(dataBase64, 'base64');
-    if (buffer.length > 4.5 * 1024 * 1024) {
-      return json(413, { error: 'Soubor je moc velký (limit cca 4,5 MB po kompresi).' });
-    }
-
     const drive = await getDriveClient();
-    const nahranySoubor = await drive.files.create({
-      requestBody: { name: filename, parents: [process.env.INBOX_FOLDER_ID] },
-      media: { mimeType, body: bufferToStream(buffer) },
-      fields: 'id, webViewLink',
-    });
+    let idSouboru = opakovanaCast;
+    let odkazSouboru = '';
+
+    if (opakovanaCast) {
+      // Ověří se, že soubor opravdu existuje a je pořád náš - klient by
+      // jinak mohl navěsit doklad na cizí soubor na Disku.
+      try {
+        const meta = await drive.files.get({ fileId: opakovanaCast, fields: 'id, webViewLink' });
+        odkazSouboru = (meta.data && meta.data.webViewLink) || '';
+      } catch (e) {
+        return json(400, { error: 'Soubor z předchozího pokusu se na Disku nepodařilo najít: ' + e.message });
+      }
+    } else {
+      const buffer = Buffer.from(dataBase64, 'base64');
+      if (buffer.length > 4.5 * 1024 * 1024) {
+        return json(413, { error: 'Soubor je moc velký (limit cca 4,5 MB po kompresi).' });
+      }
+      const nahranySoubor = await drive.files.create({
+        requestBody: { name: filename, parents: [process.env.INBOX_FOLDER_ID] },
+        media: { mimeType, body: bufferToStream(buffer) },
+        fields: 'id, webViewLink',
+      });
+      idSouboru = nahranySoubor.data.id;
+      odkazSouboru = nahranySoubor.data.webViewLink || '';
+    }
 
     const sheets = await getSheetsClient();
     const radek = {
       ID: crypto.randomUUID(),
       Datum_zpracovani: new Date().toISOString(),
       Typ: '',
-      Zdrojovy_soubor_URL: nahranySoubor.data.webViewLink || '',
-      Zdrojovy_soubor_ID: nahranySoubor.data.id,
+      Zdrojovy_soubor_URL: odkazSouboru,
+      Zdrojovy_soubor_ID: idSouboru,
       Dodavatel: '',
       ICO_dodavatele: '',
       Odberatel_text: '',
@@ -99,7 +118,21 @@ exports.handler = async (event) => {
       Nahral_uzivatel: uzivatel.jmeno || '',
     };
 
-    await appendRow(sheets, process.env.SPREADSHEET_ID, 'Doklady', DOKLADY_HEADERS, radek);
+    try {
+      await appendRow(sheets, process.env.SPREADSHEET_ID, 'Doklady', DOKLADY_HEADERS, radek);
+    } catch (e) {
+      // (v4.71) Soubor UŽ JE na Disku, jen se nepodařilo založit řádek
+      // v Dokladech - typicky když Sheets narazí na minutový limit čtení
+      // (viz lib/opakuj.js). Bez tohohle by druhý pokus nahrál na Disk
+      // druhou kopii a v Inboxu by zůstal osiřelý soubor, o kterém nikdo
+      // neví. `souborId` se proto vrátí a klient ho při opakování pošle
+      // zpátky - viz `souborId` na začátku funkce.
+      return json(500, {
+        error: e.message,
+        souborId: idSouboru,
+        souborNaDisku: true,
+      });
+    }
 
     return json(200, { ok: true, doklad: radek });
   } catch (e) {
