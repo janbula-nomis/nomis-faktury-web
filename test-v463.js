@@ -91,25 +91,27 @@ const HOTOVY = {
   Zauctovano: 'ANO', Stav_parovani_bankou: 'Potvrzeno',
 };
 
-test('hotový doklad dostane předponu ZS a číslo dle systému', () => {
-  assert.strictEqual(nazevScanu(HOTOVY, 'faktura.pdf').nazev, 'ZS FP 001-2026 - ČEZ Prodej, s.r.o..pdf');
+test('hotový doklad dostane předponu ZU a číslo dle systému', () => {
+  // (v4.68) Z „S" (spárováno) je „U" (uhrazeno) - Jan: „sjednotit", ať se
+  // stav na obrazovce a písmeno v názvu souboru jmenují stejně.
+  assert.strictEqual(nazevScanu(HOTOVY, 'faktura.pdf').nazev, 'ZU FP 001-2026 - ČEZ Prodej, s.r.o..pdf');
 });
 
 test('předpona odpovídá tomu, co doklad opravdu má', () => {
-  assert.strictEqual(predponaStavu({ Zauctovano: 'ANO', Stav_parovani_bankou: 'Potvrzeno' }), 'ZS');
+  assert.strictEqual(predponaStavu({ Zauctovano: 'ANO', Stav_parovani_bankou: 'Potvrzeno' }), 'ZU');
   assert.strictEqual(predponaStavu({ Zauctovano: 'ANO' }), 'Z');
-  assert.strictEqual(predponaStavu({ Stav_parovani_bankou: 'Potvrzeno' }), 'S');
+  assert.strictEqual(predponaStavu({ Stav_parovani_bankou: 'Potvrzeno' }), 'U');
   assert.strictEqual(predponaStavu({}), '');
 });
 
-test('hotovost se počítá jako spárovaná - Janovo „platí i pro hotovostní platbu"', () => {
+test('hotovost se počítá jako uhrazená - Janovo „platí i pro hotovostní platbu"', () => {
   assert.ok(jeSparovano({ Hrazeno_mimo_ucet: 'ANO' }));
-  assert.strictEqual(predponaStavu({ Hrazeno_mimo_ucet: 'ANO' }), 'S');
+  assert.strictEqual(predponaStavu({ Hrazeno_mimo_ucet: 'ANO' }), 'U');
 });
 
-test('pouhý NÁVRH spárování ✓ nedostane', () => {
+test('pouhý NÁVRH úhrady ✓ nedostane', () => {
   // „Navrženo" znamená, že to appka jen tipla a čeká na potvrzení.
-  // Kdyby dostalo S, tvrdil by název souboru něco, co nikdo neodklepl.
+  // Kdyby dostalo U, tvrdil by název souboru něco, co nikdo neodklepl.
   assert.ok(!jeSparovano({ Stav_parovani_bankou: 'Navrženo' }));
   assert.strictEqual(predponaStavu({ Stav_parovani_bankou: 'Navrženo' }), '');
 });
@@ -209,10 +211,18 @@ test('bez potvrzení se nic nemění (náhled)', () => {
   assert.ok(!/files\.update/.test(nahled), 'náhled sahá na soubory');
 });
 
-test('mění se JEN název souboru', () => {
-  const usek = SCANY_FN.slice(SCANY_FN.indexOf('drive.files.update'), SCANY_FN.indexOf('drive.files.update') + 200);
-  assert.ok(/requestBody: \{ name: spocteny\.nazev \}/.test(usek), 'do update se posílá víc než název');
-  assert.ok(!/parents|trashed|addParents/.test(SCANY_FN), 'appka by soubory přesouvala nebo mazala');
+test('nic se nemaže ani nekopíruje', () => {
+  // Pravidlo se ve v4.69 ZÚŽILO, ne zrušilo. Do v4.68 znělo „mění se jen
+  // název"; od v4.69 smí appka soubor i přestěhovat do archivu (Janova
+  // volba: přesun, ne kopie). Co platí dál a co se tu hlídá: appka nikdy
+  // nic nemaže, nevyhazuje do koše ani nekopíruje, a složku mění POUZE
+  // v archivním režimu.
+  assert.ok(!/files\.delete|trashed: true|files\.copy/.test(SCANY_FN),
+    'do funkce se dostalo mazání nebo kopírování');
+  const kod = SCANY_FN.split('\n').filter((r) => !/^\s*(\/\/|\*|\/\*)/.test(r)).join('\n');
+  assert.ok(/if \(archivovat && cilId && rodice\.indexOf\(cilId\) === -1\) \{/.test(kod),
+    'soubor se stěhuje i mimo archivní režim');
+  assert.ok(/requestBody: \{ name: spocteny\.nazev \}/.test(kod), 'název se přestal měnit');
 });
 
 test('jen schválené doklady jedné firmy', () => {
@@ -257,9 +267,13 @@ test('endpoint bere jen POST a jen účetní/admina', () => {
 // ===========================================================================
 console.log('  -- frontend --');
 
-test('spárováno i hotovost mají ✓', () => {
-  assert.ok(/>✓ Spárováno</.test(APP), 'chybí znak zaškrtnuto u spárování');
-  assert.ok(/>✓ Hotovost</.test(APP), 'hotovost ✓ nedostala');
+test('obě cesty k úhradě mají ✓', () => {
+  // (v4.67) Popisky se přeformulovaly z „Spárováno" na „Uhrazeno" - Jan:
+  // *„spárováno znamená také uhrazeno (výpis na účtu nebo hotovost)"*.
+  // Hlídané chování je ale pořád totéž: obojí je doložená platba a obojí
+  // dostane ✓.
+  assert.ok(/>✓ Uhrazeno</.test(APP), 'chybí ✓ u úhrady z bankovního výpisu');
+  assert.ok(/>✓ Uhrazeno hotově</.test(APP), 'hotovost ✓ nedostala');
 });
 
 test('„Mimo účet" už nevypadá jako nedodělek', () => {
@@ -419,9 +433,26 @@ test('sloupec Zaúčt. je v hlavičce až jako poslední', () => {
 });
 
 test('mřížka má o sloupec víc ve všech třech šířkách', () => {
-  assert.ok(/16px 92px 62px 92px minmax\(140px, 1fr\) 90px 110px 62px/.test(CSS), 'desktop');
-  assert.ok(/14px 62px 48px 66px minmax\(90px, 1fr\) 80px 54px/.test(CSS), '640px');
-  assert.ok(/14px 55px 48px minmax\(80px, 1fr\) 70px 48px/.test(CSS), '480px');
+  // Počítají se STOPY, ne konkrétní pixely - šířky se ladí (v4.67 se
+  // rozšířil sloupec úhrady) a test má hlídat počet sloupců, ne design.
+  // minmax(a, b) je jedna stopa, proto se před počítáním stáhne na token.
+  const stop = (radek) => radek.split(':')[1].replace(/minmax\([^)]*\)/g, 'X').trim().split(/\s+/).length;
+  // Vybírají se JEN pravidla dokladů. Prefix „16px 92px" má i mřížka
+  // bankovních výpisů a vydaných faktur, takže filtrovat podle šířek by
+  // chytilo cizí komponenty.
+  const vsechny = [];
+  let od = 0;
+  for (;;) {
+    const i = CSS.indexOf('.doklad-radek-hlava, .doklad-radek-hlavicka', od);
+    if (i === -1) break;
+    od = i + 10;
+    const konec = CSS.indexOf('}', i);
+    const m = CSS.slice(i, konec).match(/grid-template-columns: [^;]*/);
+    if (m) vsechny.push(m[0]);
+  }
+  assert.strictEqual(vsechny.length, 3, 'některá ze tří šířek zmizela');
+  // desktop 8 buněk, 640px má schované datum (7), 480px i úhradu (6)
+  assert.deepStrictEqual(vsechny.map(stop), [8, 7, 6]);
 });
 
 test('v kartovém rozvržení má zaškrtávátko své místo i popisek', () => {

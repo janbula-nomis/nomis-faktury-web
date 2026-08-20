@@ -293,19 +293,31 @@
       <div id="doklady-nacitani" class="nacitani">Načítám…</div>
       <div id="doklady-zprava" class="zprava uspech skryto"></div>
       <div class="doklad-tabulka-obal">
+        <!-- (v4.66) Hlavička je zároveň ovládání řazení. Buňky zůstávají
+             <span> schválně - mobilní pravidla schovávají sloupce přes
+             `.doklad-radek-hlavicka > span:nth-child(n)`, a kdyby se z nich
+             staly <button>, přestala by platit. Klikatelnost proto řeší
+             role/tabindex, ne jiný prvek. -->
         <div class="doklad-radek-hlavicka popis">
           <span></span>
-          <span>Číslo</span>
-          <span>Stav</span>
-          <span>Banka</span>
-          <span>Dodavatel</span>
-          <span>Datum</span>
-          <span class="castka">Částka</span>
+          <span data-sloupec="cislo" role="button" tabindex="0">Číslo</span>
+          <span data-sloupec="stav" role="button" tabindex="0">Stav</span>
+          <!-- (v4.67) Sloupec se jmenuje Úhrada, ne Banka. Jan: *„spárováno
+               znamená také uhrazeno (výpis na účtu nebo hotovost)"*. Vnitřní
+               klíč řazení zůstal `banka` schválně - je to pořád stav
+               párování s bankovním výpisem a přejmenovat ho by znamenalo
+               sáhnout na obě kopie řadicí logiky bez užitku pro uživatele. -->
+          <span data-sloupec="banka" role="button" tabindex="0"
+                title="Je doklad uhrazený? Z bankovního výpisu nebo hotově.">Úhrada</span>
+          <span data-sloupec="dodavatel" role="button" tabindex="0">Dodavatel</span>
+          <span data-sloupec="datum" role="button" tabindex="0"
+                title="Datum vystavení z dokladu (ne datum nahrání)">Vystaveno</span>
+          <span class="castka" data-sloupec="castka" role="button" tabindex="0">Částka</span>
           <!-- (v4.63) Zaúčtováno. Sloupec je přidaný ZÁMĚRNĚ AŽ NA KONEC -
                mobilní rozvržení schovává sloupce přes nth-child(4) a
                nth-child(6), takže vložit ho doprostřed by ta pravidla
                posunulo na jiné buňky. -->
-          <span class="doklad-zauct-bunka">Zaúčt.</span>
+          <span class="doklad-zauct-bunka" data-sloupec="zauctovano" role="button" tabindex="0">Zaúčt.</span>
         </div>
         <div id="doklady-seznam"></div>
       </div>
@@ -891,14 +903,34 @@
       <details class="panel-skladaci" id="panel-prejmenovat-scany" style="margin-top:16px">
         <summary>Pojmenovat scany na Disku (pro účetní)</summary>
         <p class="popis">Appka přejmenuje scany schválených dokladů na Google Disku do tvaru
-          <strong>„ZS FP 001-2026 – ČEZ Prodej.pdf“</strong>, kde <strong>Z</strong> = zaúčtováno
-          a <strong>S</strong> = spárováno s bankou (nebo hrazeno hotově). Předpona je na začátku
-          schválně – složka na Disku se pak sama seřadí na hotové a nedodělané. Na Disku si potom
-          celou složku stáhnete jedním klikem, zip poskládá Google.</p>
-        <p class="popis">Mění se <strong>jen název souboru</strong> – nic se nepřesouvá, nemaže
-          ani nepřepisuje, a doklad v appce zůstává na stejný soubor navázaný. Appka nejdřív ukáže
-          náhled; teprve druhé tlačítko soubory skutečně přejmenuje. Použije se výběr firmy,
-          měsíce a roku z filtru nahoře – <strong>firma je povinná</strong>.</p>
+          <strong>„ZU FP 001-2026 – ČEZ Prodej.pdf“</strong>, kde <strong>Z</strong> = zaúčtováno
+          a <strong>U</strong> = uhrazeno (z bankovního výpisu nebo hotově). Předpona je na začátku
+          schválně – složka na Disku se pak sama seřadí do čtyř bloků: nedodělané, uhrazené,
+          zaúčtované a hotové. Na Disku si potom celou složku stáhnete jedním klikem, zip
+          poskládá Google.</p>
+        <p class="popis">Do v4.67 se místo <strong>U</strong> psalo <strong>S</strong> (spárováno).
+          Když jste už scany jednou pojmenoval, příští běh je přejmenuje na nový tvar – je to
+          jednorázové a v náhledu to uvidíte řádek po řádku.</p>
+        <p class="popis"><strong>Nic se nemaže ani nekopíruje</strong> – appka mění název a,
+          pokud archivujete, i složku, ve které soubor leží. Doklad v appce zůstává na stejný
+          soubor navázaný. Appka nejdřív ukáže náhled; teprve druhé tlačítko na soubory sáhne.
+          Použije se výběr firmy, měsíce a roku z filtru nahoře – <strong>firma je povinná</strong>.</p>
+        <!-- (v4.69) Archiv. Jan 2026-08-20: *„potřebuju teď vzít co máme
+             i z minulosti a sladit to se současným stavem, aby ty soubory
+             seděly a šlo je uložit do archivu"*. Volby: struktura
+             „Archiv / Firma / Rok" a soubory se PŘESUNOU, ne kopírují. -->
+        <label class="zauct-prepinac" style="margin-top:10px">
+          <input type="checkbox" id="scany-archivovat" checked />
+          <span>Uložit do archivu na Disku (Archiv dokladů / firma / rok)</span>
+        </label>
+        <p class="popis">Se zaškrtnutím appka scany nejen přejmenuje, ale i <strong>přesune</strong>
+          do složky podle firmy a roku – <code>Archiv dokladů / NOMIS Investment s.r.o. / 2026</code>.
+          Stažení jedné složky z Disku je pak celý rok jedné firmy. Originály se nemažou ani
+          nekopírují, jen stěhují; odkaz z appky na doklad funguje dál. Ve složce
+          <code>00_Inbox</code> tím zbyde nezpracované. Bez zaškrtnutí se soubory jen přejmenují
+          a zůstanou, kde jsou.</p>
+        <p class="popis">Chcete-li srovnat i starší doklady, nechte nahoře <strong>Všechny měsíce</strong>
+          a <strong>Všechny roky</strong>. Appka zpracuje po dávkách a napíše, kolik jich zbývá.</p>
         <div class="tlacitka-nahrani">
           <button type="button" id="tlacitko-scany-nahled" class="sekundarni">Zobrazit náhled</button>
         </div>

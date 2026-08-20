@@ -2,9 +2,11 @@
  * netlify/functions/doklady-prejmenovat-scany.js
  * Hromadné pojmenování scanů přijatých faktur na Google Disku (od v4.63).
  *
- * POST { firma, rok?, mesic?, potvrdit? }
- *   potvrdit != true  -> NÁHLED: co by se přejmenovalo, nic se nemění
- *   potvrdit === true -> přejmenuje soubory na Disku
+ * POST { firma, rok?, mesic?, potvrdit?, archivovat? }
+ *   potvrdit != true  -> NÁHLED: co by se stalo, nic se nemění
+ *   potvrdit === true -> provede
+ *   archivovat === true -> soubor se navíc PŘESUNE do
+ *     „Archiv dokladů / <firma> / <rok>" (viz lib/archivScanu.js)
  *
  * Jan 2026-08-20: *„jestli je možné nějak exportovat hromadně doklady -
  * scany, které budou mít předem daný text souboru, který získají, např.
@@ -21,9 +23,16 @@
  *    operace, kterou nejde vzít zpět jinak než ručně soubor po souboru.
  *    Appka proto bez `potvrdit: true` NEZAPISUJE - stejný vzor jako
  *    srovnání číslování (precislovani.js) a kontrola nájmů.
- * 2) MĚNÍ SE JEN NÁZEV. Žádný přesun mezi složkami, žádné mazání, žádná
- *    změna obsahu. `Zdrojovy_soubor_ID` v listu Doklady zůstává stejné,
- *    takže se appce nic nerozváže.
+ * 2) NIC SE NEMAŽE. Appka mění název a - v archivním režimu - složku,
+ *    ve které soubor leží. Nikdy nic nemaže, nevyhazuje do koše ani
+ *    nepřepisuje obsah. `Zdrojovy_soubor_ID` zůstává stejné, takže odkaz
+ *    z appky funguje dál i po přesunu: Disk soubor zná podle ID, ne podle
+ *    umístění.
+ *
+ *    (v4.69) Přesun je Janova volba - `00_Inbox` je jediná složka, kam od
+ *    začátku padá úplně všechno (přijaté faktury všech firem, smlouvy,
+ *    vydané faktury), takže z ní stáhnout „rok jedné firmy" nešlo.
+ *    Přesunem se Inbox zároveň vyčistí a zbyde v něm nezpracované.
  * 3) JEN SCHVÁLENÉ DOKLADY JEDNÉ FIRMY. Účetnictví se vede po firmách a
  *    evidenční číslo (bez kterého název nedává smysl) vzniká až při
  *    schválení.
@@ -36,6 +45,7 @@ const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { readSheetObjects } = require('../../lib/sheetsHelpers');
 const { nazevScanu } = require('../../lib/nazvyScanu');
+const { cestaArchivu, klicCesty, NAZEV_ARCHIVU } = require('../../lib/archivScanu');
 const { json } = require('../../lib/http');
 
 // Kolik dokladů zvládne jeden běh. Každý znamená jedno čtení z Disku a
@@ -72,6 +82,70 @@ async function poDavkach(polozky, limit, prace) {
   return vysledky;
 }
 
+/*
+ * (v4.69) Najde nebo založí složku daného jména pod daným rodičem.
+ *
+ * Hledá se jen mezi NESMAZANÝMI složkami a jen přímo pod rodičem, ať se
+ * nechytne stejnojmenná složka odjinud z Disku. Appka pracuje se scopem
+ * `drive.file`, takže vidí jen to, co sama vytvořila - a archivní složky
+ * vytváří sama, takže je i najde.
+ *
+ * Výsledky se v rámci jednoho běhu keší (`kes`), jinak by se pro každý
+ * z šedesáti dokladů hledala ta samá složka znovu.
+ */
+async function zajistiSlozku(drive, nazev, rodicId, kes, klic) {
+  if (kes.has(klic)) return kes.get(klic);
+
+  const dotaz = [
+    "mimeType = 'application/vnd.google-apps.folder'",
+    'trashed = false',
+    "name = '" + String(nazev).replace(/'/g, "\\'") + "'",
+    "'" + rodicId + "' in parents",
+  ].join(' and ');
+
+  const nalezene = await drive.files.list({
+    q: dotaz, fields: 'files(id, name)', pageSize: 10,
+  });
+  let id = nalezene.data && nalezene.data.files && nalezene.data.files[0]
+    ? nalezene.data.files[0].id : null;
+
+  if (!id) {
+    const vytvorena = await drive.files.create({
+      requestBody: {
+        name: nazev,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [rodicId],
+      },
+      fields: 'id',
+    });
+    id = vytvorena.data.id;
+  }
+  kes.set(klic, id);
+  return id;
+}
+
+/*
+ * Kořen, pod který se archiv zakládá: nadřazená složka Inboxu, tedy
+ * „Nomis Group - Doklady". Archiv tak sedí vedle `00_Inbox`, ne někde
+ * v kořeni Disku, kde by ho nikdo nehledal.
+ *
+ * Když se rodič zjistit nedaří (starší Inbox, změněná práva), vrací se
+ * `null` a archivace se kvůli tomu NEROZBĚHNE naslepo - endpoint to
+ * ohlásí jako chybu. Založit archiv v kořeni Disku „aby to nějak prošlo"
+ * by znamenalo rozsypat soubory na místo, kde je Jan nečeká.
+ */
+async function najdiKorenArchivu(drive) {
+  const inbox = process.env.INBOX_FOLDER_ID;
+  if (!inbox) return null;
+  try {
+    const meta = await drive.files.get({ fileId: inbox, fields: 'parents' });
+    const rodice = (meta.data && meta.data.parents) || [];
+    return rodice[0] || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return json(200, {});
   if (event.httpMethod !== 'POST') return json(405, { error: 'Method not allowed' });
@@ -92,6 +166,7 @@ exports.handler = async (event) => {
     const rok = String(telo.rok || '').trim();
     const mesic = String(telo.mesic || '').trim();
     const potvrdit = telo.potvrdit === true;
+    const archivovat = telo.archivovat === true;
 
     // Bez firmy ne. Účetní kontroluje jednu firmu a přejmenovat omylem
     // scany celé skupiny je přesně ten druh chyby, po které se to musí
@@ -135,16 +210,55 @@ exports.handler = async (event) => {
 
     const drive = await getDriveClient();
 
+    // (v4.69) Kořen archivu se zjišťuje JEN když se archivuje, a když se
+    // nezjistí, funkce se rovnou zastaví. Archivovat „někam" je horší než
+    // nearchivovat vůbec.
+    let korenArchivu = null;
+    if (archivovat) {
+      korenArchivu = await najdiKorenArchivu(drive);
+      if (!korenArchivu) {
+        return json(500, {
+          error: 'Nepodařilo se najít složku, do které archiv patří (nadřazená složka Inboxu na Disku). '
+            + 'Zkontrolujte INBOX_FOLDER_ID v Netlify a přístup appky k Disku.',
+        });
+      }
+    }
+    // Keš složek v rámci jednoho běhu - viz zajistiSlozku().
+    const kesSlozek = new Map();
+
+    // Složky se zakládají POSTUPNĚ, ne uvnitř souběžných úloh: dva
+    // paralelní běhy by pro tentýž rok založily dvě stejnojmenné složky
+    // (Disk to dovolí) a soubory by se rozpadly do obou.
+    const cileArchivu = new Map();
+    if (archivovat && potvrdit) {
+      for (let i = 0; i < davka.length; i += 1) {
+        const cesta = cestaArchivu(davka[i], firma);
+        const klic = klicCesty(cesta);
+        if (cileArchivu.has(klic)) continue;
+        let rodic = korenArchivu;
+        for (let u = 0; u < cesta.length; u += 1) {
+          rodic = await zajistiSlozku(
+            drive, cesta[u], rodic, kesSlozek, klicCesty(cesta.slice(0, u + 1))
+          );
+        }
+        cileArchivu.set(klic, rodic);
+      }
+    }
+
     const polozky = await poDavkach(davka, SOUBEZNE, async (d) => {
+      const cesta = cestaArchivu(d, firma);
       const zaklad = {
         id: d.ID,
         evidencni: d.Evidencni_cislo || '',
         dodavatel: d.Dodavatel || '',
+        slozka: archivovat ? klicCesty(cesta) : '',
       };
       let stary = '';
+      let rodice = [];
       try {
-        const meta = await drive.files.get({ fileId: d.Zdrojovy_soubor_ID, fields: 'name' });
+        const meta = await drive.files.get({ fileId: d.Zdrojovy_soubor_ID, fields: 'name, parents' });
         stary = (meta.data && meta.data.name) || '';
+        rodice = (meta.data && meta.data.parents) || [];
       } catch (e) {
         return Object.assign(zaklad, {
           stary: '', novy: '', akce: 'preskoceno',
@@ -159,27 +273,42 @@ exports.handler = async (event) => {
       if (!spocteny.nazev) {
         return Object.assign(zaklad, { stary, novy: '', akce: 'preskoceno', duvod: spocteny.duvod });
       }
-      if (spocteny.nazev === stary) {
-        // Idempotence: opakované spuštění nic nedělá a nic nehlásí jako
-        // změnu. Účetní může tlačítko zmáčknout každý měsíc znovu.
+
+      // Idempotence: opakované spuštění nic nedělá. V archivním režimu
+      // musí sedět OBOJÍ - název i to, že soubor už v cílové složce leží.
+      const cilId = cileArchivu.get(klicCesty(cesta));
+      const uzJeVCili = !archivovat || (!!cilId && rodice.indexOf(cilId) !== -1);
+      if (spocteny.nazev === stary && uzJeVCili) {
         return Object.assign(zaklad, { stary, novy: spocteny.nazev, akce: 'beze-zmeny', duvod: '' });
       }
 
       if (!potvrdit) {                                                // pravidlo 1
-        return Object.assign(zaklad, { stary, novy: spocteny.nazev, akce: 'prejmenovat', duvod: '' });
+        return Object.assign(zaklad, {
+          stary, novy: spocteny.nazev,
+          akce: archivovat ? 'archivovat' : 'prejmenovat', duvod: '',
+        });
       }
 
       try {
-        // Pravidlo 2: mění se JEN název.
-        await drive.files.update({
+        // Pravidlo 2: mění se název a (v archivním režimu) složka. Nic se
+        // nemaže - `addParents`/`removeParents` soubor jen přestěhuje.
+        const pozadavek = {
           fileId: d.Zdrojovy_soubor_ID,
           requestBody: { name: spocteny.nazev },
+        };
+        if (archivovat && cilId && rodice.indexOf(cilId) === -1) {
+          pozadavek.addParents = cilId;
+          if (rodice.length) pozadavek.removeParents = rodice.join(',');
+        }
+        await drive.files.update(pozadavek);
+        return Object.assign(zaklad, {
+          stary, novy: spocteny.nazev,
+          akce: archivovat ? 'archivovano' : 'prejmenovano', duvod: '',
         });
-        return Object.assign(zaklad, { stary, novy: spocteny.nazev, akce: 'prejmenovano', duvod: '' });
       } catch (e) {
         return Object.assign(zaklad, {
           stary, novy: spocteny.nazev, akce: 'preskoceno',
-          duvod: 'Přejmenování se nepovedlo: ' + e.message,
+          duvod: (archivovat ? 'Uložení do archivu' : 'Přejmenování') + ' se nepovedlo: ' + e.message,
         });
       }
     });
@@ -189,12 +318,14 @@ exports.handler = async (event) => {
     return json(200, {
       ok: true,
       rezim: potvrdit ? 'provedeno' : 'nahled',
+      archivovat,
+      korenArchivu: archivovat ? NAZEV_ARCHIVU : '',
       firma,
       celkem: vybrane.length,
       zpracovano: davka.length,
       zbyva,
-      kPrejmenovani: spocti('prejmenovat'),
-      prejmenovano: spocti('prejmenovano'),
+      kPrejmenovani: spocti('prejmenovat') + spocti('archivovat'),
+      prejmenovano: spocti('prejmenovano') + spocti('archivovano'),
       bezeZmeny: spocti('beze-zmeny'),
       preskoceno: spocti('preskoceno'),
       polozky,

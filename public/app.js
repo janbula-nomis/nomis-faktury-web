@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.65 – 2026-08-20';
+const APP_VERZE = 'v4.69 – 2026-08-20';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1191,8 +1191,8 @@ function dokladStavZkratka(stavText) {
   return 'Kontrola';
 }
 
-// Badge u SCHVÁLENÉHO dokladu, jestli k němu appka našla/potvrdila
-// odpovídající bankovní pohyb (v3.16) - appka pole `Stav_parovani_bankou`
+// Badge u SCHVÁLENÉHO dokladu: JE TO UHRAZENÉ? (v3.16, přeformulováno
+// v4.67) Vnitřně je to pořád stav párování s bankou - appka pole `Stav_parovani_bankou`
 // dopočítá na backendu při GET /doklady (viz netlify/functions/doklady.js),
 // porovnáním s listem Bankovni_pohyby. U dokladů hrazených mimo účet
 // (hotově/soukromou kartou) appka záměrně neukazuje "Nespárováno" - takový
@@ -1286,20 +1286,27 @@ function aktualizujSouhrnFirmyDokladu() {
 // mřížku - plné znění appka nechává v `title` atributu (tooltip).
 function bankSparovaniBadge(d) {
   if (d.Stav !== 'Schváleno') return '';
-  // (v4.63) Hotovost se NEPÁRUJE - Janova volba: doklad hrazený mimo účet
-  // je vyřízený tím, že je zaplacený, a dostane rovnou ✓. Do v4.62 tu
-  // svítilo šedé „Mimo účet", což vedle „Spárováno" vypadalo jako
-  // nedodělek, přitom nic nechybělo.
+  // (v4.67) Sloupec mluví o ÚHRADĚ, ne o párování. Jan 2026-08-20:
+  // *„spárováno znamená také uhrazeno (výpis na účtu nebo hotovost)"*.
+  // „Spárováno" byl termín z vnitřku appky - pro účetní je to jen mezikrok
+  // k jediné otázce, která ji zajímá: je to zaplacené?
+  //
+  // Obě cesty k úhradě vypadají stejně silně, protože stejně silné jsou:
+  // potvrzený bankovní pohyb i hotovost jsou obojí doložená platba. Liší se
+  // jen v popisku, ať je poznat ČÍM se platilo.
   if (String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO') {
-    return '<span class="badge-potvrzeno" title="Doklad je hrazený mimo účet (hotovost) - protějšek v bance se u něj nehledá, je vyřízený">✓ Hotovost</span>';
+    return '<span class="badge-potvrzeno" title="Uhrazeno hotově nebo mimo účet – protějšek v bankovním výpisu se u takového dokladu nehledá">✓ Uhrazeno hotově</span>';
   }
   if (d.Stav_parovani_bankou === 'Potvrzeno') {
-    return '<span class="badge-potvrzeno" title="Appka našla a účetní potvrdila odpovídající bankovní pohyb (Spárováno s bankou)">✓ Spárováno</span>';
+    return '<span class="badge-potvrzeno" title="Uhrazeno – appka našla odpovídající pohyb v bankovním výpisu a účetní ho potvrdila">✓ Uhrazeno</span>';
   }
   if (d.Stav_parovani_bankou === 'Navrženo') {
-    return '<span class="badge-navrzeno" title="Appka navrhla odpovídající bankovní pohyb, čeká na potvrzení v záložce Bankovní výpisy (Navrženo spárování)">Návrh</span>';
+    return '<span class="badge-navrzeno" title="Appka našla v bankovním výpisu pohyb, který na doklad sedí, ale nikdo ho zatím nepotvrdil – odklepněte v Bankovních výpisech">Návrh úhrady</span>';
   }
-  return '<span class="badge-chybi" title="K tomuhle dokladu appka zatím nenašla odpovídající bankovní pohyb v Bankovních výpisech (Nespárováno s bankou)">Nespár.</span>';
+  // Janova volba: appka řekne, co VÍ (platbu nenašla), ne co neví. Tvrdé
+  // „Neuhrazeno" by u faktury, ke které se jen ještě nenačetl výpis, svádělo
+  // k zaplacení podruhé.
+  return '<span class="badge-chybi" title="Appka k tomuhle dokladu nenašla žádnou platbu. Nemusí to znamenat, že zaplacený není – může jen chybět načtený bankovní výpis, nebo se platba nespárovala.">Nenalezena platba</span>';
 }
 
 let firmyProVyberDokladu = [];
@@ -1668,6 +1675,129 @@ function moznostiPeriodaSmlouvy(vybrane) {
   return html;
 }
 
+/* ---------------------------------------------------------------------------
+ * (v4.66) ŘAZENÍ SEZNAMU PŘIJATÝCH FAKTUR
+ *
+ * Jan 2026-08-20: *„potřebuju to umět seřadit podle kriterií které vyberu,
+ * datum musí být vytěžené z dokladu jako datum vystavení"*.
+ *
+ * Kopie lib/razeniDokladu.js - prohlížeč nemá build krok a `require` neumí
+ * (stejná konvence jako u parsujCastkuZListu výš). **Musí zůstat přesně
+ * synchronní s originálem**, test-v466.js to hlídá.
+ *
+ * Čtyři pravidla, která se nesmí změkčit, jsou popsaná v lib/razeniDokladu.js:
+ * prázdné hodnoty vždycky dolů, evidenční číslo jako (rok, pořadí), stav
+ * banky podle významu a stabilní řazení.
+ * ------------------------------------------------------------------------- */
+const SLOUPCE_RAZENI = ['cislo', 'stav', 'banka', 'dodavatel', 'datum', 'castka', 'zauctovano'];
+const PORADI_BANKY = { nesparovano: 0, navrh: 1, sparovano: 2 };
+
+// Výchozí pořadí: podle data vystavení, nejnovější nahoře. To je to, co
+// účetní čeká, když seznam otevře.
+let dokladyRazeniSloupec = 'datum';
+let dokladyRazeniSmer = 'desc';
+
+function textCislo(hodnota) {
+  return String(hodnota === null || hodnota === undefined ? '' : hodnota).trim();
+}
+
+function klicEvidencnihoCisla(hodnota) {
+  const text = textCislo(hodnota);
+  if (!text) return null;
+  const m = text.match(/(\d+)\s*[-–]\s*(\d{4})/);
+  if (!m) return { rok: 0, poradi: 0, text };
+  return { rok: parseInt(m[2], 10), poradi: parseInt(m[1], 10), text };
+}
+
+function klicBanky(d) {
+  if (textCislo(d.Hrazeno_mimo_ucet).toUpperCase() === 'ANO') return PORADI_BANKY.sparovano;
+  const stav = textCislo(d.Stav_parovani_bankou);
+  if (stav === 'Potvrzeno') return PORADI_BANKY.sparovano;
+  if (stav === 'Navrženo') return PORADI_BANKY.navrh;
+  return PORADI_BANKY.nesparovano;
+}
+
+function klicSloupce(d, sloupec) {
+  if (sloupec === 'cislo') {
+    const k = klicEvidencnihoCisla(d.Evidencni_cislo);
+    return k ? k.rok * 100000 + k.poradi : null;
+  }
+  if (sloupec === 'stav') return textCislo(d.Stav) || null;
+  if (sloupec === 'banka') return klicBanky(d);
+  if (sloupec === 'dodavatel') return textCislo(d.Dodavatel) || null;
+  if (sloupec === 'datum') return textCislo(d.Datum_dokladu) || null;
+  if (sloupec === 'castka') {
+    const c = parsujCastkuZListu(d.Castka);
+    return textCislo(d.Castka) === '' ? null : c;
+  }
+  if (sloupec === 'zauctovano') return textCislo(d.Zauctovano).toUpperCase() === 'ANO' ? 1 : 0;
+  return null;
+}
+
+function remizou(a, b) {
+  const ka = klicEvidencnihoCisla(a.Evidencni_cislo);
+  const kb = klicEvidencnihoCisla(b.Evidencni_cislo);
+  const ca = ka ? ka.rok * 100000 + ka.poradi : -1;
+  const cb = kb ? kb.rok * 100000 + kb.poradi : -1;
+  return cb - ca;
+}
+
+function serazDoklady(doklady, sloupec, smer) {
+  const dolu = smer === 'desc' ? -1 : 1;
+  const radek = (doklady || []).slice();
+  radek.sort((a, b) => {
+    const ka = klicSloupce(a, sloupec);
+    const kb = klicSloupce(b, sloupec);
+    const prazdneA = ka === null || ka === '';
+    const prazdneB = kb === null || kb === '';
+    if (prazdneA && prazdneB) return remizou(a, b);
+    if (prazdneA) return 1;
+    if (prazdneB) return -1;
+    let rozdil;
+    if (typeof ka === 'number' && typeof kb === 'number') {
+      rozdil = ka - kb;
+    } else {
+      rozdil = String(ka).localeCompare(String(kb), 'cs');
+    }
+    if (rozdil !== 0) return rozdil * dolu;
+    return remizou(a, b);
+  });
+  return radek;
+}
+
+/*
+ * Klepnutí na nadpis sloupce. První klepnutí na nový sloupec řadí tak, jak
+ * to u něj dává smysl: u data, částky a zaúčtování sestupně (nejnovější,
+ * největší a hotové napřed), u textu vzestupně od A. Další klepnutí na
+ * tentýž sloupec směr otočí.
+ */
+function prepniRazeniDokladu(sloupec) {
+  if (SLOUPCE_RAZENI.indexOf(sloupec) === -1) return;
+  if (dokladyRazeniSloupec === sloupec) {
+    dokladyRazeniSmer = dokladyRazeniSmer === 'asc' ? 'desc' : 'asc';
+  } else {
+    dokladyRazeniSloupec = sloupec;
+    dokladyRazeniSmer = ['datum', 'castka', 'zauctovano'].indexOf(sloupec) !== -1 ? 'desc' : 'asc';
+  }
+  vykresliDoklady(dokladySeznamAktualni);
+}
+
+// Šipka u aktivního sloupce. Bez ní by nebylo poznat, podle čeho je seznam
+// seřazený - a to je horší než neseřazený seznam, protože se tomu věří.
+function oznacRazeniVHlavicce() {
+  document.querySelectorAll('.doklad-radek-hlavicka > span[data-sloupec]').forEach((el) => {
+    const aktivni = el.dataset.sloupec === dokladyRazeniSloupec;
+    el.classList.toggle('razeni-aktivni', aktivni);
+    const sipka = el.querySelector('.razeni-sipka');
+    if (sipka) sipka.remove();
+    if (!aktivni) return;
+    const nova = document.createElement('span');
+    nova.className = 'razeni-sipka';
+    nova.textContent = dokladyRazeniSmer === 'asc' ? ' ▲' : ' ▼';
+    el.appendChild(nova);
+  });
+}
+
 function vykresliDoklady(doklady) {
   dokladySeznamAktualni = doklady;
   const kontejner = document.getElementById('doklady-seznam');
@@ -1704,7 +1834,12 @@ function vykresliDoklady(doklady) {
     souhrnEl.textContent = '';
   }
 
-  const serazene = filtrovane.slice().sort((a, b) => (b.Datum_zpracovani || '').localeCompare(a.Datum_zpracovani || ''));
+  // (v4.66) Řadí se podle sloupce, který si člověk vybral v hlavičce.
+  // Do v4.65 to bylo natvrdo podle `Datum_zpracovani` (kdy se doklad nahrál)
+  // - na Janově snímku to vypadalo jako by seznam seřazený nebyl vůbec,
+  // protože pořadí nahrání neodpovídá pořadí dokladů.
+  const serazene = serazDoklady(filtrovane, dokladyRazeniSloupec, dokladyRazeniSmer);
+  oznacRazeniVHlavicce();
 
   kontejner.innerHTML = '';
   serazene.forEach((d) => kontejner.appendChild(vytvorRadekDoklad(d)));
@@ -2001,6 +2136,15 @@ function vytvorSekciPolozek(opts) {
   return sekce;
 }
 
+// Bublina u data: co appka o dokladu z hlediska dat ví. Prázdné položky se
+// vynechávají - „Splatnost: —" nikomu nepomůže.
+function popisDatDokladu(d) {
+  const casti = ['Vystaveno: ' + (d.Datum_dokladu || 'nevytěženo')];
+  if (d.DUZP && d.DUZP !== d.Datum_dokladu) casti.push('DUZP: ' + d.DUZP);
+  if (d.Datum_splatnosti) casti.push('Splatnost: ' + d.Datum_splatnosti);
+  return casti.join(' · ');
+}
+
 function vytvorRadekDoklad(d) {
   const radek = document.createElement('div');
   radek.className = 'doklad-radek radek-' + stavTrida(d.Stav);
@@ -2032,7 +2176,10 @@ function vytvorRadekDoklad(d) {
     '</span>' +
     // (v4.46) Datum má vlastní třídu `doklad-datum` - stejný důvod jako
     // u bankovního řádku výš (v mobilním režimu se přesouvá, ne schovává).
-    '<span class="doklad-datum">' + escapeHtml(d.Datum_dokladu || '') + '</span>' +
+    // (v4.66) Ve sloupci je DATUM VYSTAVENÍ z dokladu. DUZP a splatnost má
+    // účetní v bublině, ať se kvůli nim nemusí rozklikávat každý řádek.
+    '<span class="doklad-datum" title="' + escapeAttr(popisDatDokladu(d)) + '">' +
+      escapeHtml(d.Datum_dokladu || '') + '</span>' +
     '<span class="castka">' + (d.Stav === 'Zpracovává se' ? '' : formatCastkaSMenou(d.Castka, d.Mena)) + '</span>' +
     // (v4.63) Buňka „Zaúčtováno". Je tu VŽDY (i prázdná), ať mřížka drží
     // pevný počet sloupců - stejný důvod jako u buňky s odznakem banky.
@@ -11129,6 +11276,17 @@ document.getElementById('dokl-sekce-ke-schvaleni').addEventListener('click', () 
 document.getElementById('dokl-sekce-schvalene').addEventListener('click', () => prepniDokladySekci('schvalene'));
 // (v4.63) Změna firmy jen překreslí už načtený seznam - do Sheets se kvůli
 // přepnutí firmy nechodí znovu.
+// (v4.66) Nadpisy sloupců řadí. Klávesnice se obsluhuje taky - buňky jsou
+// <span role="button">, takže samotný Enter/mezera by je jinak minul.
+document.querySelectorAll('.doklad-radek-hlavicka > span[data-sloupec]').forEach((el) => {
+  el.addEventListener('click', () => prepniRazeniDokladu(el.dataset.sloupec));
+  el.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    prepniRazeniDokladu(el.dataset.sloupec);
+  });
+});
+
 ['doklady-vyber-firmy', 'doklady-filtr-mesic', 'doklady-filtr-rok', 'doklady-filtr-zauctovano']
   .forEach((id) => {
     document.getElementById(id).addEventListener('change', () => vykresliDoklady(dokladySeznamAktualni));
@@ -11340,9 +11498,15 @@ document.getElementById('tlacitko-export-excel').addEventListener('click', async
  * Jan 2026-08-20 se ptal, jestli jde scany hromadně vyexportovat pod
  * předem daným názvem („Z - zaúčtováno, S - spárováno a pak číslo dle
  * systému"), a vybral variantu **přejmenovat je na Disku** a složku si
- * pak stáhnout z Disku. Zip skládaný tady v appce by u většího výběru
- * narazil na limit velikosti odpovědi Netlify funkce - a spadl by až po
- * minutě čekání.
+ * pak stáhnout z Disku.
+ *
+ * Zip skládaný tady v appce by u většího výběru narazil na limit velikosti
+ * odpovědi Netlify funkce - a spadl by až po minutě čekání.
+ *
+ * (v4.68) Z „S" je „U" jako uhrazeno - na Janovo „sjednotit", ať se stav
+ * na obrazovce a písmeno v názvu souboru jmenují stejně. Už pojmenované
+ * soubory se tím při příštím běhu přejmenují jednou znovu; v náhledu je to
+ * vidět řádek po řádku.
  *
  * Dvě fáze: náhled (server nic nemění) a potvrzení. Bez toho by šlo
  * jedním klepnutím přejmenovat desítky souborů, což zpátky vzít nejde.
@@ -11357,13 +11521,17 @@ async function scanyNahledNeboProvedeni(potvrdit, tlacitko) {
   }
   const mesic = document.getElementById('export-mesic').value;
   const rok = document.getElementById('export-rok').value;
+  // (v4.69) Archivní režim se čte v okamžiku SPUŠTĚNÍ náhledu a stejná
+  // hodnota pak jde i do potvrzení - jinak by šlo odklepnout něco jiného,
+  // než co bylo v náhledu vidět.
+  const archivovat = !!(document.getElementById('scany-archivovat') || {}).checked;
 
   if (tlacitko) tlacitko.disabled = true;
-  el.innerHTML = '<div class="nacitani">' + (potvrdit ? 'Přejmenovávám…' : 'Načítám náhled…') + '</div>';
+  el.innerHTML = '<div class="nacitani">' + (potvrdit ? 'Zpracovávám…' : 'Načítám náhled…') + '</div>';
   try {
     const data = await zavolejApi('/doklady-prejmenovat-scany', {
       method: 'POST',
-      body: JSON.stringify({ firma, rok, mesic, potvrdit }),
+      body: JSON.stringify({ firma, rok, mesic, potvrdit, archivovat }),
     });
     vykresliVysledekScanu(el, data);
   } catch (e) {
@@ -11375,14 +11543,15 @@ async function scanyNahledNeboProvedeni(potvrdit, tlacitko) {
 function vykresliVysledekScanu(el, data) {
   el.innerHTML = '';
 
+  const doArchivu = !!data.archivovat;
   const shrnuti = document.createElement('div');
   shrnuti.className = 'zprava ' + (data.rezim === 'provedeno' ? 'uspech' : 'info');
   shrnuti.textContent = data.rezim === 'provedeno'
-    ? 'Přejmenováno souborů: ' + data.prejmenovano
+    ? (doArchivu ? 'Uloženo do archivu: ' : 'Přejmenováno souborů: ') + data.prejmenovano
       + (data.bezeZmeny ? ', beze změny: ' + data.bezeZmeny : '')
       + (data.preskoceno ? ', přeskočeno: ' + data.preskoceno : '') + '.'
-    : 'K přejmenování: ' + data.kPrejmenovani
-      + (data.bezeZmeny ? ', už správně pojmenováno: ' + data.bezeZmeny : '')
+    : (doArchivu ? 'K uložení do archivu: ' : 'K přejmenování: ') + data.kPrejmenovani
+      + (data.bezeZmeny ? (doArchivu ? ', už v archivu a správně pojmenováno: ' : ', už správně pojmenováno: ') + data.bezeZmeny : '')
       + (data.preskoceno ? ', přeskočeno: ' + data.preskoceno : '') + '.';
   el.appendChild(shrnuti);
 
@@ -11405,25 +11574,32 @@ function vykresliVysledekScanu(el, data) {
   }
 
   const tabulka = document.createElement('table');
-  tabulka.innerHTML = '<thead><tr><th>Teď</th><th>Nově</th><th>Stav</th></tr></thead>';
+  tabulka.innerHTML = '<thead><tr><th>Teď</th><th>Nově</th>'
+    + (doArchivu ? '<th>Složka</th>' : '') + '<th>Stav</th></tr></thead>';
   const telo = document.createElement('tbody');
   data.polozky.forEach((p) => {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td data-label="Teď"></td><td data-label="Nově"></td><td data-label="Stav"></td>';
+    tr.innerHTML = '<td data-label="Teď"></td><td data-label="Nově"></td>'
+      + (doArchivu ? '<td data-label="Složka"></td>' : '') + '<td data-label="Stav"></td>';
     tr.children[0].textContent = p.stary || '(soubor nenalezen)';
     tr.children[1].textContent = p.novy || '—';
+    // U přeskočeného dokladu se cílová složka NEUKAZUJE - nikam nepůjde
+    // a vyplněný sloupec by tvrdil opak.
+    if (doArchivu) tr.children[2].textContent = (p.akce === 'preskoceno' ? '' : p.slozka) || '—';
+    const bunkaStavu = tr.children[doArchivu ? 3 : 2];
     let trida = 'badge-navrzeno';
-    let text = 'Přejmenovat';
+    let text = doArchivu ? 'Do archivu' : 'Přejmenovat';
     if (p.akce === 'prejmenovano') { trida = 'badge-potvrzeno'; text = 'Přejmenováno'; }
+    else if (p.akce === 'archivovano') { trida = 'badge-potvrzeno'; text = 'V archivu'; }
     else if (p.akce === 'beze-zmeny') { trida = 'badge-potvrzeno'; text = 'Beze změny'; }
     else if (p.akce === 'preskoceno') { trida = 'badge-chybi'; text = 'Přeskočeno'; }
-    tr.children[2].innerHTML = '<span class="' + trida + '">' + escapeHtml(text) + '</span>';
+    bunkaStavu.innerHTML = '<span class="' + trida + '">' + escapeHtml(text) + '</span>';
     if (p.duvod) {
       const pozn = document.createElement('div');
       pozn.className = 'popis';
       pozn.style.margin = '2px 0 0';
       pozn.textContent = p.duvod;
-      tr.children[2].appendChild(pozn);
+      bunkaStavu.appendChild(pozn);
     }
     telo.appendChild(tr);
   });
@@ -11432,11 +11608,19 @@ function vykresliVysledekScanu(el, data) {
 
   if (data.rezim === 'nahled' && data.kPrejmenovani > 0) {
     const potvrd = document.createElement('button');
-    potvrd.textContent = 'Přejmenovat ' + data.kPrejmenovani + ' souborů na Disku';
+    potvrd.textContent = doArchivu
+      ? 'Uložit ' + data.kPrejmenovani + ' souborů do archivu'
+      : 'Přejmenovat ' + data.kPrejmenovani + ' souborů na Disku';
     potvrd.addEventListener('click', () => {
-      if (!confirm('Appka přejmenuje ' + data.kPrejmenovani + ' souborů na Google Disku.\n\n'
-        + 'Mění se jen název – nic se nepřesouvá ani nemaže a doklady v appce zůstanou '
-        + 'navázané na stejné soubory. Zpátky to jde jen ručně, soubor po souboru.\n\nPokračovat?')) return;
+      const otazka = doArchivu
+        ? 'Appka přejmenuje ' + data.kPrejmenovani + ' souborů a PŘESUNE je na Disku do složek '
+          + '„Archiv dokladů / firma / rok“.\n\n'
+          + 'Nic se nemaže ani nekopíruje – soubory se jen přestěhují z 00_Inbox a odkazy '
+          + 'z appky fungují dál. Zpátky to jde jen ručně, soubor po souboru.\n\nPokračovat?'
+        : 'Appka přejmenuje ' + data.kPrejmenovani + ' souborů na Google Disku.\n\n'
+          + 'Mění se jen název – nic se nepřesouvá ani nemaže a doklady v appce zůstanou '
+          + 'navázané na stejné soubory. Zpátky to jde jen ručně, soubor po souboru.\n\nPokračovat?';
+      if (!confirm(otazka)) return;
       scanyNahledNeboProvedeni(true, potvrd);
     });
     el.appendChild(potvrd);

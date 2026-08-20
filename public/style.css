@@ -795,7 +795,10 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
   /* (v4.63) Osmý sloupec = „Zaúčtováno". Přidaný na KONEC schválně -
      mobilní bloky níž schovávají sloupce přes nth-child(4)/(6), takže
      vložit ho doprostřed by ta pravidla posunulo na jiné buňky. */
-  grid-template-columns: 16px 92px 62px 92px minmax(140px, 1fr) 90px 110px 62px;
+  /* (v4.67) Sloupec úhrady je širší (92 -> 132 px): odznak „Nenalezena
+     platba" je delší než dřívější „Nespár." a oříznutý stav se čte
+     špatně zrovna tam, kde jde o peníze. */
+  grid-template-columns: 16px 92px 62px 132px minmax(140px, 1fr) 90px 110px 62px;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -2386,3 +2389,18 @@ body.sken-okno-otevreno { overflow: hidden; }
 /* Popisek se ukazuje jen v kartovém (nejužším) rozvržení, kde je hlavička
    s názvy sloupců schovaná - jinde by dubloval nadpis sloupce. */
 .zauct-popisek { display: none; font-size: 11px; color: var(--barva-text-tlumena); }
+
+/* (v4.66) Nadpisy sloupců u přijatých faktur řadí seznam.
+   Jan: *„potřebuju to umět seřadit podle kriterií které vyberu"*.
+   Kurzor a podtržení při najetí říkají, že se dá klepnout; aktivní sloupec
+   je tmavší a nese šipku - podle barvy samotné by to poznat nešlo. */
+.doklad-radek-hlavicka > span[data-sloupec] { cursor: pointer; user-select: none; }
+.doklad-radek-hlavicka > span[data-sloupec]:hover { text-decoration: underline; }
+.doklad-radek-hlavicka > span[data-sloupec]:focus-visible {
+  outline: 2px solid #c9a227;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.doklad-radek-hlavicka > span.razeni-aktivni { color: var(--barva-text); font-weight: 700; }
+.razeni-sipka { font-size: 9px; }
+:root[data-motiv="tmavy"] .doklad-radek-hlavicka > span.razeni-aktivni { color: #e8eaee; }
