@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.69 – 2026-08-20';
+const APP_VERZE = 'v4.70 – 2026-08-20';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -619,7 +619,46 @@ function prepniZalozku(nazev) {
 
 // ---------- NAHRÁVÁNÍ DOKLADU ----------
 
-let vybranySoubor = null;
+/*
+ * (v4.70) Nahrávání VÍC souborů najednou.
+ *
+ * Jan 2026-08-20: *„můžu nahrát více souborů najednou do přijatých
+ * faktur?"* - nemohl; pole bralo jeden soubor a `vybranySoubor` byl jeden
+ * objekt. Při stovce dokladů za rok to znamenalo stokrát projít celý
+ * postup vybrat-nahrat-počkat.
+ *
+ * ČTYŘI VĚCI, KTERÉ SE TU NESMÍ ZMĚNIT
+ *
+ * 1) FRONTA JDE POSTUPNĚ, JEDEN SOUBOR PO DRUHÉM. Každý soubor projde přes
+ *    AI vytěžení, které trvá vteřiny; poslat je naráz by narazilo na limity
+ *    Gemini i na časový strop Netlify funkce. Souběh sem nedodělávat.
+ * 2) CHYBA U JEDNOHO SOUBORU FRONTU NEZASTAVÍ. Zbytek se nahraje dál a
+ *    u problémového souboru se napíše, co se stalo. Zastavit se na páté
+ *    z dvanácti faktur by znamenalo, že člověk neví, které prošly.
+ * 3) PŘÍLIŠ VELKÝ SOUBOR SE NAHLÁSÍ, NE TIŠE PŘESKOČÍ. Netlify má strop
+ *    ~4,5 MB na požadavek. Když se z dvanácti souborů tři nevejdou a appka
+ *    mlčí, člověk odchází s tím, že má hotovo.
+ * 4) SOUBOR JE ULOŽENÝ DŘÍV, NEŽ HO ČTE AI. Když spadne vytěžení, doklad
+ *    zůstane ve stavu „Zpracovává se" a dokončí se tlačítkem v seznamu -
+ *    nic se nenahrává znovu. To platilo i pro jeden soubor a platí dál.
+ */
+
+// Strop Netlify na velikost požadavku. Musí sedět s kontrolou v
+// netlify/functions/upload.js - tahle je tu jen proto, aby to appka řekla
+// dřív a srozumitelněji než serverová 413.
+const MAX_BAJTU_SOUBORU = 4.5 * 1024 * 1024;
+
+// Fronta vybraných souborů. Každá položka: { nazev, mimeType, data } nebo
+// { nazev, chyba } u souboru, který se ani nepodařilo připravit.
+let vybraneSoubory = [];
+
+// Kolik bajtů zabere base64 řetězec po dekódování (server kontroluje až
+// dekódovanou velikost).
+function velikostZBase64(data) {
+  const text = String(data || '');
+  const vycpavka = text.endsWith('==') ? 2 : (text.endsWith('=') ? 1 : 0);
+  return Math.floor((text.length * 3) / 4) - vycpavka;
+}
 
 // Komprese obrázku / převod na base64 - sdílené jak pro hlavní záložku
 // Nahrát doklad, tak pro nahrání nového dokladu rovnou z řádku bankovního
@@ -631,25 +670,104 @@ async function pripravSouborKNahrani(soubor) {
   return { data: await souborNaBase64(soubor), mimeType: soubor.type, nazev: soubor.name };
 }
 
-async function zpracujVybranySoubor(soubor) {
+async function zpracujVybraneSoubory(seznamSouboru) {
   const zprava = document.getElementById('nahrat-zprava');
   const info = document.getElementById('vybrany-soubor-info');
+  const fronta = document.getElementById('nahrat-fronta');
+  const tlacitko = document.getElementById('tlacitko-nahrat');
   zprava.innerHTML = '';
-  document.getElementById('tlacitko-nahrat').disabled = true;
+  fronta.innerHTML = '';
+  tlacitko.disabled = true;
 
-  if (!soubor) {
-    vybranySoubor = null;
+  const soubory = Array.from(seznamSouboru || []);
+  if (!soubory.length) {
+    vybraneSoubory = [];
     info.textContent = '';
+    tlacitko.textContent = 'Nahrát a zpracovat';
     return;
   }
 
-  try {
-    vybranySoubor = await pripravSouborKNahrani(soubor);
-    info.textContent = 'Vybráno: ' + soubor.name;
-    document.getElementById('tlacitko-nahrat').disabled = false;
-  } catch (e) {
-    zprava.innerHTML = '<div class="zprava chyba">Soubor se nepodařilo zpracovat: ' + escapeHtml(e.message) + '</div>';
+  info.textContent = 'Připravuji ' + soubory.length + '…';
+  vybraneSoubory = [];
+
+  for (let i = 0; i < soubory.length; i += 1) {
+    const soubor = soubory[i];
+    try {
+      const pripraveny = await pripravSouborKNahrani(soubor);
+      // Pravidlo 3: velký soubor se nezahodí potichu.
+      if (velikostZBase64(pripraveny.data) > MAX_BAJTU_SOUBORU) {
+        vybraneSoubory.push({
+          nazev: soubor.name,
+          chyba: 'Soubor je moc velký (limit je zhruba 4,5 MB). Zmenšete ho nebo rozdělte.',
+        });
+      } else {
+        vybraneSoubory.push(pripraveny);
+      }
+    } catch (e) {
+      vybraneSoubory.push({ nazev: soubor.name, chyba: 'Nepodařilo se připravit: ' + e.message });
+    }
   }
+
+  const kNahrani = vybraneSoubory.filter((f) => !f.chyba);
+  const vadne = vybraneSoubory.filter((f) => f.chyba);
+
+  info.textContent = kNahrani.length === 1 && !vadne.length
+    ? 'Vybráno: ' + kNahrani[0].nazev
+    : 'Vybráno souborů: ' + kNahrani.length
+      + (vadne.length ? ' (' + vadne.length + ' nelze nahrát – viz níž)' : '');
+
+  vykresliFrontuNahravani();
+  tlacitko.textContent = kNahrani.length > 1
+    ? 'Nahrát a zpracovat (' + kNahrani.length + ')'
+    : 'Nahrát a zpracovat';
+  tlacitko.disabled = kNahrani.length === 0;
+}
+
+// Řádek na soubor. `stav` se dopisuje průběžně, ať je vidět, kde fronta je.
+function vykresliFrontuNahravani() {
+  const fronta = document.getElementById('nahrat-fronta');
+  fronta.innerHTML = '';
+  if (vybraneSoubory.length <= 1 && !vybraneSoubory.some((f) => f.chyba)) return;
+
+  vybraneSoubory.forEach((f, i) => {
+    const radek = document.createElement('div');
+    radek.className = 'nahrat-fronta-radek';
+    radek.id = 'nahrat-fronta-' + i;
+
+    const nazev = document.createElement('span');
+    nazev.className = 'nahrat-fronta-nazev';
+    nazev.textContent = f.nazev;
+    radek.appendChild(nazev);
+
+    const stav = document.createElement('span');
+    stav.className = 'nahrat-fronta-stav';
+    if (f.chyba) {
+      stav.innerHTML = '<span class="badge-chybi">Nelze nahrát</span>';
+      const duvod = document.createElement('div');
+      duvod.className = 'popis';
+      duvod.style.margin = '2px 0 0';
+      duvod.textContent = f.chyba;
+      stav.appendChild(duvod);
+    } else {
+      stav.textContent = 'čeká';
+    }
+    radek.appendChild(stav);
+    fronta.appendChild(radek);
+  });
+}
+
+function stavSouboruVeFronte(index, html, popis) {
+  const radek = document.getElementById('nahrat-fronta-' + index);
+  if (!radek) return;
+  const stav = radek.querySelector('.nahrat-fronta-stav');
+  if (!stav) return;
+  stav.innerHTML = html;
+  if (!popis) return;
+  const p = document.createElement('div');
+  p.className = 'popis';
+  p.style.margin = '2px 0 0';
+  p.textContent = popis;
+  stav.appendChild(p);
 }
 
 function souborNaBase64(soubor) {
@@ -1092,53 +1210,89 @@ function zpravaPoZpracovaniDokladu(odpoved) {
   );
 }
 
+/*
+ * Projde frontu vybraných souborů. Pravidlo 1: postupně, ne souběžně.
+ * Pravidlo 2: chyba u jednoho fronta nezastaví.
+ */
 async function nahratDoklad() {
   const zprava = document.getElementById('nahrat-zprava');
   const tlacitko = document.getElementById('tlacitko-nahrat');
-  if (!vybranySoubor) return;
+  const kNahrani = vybraneSoubory
+    .map((f, i) => ({ soubor: f, index: i }))
+    .filter((x) => !x.soubor.chyba);
+  if (!kNahrani.length) return;
 
   tlacitko.disabled = true;
-  zprava.innerHTML = '<div class="zprava">Nahrávám soubor…</div>';
+  let hotovo = 0;
+  let cekaNaDokonceni = 0;
+  let nepovedlo = 0;
+  let navic = 0;          // doklady navíc z jednoho scanu
 
-  let doklad;
-  try {
-    const odpoved = await zavolejApi('/upload', {
-      method: 'POST',
-      body: JSON.stringify({
-        filename: vybranySoubor.nazev,
-        mimeType: vybranySoubor.mimeType,
-        dataBase64: vybranySoubor.data,
-      }),
-    });
-    doklad = odpoved.doklad;
-  } catch (e) {
-    zprava.innerHTML = '<div class="zprava chyba">Soubor se nepodařilo nahrát: ' + escapeHtml(e.message) + '</div>';
-    tlacitko.disabled = !vybranySoubor;
-    return;
+  for (let poradi = 0; poradi < kNahrani.length; poradi += 1) {
+    const { soubor, index } = kNahrani[poradi];
+    zprava.innerHTML = '<div class="zprava">Nahrávám ' + (poradi + 1) + ' z ' + kNahrani.length
+      + ': ' + escapeHtml(soubor.nazev) + '…</div>';
+    stavSouboruVeFronte(index, '<span class="badge-navrzeno">Nahrávám…</span>');
+
+    let doklad;
+    try {
+      const odpoved = await zavolejApi('/upload', {
+        method: 'POST',
+        body: JSON.stringify({
+          filename: soubor.nazev,
+          mimeType: soubor.mimeType,
+          dataBase64: soubor.data,
+        }),
+      });
+      doklad = odpoved.doklad;
+    } catch (e) {
+      // Pravidlo 2: fronta jede dál.
+      nepovedlo += 1;
+      stavSouboruVeFronte(index, '<span class="badge-chybi">Nenahráno</span>', e.message);
+      continue;
+    }
+
+    stavSouboruVeFronte(index, '<span class="badge-navrzeno">Čtu údaje AI…</span>');
+    try {
+      const odpoved = await zavolejApi('/upload-dokoncit', { method: 'POST', body: JSON.stringify({ id: doklad.ID }) });
+      hotovo += 1;
+      // Z jednoho scanu může vzniknout VÍC dokladů (víc účtenek vedle sebe,
+      // viz zpravaPoZpracovaniDokladu výš). Bez téhle poznámky by souhrn
+      // říkal „zpracováno 3" a v seznamu by přibylo pět položek.
+      const dalsi = (odpoved && odpoved.dalsiDoklady) || [];
+      navic += dalsi.length;
+      stavSouboruVeFronte(index, '<span class="badge-potvrzeno">✓ Zpracováno</span>',
+        dalsi.length ? 'Na tomhle souboru bylo víc dokladů vedle sebe – appka jich založila '
+          + (dalsi.length + 1) + '.' : '');
+    } catch (e) {
+      // Pravidlo 4: soubor je uložený, jen ho AI nepřečetla. Doklad čeká
+      // v seznamu ve stavu „Zpracovává se" a dokončí se odtud jedním
+      // tlačítkem - nahrávat znovu se nemusí nic.
+      cekaNaDokonceni += 1;
+      stavSouboruVeFronte(index, '<span class="badge-navrzeno">Uloženo, čeká na AI</span>',
+        'Soubor je bezpečně uložený, jen se ho teď nepodařilo přečíst. Najdete ho v Přijatých '
+        + 'fakturách se stavem „Zpracovává se" a dokončíte tlačítkem „Dokončit zpracování".');
+    }
   }
 
-  // Soubor je bezpečně uložený - vyčistíme výběr souboru hned, appka ho
-  // dál nepotřebuje (fáze 2 si soubor stáhne z Drive sama).
+  // Výběr se čistí až po celé frontě - fáze 2 si soubor stahuje z Drive,
+  // takže data v prohlížeči už nikdo nepotřebuje.
   document.getElementById('pole-soubor').value = '';
   document.getElementById('pole-foto').value = '';
   document.getElementById('vybrany-soubor-info').textContent = '';
-  vybranySoubor = null;
+  const vadne = vybraneSoubory.filter((f) => f.chyba).length;
+  vybraneSoubory = [];
+  tlacitko.textContent = 'Nahrát a zpracovat';
   tlacitko.disabled = true;
 
-  zprava.innerHTML = '<div class="zprava">Soubor nahrán, appka na pozadí čte údaje pomocí AI (může trvat několik vteřin)…</div>';
-  try {
-    const odpovedDokonceni = await zavolejApi('/upload-dokoncit', { method: 'POST', body: JSON.stringify({ id: doklad.ID }) });
-    zprava.innerHTML =
-      '<div class="zprava uspech">' + zpravaPoZpracovaniDokladu(odpovedDokonceni) + '</div>';
-  } catch (e) {
-    zprava.innerHTML =
-      '<div class="zprava info">Soubor byl bezpečně nahrán, ale zpracování údajů pomocí AI se teď nepovedlo ' +
-      '(' + escapeHtml(e.message) + '). Nic jste neztratili - doklad najdete v záložce Přijaté faktury se stavem ' +
-      '„Zpracovává se“ a zpracování jde odtud kdykoli zopakovat tlačítkem „Dokončit zpracování“, ' +
-      'bez nutnosti cokoliv nahrávat znovu.</div>';
-  } finally {
-    tlacitko.disabled = !vybranySoubor;
-  }
+  const casti = [];
+  if (hotovo) casti.push('zpracováno: ' + hotovo + (navic ? ' (a ' + navic + '× doklad navíc z jednoho scanu)' : ''));
+  if (cekaNaDokonceni) casti.push('uloženo a čeká na dokončení: ' + cekaNaDokonceni);
+  if (nepovedlo) casti.push('nenahráno: ' + nepovedlo);
+  if (vadne) casti.push('nešlo nahrát: ' + vadne);
+  const trida = (nepovedlo || vadne) ? 'info' : 'uspech';
+  zprava.innerHTML = '<div class="zprava ' + trida + '">Hotovo – ' + casti.join(', ') + '.'
+    + (kNahrani.length > 1 ? ' Podrobnosti u jednotlivých souborů níž.' : '') + '</div>';
 }
 
 async function dokoncitZpracovaniDokladu(id, tlacitko) {
@@ -11269,8 +11423,10 @@ document.addEventListener('keydown', (e) => {
   const tlacitko = document.getElementById('tlacitko-nahrat-cta');
   if (tlacitko) tlacitko.focus();
 });
-document.getElementById('pole-foto').addEventListener('change', (e) => zpracujVybranySoubor(e.target.files[0]));
-document.getElementById('pole-soubor').addEventListener('change', (e) => zpracujVybranySoubor(e.target.files[0]));
+// (v4.70) Oba vstupy jdou přes stejnou frontu; focení jich prostě dodá
+// jen jeden. Míň větví = míň míst, kde se to může rozejít.
+document.getElementById('pole-foto').addEventListener('change', (e) => zpracujVybraneSoubory(e.target.files));
+document.getElementById('pole-soubor').addEventListener('change', (e) => zpracujVybraneSoubory(e.target.files));
 document.getElementById('tlacitko-nahrat').addEventListener('click', nahratDoklad);
 document.getElementById('dokl-sekce-ke-schvaleni').addEventListener('click', () => prepniDokladySekci('keSchvaleni'));
 document.getElementById('dokl-sekce-schvalene').addEventListener('click', () => prepniDokladySekci('schvalene'));

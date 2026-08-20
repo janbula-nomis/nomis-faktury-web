@@ -2404,3 +2404,23 @@ body.sken-okno-otevreno { overflow: hidden; }
 .doklad-radek-hlavicka > span.razeni-aktivni { color: var(--barva-text); font-weight: 700; }
 .razeni-sipka { font-size: 9px; }
 :root[data-motiv="tmavy"] .doklad-radek-hlavicka > span.razeni-aktivni { color: #e8eaee; }
+
+/* (v4.70) Fronta při nahrávání víc souborů najednou.
+   Jan: *„můžu nahrát více souborů najednou do přijatých faktur?"* Řádek na
+   soubor, stav vpravo - u dvanácti faktur musí být na první pohled vidět,
+   kde fronta je a co neprošlo. */
+#nahrat-fronta { margin-top: 10px; }
+.nahrat-fronta-radek {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  border-top: 1px solid var(--barva-hranice);
+  font-size: 13px;
+}
+.nahrat-fronta-radek:first-child { border-top: none; }
+.nahrat-fronta-nazev { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* Stav se nesmí zmáčknout na nulu - nese i vysvětlení, proč soubor neprošel. */
+.nahrat-fronta-stav { flex: 0 0 auto; max-width: 55%; text-align: right; }
+:root[data-motiv="tmavy"] .nahrat-fronta-radek { border-top-color: #2f3542; }

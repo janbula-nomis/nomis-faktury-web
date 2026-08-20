@@ -183,16 +183,23 @@
     <!-- NAHRÁT -->
     <div id="zalozka-nahrat" class="karta skryto">
       <h2>Nahrát nový doklad</h2>
-      <p class="popis">Vyfoťte nebo vyberte fakturu/účtenku. Fotky se před odesláním automaticky zmenší.</p>
+      <p class="popis">Vyfoťte nebo vyberte fakturu/účtenku. Přes „Nahrát soubory“ jich můžete označit
+        <strong>víc najednou</strong> – appka je vezme jednu po druhé a u každé napíše, jak dopadla.
+        Fotky se před odesláním automaticky zmenší.</p>
       <div class="tlacitka-nahrani">
         <button id="tlacitko-vyfotit" type="button" class="sekundarni">📷 Vyfotit</button>
-        <button id="tlacitko-vybrat-soubor" type="button" class="sekundarni">📁 Nahrát soubor</button>
+        <button id="tlacitko-vybrat-soubor" type="button" class="sekundarni">📁 Nahrát soubory</button>
       </div>
       <input type="file" id="pole-foto" accept="image/*" capture="environment" class="skryto" />
-      <input type="file" id="pole-soubor" accept="image/*,application/pdf" class="skryto" />
+      <!-- (v4.70) `multiple` má JEN výběr souboru, ne focení. Fotoaparát
+           dává jeden snímek a dávkové focení nedává smysl. -->
+      <input type="file" id="pole-soubor" accept="image/*,application/pdf" class="skryto" multiple />
       <div id="vybrany-soubor-info" class="popis"></div>
       <button id="tlacitko-nahrat" disabled>Nahrát a zpracovat</button>
       <div id="nahrat-zprava"></div>
+      <!-- (v4.70) Průběh fronty - řádek na soubor. Jan 2026-08-20:
+           *„můžu nahrát více souborů najednou do přijatých faktur?"* -->
+      <div id="nahrat-fronta"></div>
     </div>
 
     <!-- DASHBOARD (od v3.22) -->
