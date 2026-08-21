@@ -448,6 +448,14 @@
         <select id="nova-nem-stredisko"></select>
         <label for="nova-nem-nazev">Název jednotky (nepovinný)</label>
         <input type="text" id="nova-nem-nazev" placeholder="např. Byt 3, Vinohrady" />
+        <label for="nova-nem-druh">Druh nemovitosti</label>
+        <select id="nova-nem-druh">
+          <option value="">— nevyplněno —</option>
+          <option value="Byt">Byt</option>
+          <option value="Dům">Dům</option>
+          <option value="Pozemek">Pozemek</option>
+          <option value="Ostatní">Ostatní</option>
+        </select>
         <label for="nova-nem-adresa">Adresa</label>
         <input type="text" id="nova-nem-adresa" />
         <div class="mriz-2">
@@ -489,6 +497,13 @@
         <button id="tlacitko-pridat-jednotku">Přidat jednotku</button>
         <div id="nemovitosti-nova-zprava"></div>
       </details>
+
+      <!-- (v4.78) Souhrn portfolia nad seznamem. Jan 2026-08-21 poslal
+           snímek z appky Nemovitorium a zeptal se „tohle umíš?" - z nabídky
+           si vybral majetek v kostce, vybrané ukazatele a „vyžaduje
+           pozornost". Zadlužení (LTV) ne: appka o úvěrech nevede nic a
+           musela by si dluh vymyslet. -->
+      <div id="nemovitosti-portfolio"></div>
 
       <div id="nemovitosti-nacitani" class="nacitani">Načítám…</div>
       <!-- (v4.57) Končící nájemní smlouvy. Appka na to má všechna data od

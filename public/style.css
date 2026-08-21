@@ -1994,6 +1994,95 @@ input[type="file"] { margin-top: 8px; }
 .karta-jednotka .sekce-jednotky h4 { font-size: 13px; margin: 0 0 8px; }
 .karta-jednotka table { font-size: 13px; }
 
+/* ---------- PORTFOLIO NEMOVITOSTÍ (v4.78) ----------
+   Jan 2026-08-21 poslal snímek z appky Nemovitorium a zeptal se, jestli to
+   appka umí taky. Souhrn stojí NAD seznamem bytů - je to odpověď na otázku
+   „jak na tom portfolio je", kterou člověk má dřív, než začne hledat
+   konkrétní byt. */
+.portfolio-mrizka {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px; margin-bottom: 14px;
+}
+.portfolio-karta { margin-bottom: 0; }
+.portfolio-siroka { grid-column: 1 / -1; }
+.portfolio-karta h3 { font-size: 14px; font-weight: 700; margin: 0; }
+.portfolio-podnadpis { margin: 2px 0 10px; font-size: 12px; }
+.portfolio-pozn { margin: 10px 0 0; font-size: 11.5px; }
+.portfolio-radek {
+  display: grid; grid-template-columns: 12px 1fr 44px minmax(110px, auto);
+  align-items: center; gap: 10px; font-size: 13.5px;
+  padding: 7px 0; border-top: 1px solid var(--barva-hranice);
+}
+.portfolio-radek:first-of-type { border-top: 0; }
+.portfolio-tecka { width: 11px; height: 11px; border-radius: 999px; background: var(--barva-hranice); }
+/* Barva je tu jen na odlišení řádků od sebe; informaci nese název vedle ní,
+   takže barvoslepému uživateli nic neuteče. */
+.portfolio-tecka.druh-0 { background: #2bb391; }
+.portfolio-tecka.druh-1 { background: #e8722c; }
+.portfolio-tecka.druh-2 { background: #7ca62b; }
+.portfolio-tecka.druh-3 { background: #2b3a67; }
+.portfolio-tecka.druh-neuvedeno { background: #c3c9d4; }
+.portfolio-pocet {
+  text-align: center; font-size: 11.5px; font-weight: 700;
+  background: var(--barva-hranice); color: var(--barva-text-tlumena);
+  border-radius: 999px; padding: 1px 0;
+}
+.portfolio-hodnota { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.portfolio-hodnota.prazdna { font-weight: 400; color: var(--barva-text-tlumena); }
+.portfolio-soucet {
+  display: flex; justify-content: space-between; align-items: baseline;
+  border-top: 2px solid var(--barva-hranice); margin-top: 6px; padding-top: 9px;
+}
+.portfolio-soucet strong { font-size: 18px; }
+.portfolio-karta .polozka-upozorneni {
+  display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+  padding: 7px 10px; border-radius: var(--radius-sm);
+  background: #fff4de; color: var(--barva-varovani); margin-top: 6px;
+}
+.portfolio-karta .polozka-upozorneni.ok { background: #e8f7f0; color: var(--barva-uspech); }
+.portfolio-karta .polozka-upozorneni .ikona-stav { flex: none; }
+
+/* ---------- KARTA BYTU: ZÁLOŽKY (v4.77) ----------
+   Jan 2026-08-21: "podíváme se na modul nemovitosti, moc se mi nelíbí,
+   udělej návrh jak bude vypadat karta bytu … v nějakých záložkách".
+
+   Rozbalená karta měla šest sekcí pod sebou a u bytu se dvěma nájemníky
+   přes dva tisíce pixelů - kdo hledal číslo klíče, scrolloval přes celé
+   vyúčtování. Pět záložek, každá odpovídá na jednu otázku. */
+.karta-jednotka .jednotka-pas .stat-rada { margin: 4px 0 10px; }
+.zalozky-jednotky {
+  display: flex; gap: 2px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--barva-hranice);
+  margin: 0 -14px 12px; padding: 0 10px;
+}
+.zalozka-jednotky {
+  display: flex; align-items: center; gap: 7px;
+  background: none; border: 0; border-bottom: 2px solid transparent;
+  /* Globální styl tlačítka má border-radius 8px - spodní linka záložky by
+     se v rozích zakřivila nahoru a vypadala jako oválek pod textem. */
+  border-radius: 0;
+  padding: 9px 12px; margin: 0;
+  font-size: 12.5px; font-weight: 600; color: var(--barva-text-tlumena);
+  cursor: pointer; white-space: nowrap;
+}
+.zalozka-jednotky:hover { color: var(--barva-text); }
+/* Vybraná záložka se pozná podprsením I barvou textu - samotný odstín by
+   při barvosleposti nestačil. */
+.zalozka-jednotky.aktivni { color: var(--barva-primarni); border-bottom-color: var(--barva-primarni); }
+.zalozka-jednotky .ikona-stav { width: 15px; height: 15px; }
+.zalozka-pocet {
+  background: var(--barva-hranice); color: var(--barva-text-tlumena);
+  font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 0 6px; line-height: 16px;
+}
+.zalozka-jednotky.aktivni .zalozka-pocet { background: #e3ebff; color: var(--barva-primarni); }
+/* Panel je první v pořadí, takže jeho sekce nemá kreslit horní linku -
+   ta patří pod záložky, ne pod první nadpis. */
+.panel-jednotky > .sekce-jednotky:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+@media (max-width: 640px) {
+  .zalozky-jednotky { margin: 0 -10px 10px; padding: 0 6px; }
+  .zalozka-jednotky { padding: 9px 8px; font-size: 12px; }
+}
+
 /* ---------- KARTA BYTU: HLAVIČKA A ČTECÍ PŘEHLED (v4.57) ----------
    Jan 2026-08-07: *"potřeba editovat záznam, návrh sestavení karty bytu,
    možnost uložit wifi a heslo, přidat název jednotky"*. Z návrhu si vybral
@@ -2134,6 +2223,7 @@ input[type="file"] { margin-top: 8px; }
 /* (v4.76) Dlaždice se stavem mají v tmavém motivu vlastní pozadí - světle
    zelená/žlutá z denního motivu by pod světlým textem zmizela. */
 :root[data-motiv="tmavy"] .stat-dlazdice.stat-hotovo { background: #1c3a2e; border-color: #2c5a47; }
+:root[data-motiv="tmavy"] .zalozka-jednotky.aktivni .zalozka-pocet { background: #22314f; color: #9db4ff; }
 :root[data-motiv="tmavy"] .stat-dlazdice.stat-ceka { background: #3a3222; border-color: #5a4c2c; }
 :root[data-motiv="tmavy"] .prijem-tipy { background: #22314f; }
 :root[data-motiv="tmavy"] .prijem-varovani { background: #3a2222; }
