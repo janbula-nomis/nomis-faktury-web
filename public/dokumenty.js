@@ -970,6 +970,184 @@ function dokumentNajemniSmlouva(ctx) {
 }
 
 /* ------------------------------------------------------------------ */
+/* DODATEK K NÁJEMNÍ SMLOUVĚ                                           */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Která pole dodatku jsou ČÁSTKY a která data.
+ *
+ * V tabulce jsou všechno texty, takže bez tohohle by se do podepisovaného
+ * dodatku vytisklo holé „18500" - číslo bez měny, u kterého není poznat,
+ * jestli jsou to koruny, nebo eura. A datum by zůstalo v tabulkovém tvaru
+ * „2027-01-01" místo „1. 1. 2027".
+ */
+const POLE_CASTKY = ['Cisty_najem', 'Zaloha_na_sluzby', 'Kauce_castka'];
+const POLE_DATA = ['Platnost_od', 'Platnost_do', 'Inflace_od'];
+
+function hodnotaZmeny(pole, hodnota, mena) {
+  const text = String(hodnota === null || hodnota === undefined ? '' : hodnota).trim();
+  if (!text) return '';
+  if (POLE_CASTKY.indexOf(pole) !== -1) {
+    const castka = parsujCastkuZListu(text);
+    // Nula je platná hodnota (jistota se sjednává i na nulu), ale text,
+    // ze kterého nejde přečíst číslo, se radši vypíše, jak je.
+    if (castka || text === '0') return dokCastkaCislem(castka, mena);
+    return text;
+  }
+  if (POLE_DATA.indexOf(pole) !== -1) return dokDatum(text);
+  return text;
+}
+
+/*
+ * Struktura je z Janova `dodatek2.pdf` (podepsaný 15. 9. 2025), oddíl po
+ * oddílu: 1. smluvní strany, 2. specifikace nemovitosti, 3. prohlášení
+ * smluvních stran (odkaz na původní smlouvu), 4. změny nájemní smlouvy,
+ * 5. závěrečná ustanovení + podpisy.
+ *
+ * Česky jako smlouva - dodatek je její součást a jazyk se uprostřed
+ * smluvního vztahu nemění.
+ *
+ * ZMĚNY SE VYPISUJÍ „ZE STAVU DO STAVU". Janův vzor píše jen novou
+ * hodnotu („nahrazuje číslo bankovního účtu … nové číslo účtu
+ * 60000002/0800"). Appka umí obojí, tak vypíše obojí: co je ve smlouvě
+ * teď a co tam má být. Pro toho, kdo dodatek za rok čte, je to ten
+ * podstatný rozdíl - a je to zadarmo, protože starou hodnotu appka zná.
+ */
+function dokumentDodatek(ctx) {
+  const j = ctx.jednotka;
+  const d = ctx.dodatek || {};
+  const s = ctx.smlouva || {};
+  const zmeny = ctx.zmenyDodatku || [];
+
+  const cislo = String(d.Cislo_dodatku || '').trim();
+
+  let html = '<header class="dok-hlavicka">'
+    + '<h1>Dodatek' + (cislo ? ' č. ' + escapeHtml(cislo) : '') + ' k nájemní smlouvě</h1>'
+    + '<div class="dok-podnadpis">' + escapeHtml([String(j.Nazev || '').trim(),
+      String(j.Adresa || '').trim()].filter(Boolean).join(' · ')) + '</div>'
+    + '</header>';
+
+  // 1. Smluvní strany
+  html += dokSekce(1, 'Smluvní strany', '',
+    '<div class="dok-dve-strany">'
+    + '<div class="dok-strana"><div class="dok-role">' + dokRole('Pronajímatel') + '</div>'
+    + dokStranaHtml(ctx.pronajimatel, false) + '</div>'
+    + '<div class="dok-strana"><div class="dok-role">' + dokRole('Nájemce') + '</div>'
+    + (ctx.najemce
+      ? dokStranaHtml(ctx.najemce, false)
+      : '<div class="dok-strana-nazev">' + dokHodnota(s.Druha_strana) + '</div>'
+        + dokPole('Sídlo / trvale bytem', '', true)
+        + dokPole('IČO / datum narození', '', true))
+    + '</div></div>');
+
+  // 2. Specifikace nemovitosti
+  html += dokSekce(2, 'Specifikace nemovitosti', '',
+    dokSpecifikaceHtml(j, true, false)
+    + dokPole('Typ budovy', 'bytový dům', true));
+
+  // 3. Prohlášení smluvních stran
+  // Datum uzavření původní smlouvy appka zná od v4.81 (Smlouvy.Datum_uzavreni).
+  // Když ho nemá, zůstane pole k vyplnění - dosadit tam začátek nájmu by
+  // znamenalo tvrdit den podpisu, který nikdo nezná.
+  const uzavrena = String(s.Datum_uzavreni || '').trim();
+  html += dokSekce(3, 'Prohlášení smluvních stran', '', dokOdstavce([
+    'Strany konstatují, že mezi nimi byla dne '
+      + (uzavrena ? escapeHtml(dokDatum(uzavrena)) : dokVyplnit())
+      + ' uzavřena nájemní smlouva k výše uvedené Nemovitosti (dále jen „Nájemní smlouva“).',
+    'Pojmy používané v tomto Dodatku s velkým počátečním písmenem, ale v něm nedefinované, '
+      + 'mají význam určený jim v Nájemní smlouvě.',
+  ]));
+
+  // 4. Změny
+  let obsahZmen;
+  if (zmeny.length) {
+    const radky = zmeny.map((z) => '<tr><td>' + dokHodnota(z.popis || z.Pole) + '</td>'
+      + '<td>' + (String(z.stara || '').trim()
+        ? escapeHtml(hodnotaZmeny(z.Pole, z.stara, s.Mena)) : dokPrazdne('dosud nevyplněno')) + '</td>'
+      + '<td>' + dokHodnota(hodnotaZmeny(z.Pole, z.nova || z.Nova_hodnota, s.Mena)) + '</td></tr>').join('');
+    obsahZmen = '<p class="dok-text">Strany se dohodly na následujících změnách Nájemní smlouvy '
+      + 's účinností od '
+      + (String(d.Ucinnost_od || '').trim()
+        ? escapeHtml(dokDatum(d.Ucinnost_od)) : dokVyplnit()) + ':</p>'
+      + '<table class="dok-tabulka">'
+      + dokHlavicka([['Co se mění'], ['Dosud'], ['Nově']])
+      + '<tbody>' + radky + '</tbody></table>'
+      + (zmeny.some((z) => String(z.Popis || '').trim())
+        ? '<p class="dok-text">' + zmeny.filter((z) => String(z.Popis || '').trim())
+          .map((z) => escapeHtml(String(z.Popis).trim())).join('<br>') + '</p>'
+        : '');
+  } else {
+    // Dodatek bez zapsaných změn se vytiskne s prázdnými řádky - dá se
+    // dopsat rukou. Prázdná tabulka bez řádků by vypadala jako chyba.
+    obsahZmen = '<p class="dok-text">Strany se dohodly na následujících změnách Nájemní smlouvy '
+      + 's účinností od '
+      + (String(d.Ucinnost_od || '').trim()
+        ? escapeHtml(dokDatum(d.Ucinnost_od)) : dokVyplnit()) + ':</p>'
+      + dokPsaciPlocha(4);
+  }
+  if (String(d.Predmet || '').trim()) {
+    obsahZmen = '<p class="dok-text">' + escapeHtml(String(d.Predmet).trim()) + '</p>' + obsahZmen;
+  }
+  html += dokSekce(4, 'Změny nájemní smlouvy', '', obsahZmen);
+
+  // 5. Závěrečná ustanovení + podpisy
+  html += '<section class="dok-sekce dok-neroztrhnout"><div class="dok-sekce-hlava">'
+    + '<span class="dok-cislo">5</span><h2>Závěrečná ustanovení</h2></div>'
+    + dokOdstavce([
+      'Ostatní ujednání Nájemní smlouvy zůstávají tímto Dodatkem nedotčena.',
+      'Dodatek nabývá platnosti a účinnosti dne '
+        + (String(d.Ucinnost_od || '').trim()
+          ? escapeHtml(dokDatum(d.Ucinnost_od)) : dokVyplnit()) + '.',
+      'Tento Dodatek je vyhotoven v počtu listinných stejnopisů odpovídajícím počtu smluvních '
+        + 'stran. Každá smluvní strana obdrží jeden (1) stejnopis. Je-li Dodatek uzavírán '
+        + 'v elektronické formě, každá smluvní strana ho obdrží v elektronické podobě.',
+      'Strany prohlašují, že si Dodatek řádně přečetly, seznámily se s jeho obsahem a že '
+        + 'vyjadřuje jejich pravou a svobodnou vůli, je uzavírán určitě a vážně a nikoliv za '
+        + 'nápadně nevýhodných podmínek, na důkaz čehož připojují své podpisy.',
+    ])
+    + '<div class="dok-podpisy">'
+    + '<div class="dok-podpis"><div class="dok-podpis-mesto">V ' + dokVyplnit() + ' dne '
+    + (String(d.Datum_uzavreni || '').trim()
+      ? escapeHtml(dokDatum(d.Datum_uzavreni)) : dokVyplnit()) + '</div>'
+    + '<div class="dok-podpis-linka"></div><div class="dok-podpis-popis">Pronajímatel'
+    + (ctx.pronajimatel ? '<strong>' + escapeHtml(String(ctx.pronajimatel.Nazev || '')) + '</strong>' : '')
+    + '</div></div>'
+    + '<div class="dok-podpis"><div class="dok-podpis-mesto">V ' + dokVyplnit() + ' dne '
+    + (String(d.Datum_uzavreni || '').trim()
+      ? escapeHtml(dokDatum(d.Datum_uzavreni)) : dokVyplnit()) + '</div>'
+    + '<div class="dok-podpis-linka"></div><div class="dok-podpis-popis">Nájemce'
+    + '<strong>' + escapeHtml(String((ctx.najemce && ctx.najemce.Nazev) || s.Druha_strana || '')) + '</strong>'
+    + '</div></div>'
+    + '</div></section>';
+
+  html += '<footer class="dok-paticka">Vytištěno z Nomis Faktury ' + escapeHtml(APP_VERZE)
+    + '. Údaje předvyplnila aplikace z evidence – před podpisem je zkontrolujte.</footer>';
+
+  return html;
+}
+
+/*
+ * Co v dodatku zůstane prázdné.
+ */
+function dokumentyDodatekChybejici(ctx) {
+  const d = ctx.dodatek || {};
+  const s = ctx.smlouva || {};
+  const chybi = [];
+  const zkontroluj = (podminka, veta) => { if (podminka) chybi.push(veta); };
+
+  zkontroluj(!ctx.pronajimatel, 'Není vybraný pronajímatel – hlavička zůstane prázdná.');
+  zkontroluj(!ctx.najemce, 'Nájemce není v číselníku – zůstane jen jméno bez IČ a sídla.');
+  zkontroluj(!String(d.Cislo_dodatku || '').trim(), 'Číslo dodatku.');
+  zkontroluj(!String(d.Ucinnost_od || '').trim(), 'Od kdy dodatek platí.');
+  zkontroluj(!String(d.Datum_uzavreni || '').trim(), 'Datum podpisu dodatku.');
+  zkontroluj(!String(s.Datum_uzavreni || '').trim(),
+    'Datum uzavření původní smlouvy – doplňte ho na kartě bytu u smlouvy.');
+  zkontroluj(!(ctx.zmenyDodatku || []).length, 'Dodatek nemá zapsanou žádnou změnu.');
+
+  return chybi;
+}
+
+/* ------------------------------------------------------------------ */
 /* CO APPKA NEVÍ                                                       */
 /* ------------------------------------------------------------------ */
 

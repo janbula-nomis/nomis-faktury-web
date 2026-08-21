@@ -36,9 +36,12 @@ const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { opakujPriLimitu } = require('../../lib/opakuj');
 const { LISTY } = require('../../lib/listySchema');
-const { readSheetObjects, updateRow } = require('../../lib/sheetsHelpers');
+const { readSheetObjects, updateRow, appendRow } = require('../../lib/sheetsHelpers');
+const crypto = require('crypto');
 const { navrhDoplneniFirem } = require('../../lib/rejstrikFirem');
 const { navrhWifi } = require('../../lib/wifiJednotek');
+const { navrhNajemcu } = require('../../lib/stranyZeSmluv');
+const { PRONAJIMATELE_HEADERS } = require('../../lib/pronajimateleSchema');
 const { NAJEMNI_JEDNOTKY_HEADERS } = require('../../lib/nemovitostiDetailySchema');
 const { NEMOVITOSTI_JEDNOTKY_HEADERS } = require('../../lib/nemovitostiJednotkySchema');
 const { json } = require('../../lib/http');
@@ -208,6 +211,40 @@ async function doplnWifi(sheets, spreadsheetId, nahled) {
 }
 
 /*
+ * Doplnění nájemců vytažených z Janových podepsaných smluv (od v4.83).
+ * Tabulka i rozbor, které řádky jsou z OCR, jsou v lib/stranyZeSmluv.js.
+ *
+ * PŘIDÁVÁ, NEPŘEPISUJE. Nájemce, který v seznamu už je (podle názvu), se
+ * přeskočí celý - i kdyby měl prázdná pole. Doplňovat do existujícího
+ * záznamu údaje ze skenu by znamenalo tiše přepsat to, co si Jan opravil.
+ */
+async function doplnNajemce(sheets, spreadsheetId, nahled) {
+  const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Najemci');
+  const { pridat, uzJsou } = navrhNajemcu(rows);
+
+  if (!nahled) {
+    for (let i = 0; i < pridat.length; i += 1) {
+      const zaznam = Object.assign({ ID: crypto.randomUUID() }, pridat[i].zaznam);
+      await appendRow(sheets, spreadsheetId, 'Najemci', PRONAJIMATELE_HEADERS, zaznam);
+    }
+  }
+
+  return {
+    pridat: pridat.map((p) => ({
+      nazev: p.zaznam.Nazev,
+      druh: p.zaznam.Druh,
+      ico: p.zaznam.ICO,
+      sidlo: p.zaznam.Sidlo,
+      ocr: p.ocr,
+      zdroj: p.radek.zdroj,
+    })),
+    uzJsou,
+    pocetPridanych: pridat.length,
+    zapsano: !nahled,
+  };
+}
+
+/*
  * Soubory v Inboxu, na které v appce nic neodkazuje.
  *
  * Odkazy se sbírají ze VŠECH listů, které soubor na Disku drží - doklady,
@@ -305,6 +342,11 @@ exports.handler = async (event) => {
         return json(200, Object.assign({ ok: true }, vysledek));
       }
 
+      if (akce === 'nahled-najemcu') {
+        const vysledek = await doplnNajemce(sheets, spreadsheetId, true);
+        return json(200, Object.assign({ ok: true }, vysledek));
+      }
+
       if (akce === 'nahled-wifi') {
         const vysledek = await doplnWifi(sheets, spreadsheetId, true);
         return json(200, Object.assign({ ok: true }, vysledek));
@@ -320,6 +362,11 @@ exports.handler = async (event) => {
 
     if (event.httpMethod === 'POST') {
       const { akce } = JSON.parse(event.body || '{}');
+
+      if (String(akce || '') === 'doplnit-najemce') {
+        const vysledek = await doplnNajemce(sheets, spreadsheetId, false);
+        return json(200, Object.assign({ ok: true }, vysledek));
+      }
 
       if (String(akce || '') === 'doplnit-wifi') {
         const vysledek = await doplnWifi(sheets, spreadsheetId, false);

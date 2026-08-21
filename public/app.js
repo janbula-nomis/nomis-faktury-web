@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.82 – 2026-08-21';
+const APP_VERZE = 'v4.83 – 2026-08-21';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -3526,6 +3526,81 @@ function inicializujServis() {
   if (firmyNahled) firmyNahled.addEventListener('click', () => spustNahledUdajuFirem(firmyNahled));
   const wifiNahled = document.getElementById('tlacitko-wifi-nahled');
   if (wifiNahled) wifiNahled.addEventListener('click', () => spustNahledWifi(wifiNahled));
+  const najemciNahled = document.getElementById('tlacitko-najemci-nahled');
+  if (najemciNahled) najemciNahled.addEventListener('click', () => spustNahledNajemcu(najemciNahled));
+}
+
+/*
+ * DOPLNĚNÍ NÁJEMCŮ ZE SMLUV (v4.83)
+ *
+ * Jan 2026-08-21: *„vytáhni ze smluv nájemníky a pronajímatele a doplň je
+ * do app"*. Pronajímatelé se doplnili už ve v4.80; tohle je druhá strana.
+ *
+ * Řádky přepsané ze SKENU se označují nahlas. OCR se u jmen plete - u téhož
+ * protokolu přečetl „Marlla Kreslak" i „Marila Kreslak" - a jméno nájemce
+ * jde do podepisované smlouvy.
+ */
+function vypisNavrhNajemcu(data) {
+  const pridat = data.pridat || [];
+  const uzJsou = data.uzJsou || [];
+
+  let html = '';
+  if (data.zapsano) {
+    html += '<p class="zprava uspech">Přidáno ' + pridat.length + ' nájemců.</p>';
+  } else if (!pridat.length) {
+    return '<p class="zprava uspech">Všichni nájemci ze smluv už v seznamu jsou'
+      + (uzJsou.length ? ': ' + escapeHtml(uzJsou.join(', ')) : '') + '.</p>';
+  }
+
+  html += '<div class="servis-nalezy">';
+  pridat.forEach((n) => {
+    html += '<div class="servis-nalez"><strong>' + escapeHtml(n.nazev) + '</strong>'
+      + ' <span class="popis">' + escapeHtml(n.druh === 'Osoba' ? 'fyzická osoba' : 'firma') + '</span>'
+      + '<div class="servis-sloupce">'
+      + escapeHtml([n.ico ? 'IČO ' + n.ico : '', n.sidlo].filter(Boolean).join(' · '))
+      + '</div>'
+      + '<div class="servis-sloupce">Z dokumentu: ' + escapeHtml(n.zdroj) + '</div>'
+      + (n.ocr
+        ? '<div class="servis-sloupce">⚠ Přepsáno ze skenu – překontrolujte jméno, adresu '
+          + 'i datum narození.</div>'
+        : '')
+      + '</div>';
+  });
+  html += '</div>';
+
+  if (uzJsou.length) {
+    html += '<p class="popis">Už v seznamu byli a appka na ně nesáhla: '
+      + escapeHtml(uzJsou.join(', ')) + '.</p>';
+  }
+
+  if (!data.zapsano && pridat.length) {
+    html += '<button type="button" id="tlacitko-najemci-zapsat" style="margin-top:10px">Přidat je do seznamu</button>';
+  }
+  return html;
+}
+
+function spustNahledNajemcu(tlacitko) {
+  return servisAkce(tlacitko, 'Počítám…', 'najemci-ze-smluv-vysledek', async () => {
+    const data = await zavolejApi('/servis?akce=nahled-najemcu', { method: 'GET' });
+    const html = vypisNavrhNajemcu(data);
+    setTimeout(() => {
+      const zapsat = document.getElementById('tlacitko-najemci-zapsat');
+      if (zapsat) zapsat.addEventListener('click', () => spustZapisNajemcu(zapsat));
+    }, 0);
+    return html;
+  });
+}
+
+function spustZapisNajemcu(tlacitko) {
+  return servisAkce(tlacitko, 'Zapisuji…', 'najemci-ze-smluv-vysledek', async () => {
+    const data = await zavolejApi('/servis', {
+      method: 'POST', body: JSON.stringify({ akce: 'doplnit-najemce' }),
+    });
+    // Seznamy v paměti se rozešly s tabulkou - načíst znovu.
+    if (typeof zapomenPronajimatele === 'function') zapomenPronajimatele();
+    if (typeof nactiNajemceNastaveni === 'function') nactiNajemceNastaveni();
+    return vypisNavrhNajemcu(data);
+  });
 }
 
 /*
@@ -11464,6 +11539,25 @@ function vykresliJednuSmlouvu(el, j, smlouva, najemniJednotky, jeVic) {
         + escapeHtml(n.Nazev || '(bez názvu)') + '</option>').join('');
   });
 
+  // (v4.83) Pronajímatel na SMLOUVĚ. Do v4.82 se vybíral až při tisku
+  // a nikde se neuložil - dodatek ale potřebuje vědět, čí účet mění.
+  const wrapPronajimatel = document.createElement('div');
+  const labelPronajimatel = document.createElement('label');
+  labelPronajimatel.textContent = 'Pronajímatel (číselník)';
+  const selectPronajimatel = document.createElement('select');
+  selectPronajimatel.style.fontSize = '13px';
+  selectPronajimatel.innerHTML = '<option value="">— neurčen —</option>';
+  wrapPronajimatel.appendChild(labelPronajimatel);
+  wrapPronajimatel.appendChild(selectPronajimatel);
+  mrizSml.appendChild(wrapPronajimatel);
+  nactiPronajimatele().then((seznam) => {
+    dokumentyPronajimateleSeznam = seznam;
+    selectPronajimatel.innerHTML = '<option value="">— neurčen —</option>'
+      + seznam.map((pr) => '<option value="' + escapeAttr(pr.ID) + '"'
+        + (pr.ID === smlouva.Pronajimatel_ID ? ' selected' : '') + '>'
+        + escapeHtml(pr.Nazev || '(bez názvu)') + '</option>').join('');
+  });
+
   const vstupDatumUzavreni = pole(mrizSml, 'Datum uzavření smlouvy', smlouva.Datum_uzavreni, 'date');
   const vstupInflaceOd = pole(mrizSml, 'Inflační doložka od', smlouva.Inflace_od, 'date');
   const vstupNajemRozpis = pole(mrizSml, 'Rozpis nájmu (volitelně)', smlouva.Najem_rozpis);
@@ -11521,6 +11615,7 @@ function vykresliJednuSmlouvu(el, j, smlouva, najemniJednotky, jeVic) {
       Kauce_vraceno_castka: vstupVracenoCastka.value.trim(),
       // (v4.81) Podklady pro tištěnou smlouvu.
       Najemce_ID: selectNajemce.value,
+      Pronajimatel_ID: selectPronajimatel.value,
       Datum_uzavreni: vstupDatumUzavreni.value,
       Inflace_od: vstupInflaceOd.value,
       Najem_rozpis: vstupNajemRozpis.value.trim(),
@@ -11543,7 +11638,397 @@ function vykresliJednuSmlouvu(el, j, smlouva, najemniJednotky, jeVic) {
     }
   };
   blok.appendChild(tlacitko);
+
+  // (v4.83) Dodatky k téhle smlouvě.
+  vykresliSekciDodatky(blok, j, smlouva);
+
   el.appendChild(blok);
+}
+
+/*
+ * DODATKY K NÁJEMNÍ SMLOUVĚ (v4.83)
+ *
+ * Jan 2026-08-21: *„jak udělám dodatek nebo předávací protokol"*.
+ *
+ * Sedí pod smlouvou, ke které patří - ne ve vlastní záložce. Dodatek bez
+ * smlouvy nedává smysl a hledat ho jinde, než kde je smlouva, by znamenalo
+ * dvakrát klikat přes celou kartu.
+ *
+ * TŘI VĚCI, KTERÉ SE TU NESMÍ ZMĚNIT
+ *
+ * 1) NAČÍTÁ SE AŽ PO ROZBALENÍ. Karta bytu už teď dělá šest volání API;
+ *    dodatky ke každé smlouvě navíc by ji zpomalily kvůli věci, kterou Jan
+ *    otevře jednou za rok.
+ * 2) ULOŽENÍ DODATKU SE SMLOUVOU NEHÝBE. Promítnutí je samostatné tlačítko
+ *    s náhledem - Janova volba. Rozepsaný dodatek nesmí tiše přepsat
+ *    nájemné, na kterém stojí předpis plateb.
+ * 3) NÁHLED UKAZUJE STAV Z TABULKY, ne z doby psaní dodatku. Kdyby se
+ *    nájem mezitím změnil jinudy, musí to být vidět.
+ */
+function vykresliSekciDodatky(rodic, j, smlouva) {
+  const box = document.createElement('details');
+  box.className = 'panel-skladaci dodatky-box';
+  const shrnuti = document.createElement('summary');
+  shrnuti.textContent = 'Dodatky k této smlouvě';
+  box.appendChild(shrnuti);
+
+  const obsah = document.createElement('div');
+  obsah.className = 'dodatky-obsah';
+  obsah.innerHTML = '<p class="popis">Rozbalte – appka dodatky načte…</p>';
+  box.appendChild(obsah);
+  // Odkaz na smlouvu si blok drží na sobě, aby se po uložení dal
+  // překreslit přesně tenhle jeden (viz obnovDodatky).
+  box._smlouvaId = smlouva.ID;
+
+  let nacteno = false;
+  box.addEventListener('toggle', () => {
+    if (box.open && !nacteno) {
+      nacteno = true;
+      nactiDodatky(obsah, j, smlouva);
+    }
+  });
+
+  rodic.appendChild(box);
+}
+
+async function nactiDodatky(el, j, smlouva) {
+  el.innerHTML = '<div class="nacitani">Načítám…</div>';
+  try {
+    const data = await zavolejApi('/dodatky?smlouva_id=' + encodeURIComponent(smlouva.ID), { method: 'GET' });
+    vykresliDodatky(el, j, smlouva, data.dodatky || [], data.zmeny || []);
+  } catch (e) {
+    el.innerHTML = '<div class="zprava chyba">Nepodařilo se načíst dodatky: '
+      + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function vykresliDodatky(el, j, smlouva, dodatky, vsechnyZmeny) {
+  el.innerHTML = '';
+
+  const napoveda = document.createElement('p');
+  napoveda.className = 'popis';
+  napoveda.textContent = 'Dodatek se uloží a vytiskne. Do smlouvy se promítne až tlačítkem '
+    + '„Promítnout do smlouvy“ – appka nejdřív ukáže, co se změní.';
+  el.appendChild(napoveda);
+
+  dodatky.forEach((d) => {
+    const zmenyDodatku = vsechnyZmeny.filter((z) => z.Dodatek_ID === d.ID);
+    el.appendChild(vykresliJedenDodatek(j, smlouva, d, zmenyDodatku));
+  });
+
+  if (!dodatky.length) {
+    const prazdno = document.createElement('p');
+    prazdno.className = 'popis';
+    prazdno.textContent = 'Zatím žádný dodatek.';
+    el.appendChild(prazdno);
+  }
+
+  // -- přidání dodatku --
+  const pridat = document.createElement('div');
+  pridat.className = 'mriz-2';
+  pridat.style.marginTop = '10px';
+  const nCislo = document.createElement('input'); nCislo.type = 'text'; nCislo.placeholder = 'Číslo dodatku (např. 2)'; nCislo.style.fontSize = '13px';
+  const nUcinnost = document.createElement('input'); nUcinnost.type = 'date'; nUcinnost.style.fontSize = '13px';
+  const nPredmet = document.createElement('input'); nPredmet.type = 'text'; nPredmet.placeholder = 'Čeho se dodatek týká'; nPredmet.style.fontSize = '13px';
+  [['Číslo dodatku', nCislo], ['Účinnost od', nUcinnost], ['Předmět', nPredmet]].forEach(([popisek, vstup]) => {
+    const w = document.createElement('div');
+    const l = document.createElement('label');
+    l.textContent = popisek;
+    w.appendChild(l); w.appendChild(vstup);
+    pridat.appendChild(w);
+  });
+  el.appendChild(pridat);
+
+  const btnPridat = document.createElement('button');
+  btnPridat.className = 'maly sekundarni';
+  btnPridat.style.marginTop = '8px';
+  btnPridat.textContent = 'Přidat dodatek';
+  btnPridat.onclick = async () => {
+    if (!nCislo.value.trim()) { alert('Zadejte číslo dodatku.'); return; }
+    btnPridat.disabled = true;
+    try {
+      await zavolejApi('/dodatky?entita=dodatky', {
+        method: 'POST',
+        body: JSON.stringify({
+          Smlouva_ID: smlouva.ID, Cislo_dodatku: nCislo.value.trim(),
+          Ucinnost_od: nUcinnost.value, Predmet: nPredmet.value.trim(), Stav: 'Návrh',
+        }),
+      });
+      await nactiDodatky(el, j, smlouva);
+    } catch (e) {
+      alert('Nepodařilo se přidat dodatek: ' + e.message);
+      btnPridat.disabled = false;
+    }
+  };
+  el.appendChild(btnPridat);
+}
+
+function vykresliJedenDodatek(j, smlouva, d, zmeny) {
+  const box = document.createElement('div');
+  box.className = 'dodatek-radek';
+
+  const hlava = document.createElement('div');
+  hlava.className = 'dodatek-hlava';
+  hlava.innerHTML = '<strong>Dodatek č. ' + escapeHtml(d.Cislo_dodatku || '?') + '</strong>'
+    + '<span class="jednotka-prehled-popisek">'
+    + escapeHtml([d.Ucinnost_od ? 'od ' + d.Ucinnost_od : '', d.Stav || 'Návrh']
+      .filter(Boolean).join(' · ')) + '</span>';
+  box.appendChild(hlava);
+
+  if (d.Predmet) {
+    const predmet = document.createElement('p');
+    predmet.className = 'popis';
+    predmet.style.margin = '2px 0 6px';
+    predmet.textContent = d.Predmet;
+    box.appendChild(predmet);
+  }
+
+  // Seznam změn.
+  const tabulka = document.createElement('table');
+  tabulka.innerHTML = '<thead><tr><th>Co se mění</th><th>Nově</th><th>Akce</th></tr></thead>';
+  const telo = document.createElement('tbody');
+  zmeny.forEach((z) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td data-label="Co se mění">' + escapeHtml(popisPoleDodatku(z.Cil, z.Pole))
+      + (z.Cil === 'Pronajimatel' ? ' <span class="jednotka-prehled-popisek">(u pronajímatele)</span>' : '')
+      + '</td><td data-label="Nově">' + escapeHtml(z.Nova_hodnota || '') + '</td>'
+      + '<td data-label="Akce"></td>';
+    const btnS = document.createElement('button');
+    btnS.className = 'maly sekundarni akce-smazat';
+    btnS.textContent = 'Smazat';
+    btnS.onclick = () => smazPolozkuDodatku('zmeny', z.ID, j, smlouva, btnS);
+    tr.children[2].appendChild(btnS);
+    telo.appendChild(tr);
+  });
+  if (!zmeny.length) {
+    telo.innerHTML = '<tr><td colspan="3" class="nacitani">Dodatek zatím nemění žádné pole.</td></tr>';
+  }
+  tabulka.appendChild(telo);
+  box.appendChild(tabulka);
+
+  // -- přidání změny --
+  const pridatZmenu = document.createElement('div');
+  pridatZmenu.style.marginTop = '6px';
+  const vyberPole = document.createElement('select');
+  vyberPole.style.fontSize = '13px';
+  vyberPole.innerHTML = POLE_DODATKU_SMLOUVA.map((p) =>
+    '<option value="Smlouva|' + escapeAttr(p.pole) + '">' + escapeHtml(p.popis) + '</option>').join('')
+    + POLE_DODATKU_PRONAJIMATEL.map((p) =>
+      '<option value="Pronajimatel|' + escapeAttr(p.pole) + '">' + escapeHtml(p.popis) + '</option>').join('');
+  const vstupHodnota = document.createElement('input');
+  vstupHodnota.type = 'text'; vstupHodnota.placeholder = 'Nová hodnota'; vstupHodnota.style.fontSize = '13px';
+  const btnZmena = document.createElement('button');
+  btnZmena.className = 'maly sekundarni';
+  btnZmena.textContent = 'Přidat změnu';
+  btnZmena.onclick = async () => {
+    if (!vstupHodnota.value.trim()) { alert('Zadejte novou hodnotu.'); return; }
+    const [cil, pole] = vyberPole.value.split('|');
+    btnZmena.disabled = true;
+    try {
+      await zavolejApi('/dodatky?entita=zmeny', {
+        method: 'POST',
+        body: JSON.stringify({ Dodatek_ID: d.ID, Cil: cil, Pole: pole, Nova_hodnota: vstupHodnota.value.trim() }),
+      });
+      await obnovDodatky(j, smlouva);
+    } catch (e) {
+      alert('Nepodařilo se přidat změnu: ' + e.message);
+      btnZmena.disabled = false;
+    }
+  };
+  pridatZmenu.appendChild(vyberPole);
+  pridatZmenu.appendChild(vstupHodnota);
+  pridatZmenu.appendChild(btnZmena);
+  box.appendChild(pridatZmenu);
+
+  // -- akce --
+  const akce = document.createElement('div');
+  akce.style.marginTop = '8px';
+
+  const btnTisk = document.createElement('button');
+  btnTisk.className = 'maly sekundarni';
+  btnTisk.textContent = 'Tisk dodatku';
+  btnTisk.onclick = () => otevriDodatek(j, smlouva, d, zmeny);
+  akce.appendChild(btnTisk);
+
+  const btnPromitnout = document.createElement('button');
+  btnPromitnout.className = 'maly sekundarni';
+  btnPromitnout.style.marginLeft = '6px';
+  btnPromitnout.textContent = 'Promítnout do smlouvy';
+  btnPromitnout.disabled = !zmeny.length;
+  btnPromitnout.onclick = () => nahledPromitnuti(d, vysledek, j, smlouva);
+  akce.appendChild(btnPromitnout);
+
+  const btnSmazat = document.createElement('button');
+  btnSmazat.className = 'maly sekundarni akce-smazat';
+  btnSmazat.style.marginLeft = '6px';
+  btnSmazat.textContent = 'Smazat dodatek';
+  btnSmazat.onclick = () => smazPolozkuDodatku('dodatky', d.ID, j, smlouva, btnSmazat);
+  akce.appendChild(btnSmazat);
+
+  box.appendChild(akce);
+
+  const vysledek = document.createElement('div');
+  vysledek.style.marginTop = '8px';
+  box.appendChild(vysledek);
+
+  return box;
+}
+
+/*
+ * Kopie číselníků z lib/dodatkySchema.js - prohlížeč nemá `require`,
+ * stejná konvence jako u MOZNOSTI_TYP_MERIDLA a spol. **Musí zůstat
+ * synchronní se serverem**; endpoint navíc cokoli mimo tenhle seznam
+ * odmítne, takže rozchod se projeví chybou, ne tichým zápisem.
+ */
+const POLE_DODATKU_SMLOUVA = [
+  { pole: 'Cisty_najem', popis: 'Nájemné' },
+  { pole: 'Zaloha_na_sluzby', popis: 'Zálohy na služby' },
+  { pole: 'Kauce_castka', popis: 'Jistota (kauce)' },
+  { pole: 'Platnost_do', popis: 'Konec nájmu' },
+  { pole: 'Platnost_od', popis: 'Začátek nájmu' },
+  { pole: 'Variabilni_symbol', popis: 'Variabilní symbol' },
+  { pole: 'Den_splatnosti', popis: 'Den splatnosti' },
+  { pole: 'Inflace_od', popis: 'Inflační doložka od' },
+];
+const POLE_DODATKU_PRONAJIMATEL = [
+  { pole: 'Bankovni_ucet', popis: 'Bankovní účet pronajímatele' },
+  { pole: 'Sidlo', popis: 'Sídlo pronajímatele' },
+  { pole: 'Zastoupena', popis: 'Kdo za společnost jedná' },
+];
+
+function popisPoleDodatku(cil, pole) {
+  const seznam = cil === 'Pronajimatel' ? POLE_DODATKU_PRONAJIMATEL : POLE_DODATKU_SMLOUVA;
+  const nalezene = seznam.find((p) => p.pole === pole);
+  return nalezene ? nalezene.popis : pole;
+}
+
+/*
+ * Tisk dodatku. Strany se berou z číselníků podle toho, co je na smlouvě -
+ * u dodatku se pronajímatel nevybírá roletkou jako u smlouvy: dodatek mění
+ * konkrétní smluvní vztah, ne libovolný.
+ */
+function otevriDodatek(j, smlouva, dodatek, zmeny) {
+  const pronajimatel = (dokumentyPronajimateleSeznam || [])
+    .find((p) => p.ID === smlouva.Pronajimatel_ID)
+    || vychoziPronajimatel(dokumentyPronajimateleSeznam, j);
+  const ctx = {
+    jednotka: j,
+    smlouva,
+    dodatek,
+    // Do dokumentu jdou i STARÉ hodnoty - appka je zná ze smlouvy, tak je
+    // vypíše vedle nových. Pro toho, kdo dodatek za rok čte, je to ten
+    // podstatný rozdíl.
+    zmenyDodatku: (zmeny || []).map((z) => Object.assign({}, z, {
+      popis: popisPoleDodatku(z.Cil, z.Pole),
+      stara: z.Cil === 'Pronajimatel'
+        ? (pronajimatel ? pronajimatel[z.Pole] : '')
+        : smlouva[z.Pole],
+      nova: z.Nova_hodnota,
+    })),
+    pronajimatel,
+    najemce: najemceSmlouvy(dokumentyNajemciSeznam, smlouva),
+  };
+  otevriDokument('Dodatek č. ' + (dodatek.Cislo_dodatku || '?') + ' – ' + (j.Nazev || j.Stredisko),
+    dokumentDodatek(ctx), dokumentyDodatekChybejici(ctx));
+}
+
+/*
+ * Náhled promítnutí. Nic nezapisuje - zápis je až druhé tlačítko, které
+ * appka vykreslí teprve pod výsledkem náhledu.
+ */
+async function nahledPromitnuti(dodatek, cil, j, smlouva) {
+  cil.innerHTML = '<div class="nacitani">Počítám…</div>';
+  try {
+    const data = await zavolejApi('/dodatky?akce=nahled&dodatek_id=' + encodeURIComponent(dodatek.ID),
+      { method: 'GET' });
+    cil.innerHTML = vypisPromitnuti(data);
+    const btn = cil.querySelector('.dodatek-potvrdit');
+    if (btn) btn.addEventListener('click', () => provedPromitnuti(dodatek, cil, j, smlouva));
+  } catch (e) {
+    cil.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function provedPromitnuti(dodatek, cil, j, smlouva) {
+  cil.innerHTML = '<div class="nacitani">Zapisuji…</div>';
+  try {
+    const data = await zavolejApi('/dodatky', {
+      method: 'POST', body: JSON.stringify({ akce: 'promitnout', dodatek_id: dodatek.ID }),
+    });
+    cil.innerHTML = vypisPromitnuti(data);
+    // Smlouva v paměti se srovná s tabulkou - bez toho by karta ukazovala
+    // staré nájemné, dokud se stránka nenačte znovu.
+    (data.kroky || []).forEach((k) => {
+      if (k.cil !== 'Pronajimatel' && !k.preskoceno) smlouva[k.pole] = k.nova;
+    });
+    if (typeof zapomenPronajimatele === 'function') zapomenPronajimatele();
+    await obnovDodatky(j, smlouva);
+  } catch (e) {
+    cil.innerHTML = '<div class="zprava chyba">' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function vypisPromitnuti(data) {
+  const kroky = data.kroky || [];
+  if (!kroky.length) return '<p class="popis">Dodatek nemění žádné pole.</p>';
+
+  let html = data.zapsano
+    ? '<p class="zprava uspech">Promítnuto do smlouvy.</p>'
+    : '<p class="popis">Tohle se stane, až to potvrdíte:</p>';
+
+  html += '<div class="servis-nalezy">';
+  kroky.forEach((k) => {
+    html += '<div class="servis-nalez"><strong>' + escapeHtml(k.popis) + '</strong>';
+    if (k.preskoceno) {
+      html += '<div class="servis-sloupce">Přeskočeno – ' + escapeHtml(k.preskoceno) + '</div>';
+    } else if (k.beze_zmeny) {
+      html += '<div class="servis-sloupce">Beze změny – v tabulce už to tak je.</div>';
+    } else {
+      html += '<div class="servis-sloupce">'
+        + (String(k.stara || '').trim() ? escapeHtml(k.stara) : '(prázdné)')
+        + ' → <strong>' + escapeHtml(k.nova) + '</strong></div>';
+      if (k.cil === 'Pronajimatel') {
+        html += '<div class="servis-sloupce">⚠ ' + escapeHtml(k.dopad) + '</div>';
+      }
+    }
+    html += '</div>';
+  });
+  html += '</div>';
+
+  if (!data.zapsano && kroky.some((k) => !k.preskoceno && !k.beze_zmeny)) {
+    html += '<button type="button" class="dodatek-potvrdit" style="margin-top:8px">Potvrdit a zapsat</button>';
+  }
+  return html;
+}
+
+async function smazPolozkuDodatku(entita, id, j, smlouva, tlacitko) {
+  const otazka = entita === 'dodatky'
+    ? 'Opravdu smazat celý dodatek i jeho změny? Co už se promítlo do smlouvy, tím zpátky nevrátíte.'
+    : 'Opravdu smazat tuhle změnu?';
+  if (!confirm(otazka)) return;
+  tlacitko.disabled = true;
+  try {
+    await zavolejApi('/dodatky?entita=' + entita + '&id=' + encodeURIComponent(id), { method: 'DELETE' });
+    await obnovDodatky(j, smlouva);
+  } catch (e) {
+    alert('Nepodařilo se smazat: ' + e.message);
+    tlacitko.disabled = false;
+  }
+}
+
+/*
+ * Překreslí jen blok dodatků té jedné smlouvy - ne celou kartu. Stejný
+ * důvod jako u obnovDetailySekce: překreslením karty by se sbalila
+ * a člověk by ztratil místo, kde pracoval.
+ */
+function obnovDodatky(j, smlouva) {
+  const boxy = document.querySelectorAll('.dodatky-box');
+  for (let i = 0; i < boxy.length; i += 1) {
+    if (boxy[i]._smlouvaId === smlouva.ID) {
+      return nactiDodatky(boxy[i].querySelector('.dodatky-obsah'), j, smlouva);
+    }
+  }
+  return Promise.resolve();
 }
 
 // Nájemní jednotky bytu (v4.57).
