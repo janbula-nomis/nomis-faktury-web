@@ -263,14 +263,138 @@ test('ikona respektuje motiv - kreslí se v currentColor', () => {
   assert.ok(telo.includes('stroke: currentColor'));
 });
 
+test('hotovost NENÍ ikona karty', () => {
+  // Jan 2026-08-21 na první verzi: *„uhrazeno hotově nemůže být ikona
+  // karty, ale třeba mince"*. Bankovka i karta jsou ležatý obdélník -
+  // v patnácti pixelech se nepoznaly. Mince má kolečka.
+  const zacatek = APP.indexOf('Hotovost: {');
+  const telo = APP.slice(zacatek, APP.indexOf('}', APP.indexOf('svg:', zacatek)));
+  assert.ok(!telo.includes('<rect'), 'hotovost je pořád obdélník jako karta');
+  assert.ok(telo.includes('ellipse') || telo.includes('circle'), 'hotovost není kulatá');
+});
+
+// Rozhodnutí o stavu úhrady si test spustí, ať se kontroluje chování.
+function nactiStavUhrady() {
+  const zacatek = APP.indexOf('function stavUhradyDokladu');
+  const konec = APP.indexOf('\n}', zacatek) + 2;
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(APP.slice(zacatek, konec) + '\nthis.fn = stavUhradyDokladu;', sandbox);
+  return sandbox.fn;
+}
+
+test('odznak a ikona vznikají z jednoho rozhodnutí', () => {
+  // Kdyby si je počítala dvě různá místa, můžou si odporovat - a přesně
+  // to Jan našel: „Uhrazeno hotově" s ikonou karty.
+  const zacatek = APP.indexOf('function bankSparovaniBadge');
+  const telo = APP.slice(zacatek, zacatek + 600);
+  assert.ok(telo.includes('stavUhradyDokladu(d)'));
+  assert.ok(telo.includes('ikonaZpusobuPlatbyHtml(stavUhrady.zpusob)'));
+  // V řádku seznamu se ikona nesmí přidávat ještě jednou zvlášť.
+  const radek = APP.indexOf("'<span class=\"doklad-banka-bunka\">'");
+  assert.ok(!APP.slice(radek, radek + 200).includes('ikonaZpusobuPlatbyHtml(d.Zpusob_platby)'));
+});
+
+test('doklad placený soukromou kartou mimo účet není „hotově"', () => {
+  const fn = nactiStavUhrady();
+  const v = fn({ Stav: 'Schváleno', Hrazeno_mimo_ucet: 'ANO', Zpusob_platby: 'Karta' });
+  assert.strictEqual(v.zpusob, 'Karta');
+  assert.ok(v.text.includes('kartou'), v.text);
+  assert.ok(!v.text.includes('hotově'), 'appka to pořád nazývá hotovostí');
+});
+
+test('hotovost i prázdný způsob platby mimo účet zůstávají „hotově"', () => {
+  const fn = nactiStavUhrady();
+  ['Hotovost', ''].forEach((zpusob) => {
+    const v = fn({ Stav: 'Schváleno', Hrazeno_mimo_ucet: 'ANO', Zpusob_platby: zpusob });
+    assert.strictEqual(v.zpusob, 'Hotovost');
+    assert.ok(v.text.includes('hotově'), v.text);
+  });
+});
+
+test('nenalezená platba zůstává nenalezenou platbou', () => {
+  const fn = nactiStavUhrady();
+  const v = fn({ Stav: 'Schváleno', Zpusob_platby: 'Karta' });
+  // Tvrdé „Neuhrazeno" by u faktury, ke které se jen nenačetl výpis,
+  // svádělo k zaplacení podruhé.
+  assert.ok(v.text.includes('Nenalezena'), v.text);
+  assert.ok(!v.text.includes('Neuhrazeno'));
+});
+
+console.log('\n--- v4.75: přepínač způsobu platby ---');
+
+test('způsob platby je dlaždicový přepínač, ne rolovací menu', () => {
+  assert.ok(/function vytvorPrepinacZpusobuPlatby\(vybrano\)/.test(APP));
+  assert.ok(APP.includes('const vstupZpusobPlatby = vytvorPrepinacZpusobuPlatby('));
+});
+
+test('dlaždice jsou uvnitř opravdová radio tlačítka', () => {
+  const zacatek = APP.indexOf('function vytvorPrepinacZpusobuPlatby');
+  const telo = APP.slice(zacatek, APP.indexOf('// DRŽITEL KARTY', zacatek));
+  assert.ok(telo.includes("radio.type = 'radio'"), 'nejsou to radio tlačítka');
+  assert.ok(telo.includes("setAttribute('role', 'radiogroup')"));
+  // Naklikaná <div>ka by vypadala stejně a byla by nepoužitelná pro
+  // každého, kdo nemyší.
+  assert.ok(telo.includes('aria-label'));
+});
+
+test('u ikony je vždycky i slovo', () => {
+  const zacatek = APP.indexOf('function vytvorPrepinacZpusobuPlatby');
+  const telo = APP.slice(zacatek, APP.indexOf('// DRŽITEL KARTY', zacatek));
+  ['Karta', 'Hotovost', 'Převodem', 'Neuvedeno'].forEach((p) => {
+    assert.ok(telo.includes("popisek: '" + p + "'"), 'chybí popisek ' + p);
+  });
+});
+
+test('„neuvedeno" je plnohodnotná volba', () => {
+  // Appka nesmí za člověka vybrat způsob platby jen proto, že vypadá líp,
+  // když je něco zaškrtnuté.
+  const zacatek = APP.indexOf('function vytvorPrepinacZpusobuPlatby');
+  const telo = APP.slice(zacatek, APP.indexOf('// DRŽITEL KARTY', zacatek));
+  assert.ok(telo.includes("hodnota: ''"));
+});
+
+test('přepínač se navenek chová jako <select> (.value)', () => {
+  // Ukládání dokladu se nesmí dozvědět, že se změnilo UI.
+  const zacatek = APP.indexOf('function vytvorPrepinacZpusobuPlatby');
+  const telo = APP.slice(zacatek, APP.indexOf('// DRŽITEL KARTY', zacatek));
+  assert.ok(telo.includes("Object.defineProperty(prepinac, 'value'"));
+  assert.ok(APP.includes('Zpusob_platby: vstupZpusobPlatby.value'));
+});
+
+test('vybraná dlaždice se pozná i bez :has()', () => {
+  // :has() je novinka; prohlížeč, který ji neumí, ji tiše přeskočí a
+  // přepínač by vypadal, že není vybráno nic.
+  assert.ok(CSS.includes('.prepinac-platby-volba.vybrano'));
+  assert.ok(!/\.prepinac-platby-volba:has\(/.test(CSS), 'zvýraznění visí na :has()');
+  assert.ok(APP.includes("dl.classList.toggle('vybrano'"));
+});
+
+test('vybraná dlaždice se nepozná jen barvou', () => {
+  const zacatek = CSS.indexOf('.prepinac-platby-volba.vybrano {');
+  const telo = CSS.slice(zacatek, zacatek + 240);
+  assert.ok(telo.includes('box-shadow'), 'rozdíl je jen v barvě');
+});
+
+test('sloupec úhrady je širší, aby se odznak s ikonou nekrátil', () => {
+  const zacatek = CSS.indexOf('grid-template-columns: 16px 92px 62px');
+  assert.ok(zacatek !== -1, 'mřížka řádku se změnila');
+  const radek = CSS.slice(zacatek, CSS.indexOf(';', zacatek));
+  const sloupce = radek.replace('grid-template-columns:', '').trim().split(/\s+(?![^(]*\))/);
+  assert.strictEqual(sloupce.length, 8, 'řádek má ' + sloupce.length + ' sloupců místo osmi');
+  assert.ok(parseInt(sloupce[3], 10) >= 150, 'sloupec úhrady je jen ' + sloupce[3]);
+});
+
 test('řádek seznamu má pořád stejný počet sloupců (chyba z v4.64)', () => {
   // Ikona jde do TÉŽE buňky jako odznak úhrady. Nový samostatný <span>
   // v hlavičce řádku by rozhodil mřížku - přesně to se stalo ve v4.64.
   const zacatek = APP.indexOf("'<span class=\"doklad-banka-bunka\">'");
   assert.ok(zacatek !== -1);
-  const telo = APP.slice(zacatek, zacatek + 260);
-  assert.ok(telo.includes('ikonaZpusobuPlatbyHtml(d.Zpusob_platby)'));
-  assert.ok(telo.includes('bankSparovaniBadge(d)'));
+  const telo = APP.slice(zacatek, zacatek + 120);
+  assert.ok(telo.includes('bankSparovaniBadge(d)'), 'odznak v buňce chybí');
+  // Ikona je součástí odznaku, ne dalšího <span>u - nový sloupec by mřížku
+  // rozhodil.
+  assert.ok(!telo.includes('<span class="doklad-zpusob'), 'přibyla samostatná buňka pro ikonu');
 });
 
 console.log('\n--- v4.75: držitel karty ---');

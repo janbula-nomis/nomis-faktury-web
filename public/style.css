@@ -797,8 +797,11 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
      vložit ho doprostřed by ta pravidla posunulo na jiné buňky. */
   /* (v4.67) Sloupec úhrady je širší (92 -> 132 px): odznak „Nenalezena
      platba" je delší než dřívější „Nespár." a oříznutý stav se čte
-     špatně zrovna tam, kde jde o peníze. */
-  grid-template-columns: 16px 92px 62px 132px minmax(140px, 1fr) 90px 110px 62px;
+     špatně zrovna tam, kde jde o peníze.
+     (v4.75) A ještě o 24 px (132 -> 156 px), protože do téže buňky
+     přibyla ikona způsobu platby. Bez toho se „✓ Uhrazeno hotově"
+     ořízlo na „✓ Uhrazeno hoto…" - viz pravidlo o řádek výš. */
+  grid-template-columns: 16px 92px 62px 156px minmax(140px, 1fr) 90px 110px 62px;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -1314,7 +1317,7 @@ input[type="file"] { margin-top: 8px; }
 .pole-mrizka > .pole-skupina:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
 /* Zaškrtávátko v mřížce má popisek vedle sebe, ne nad sebou, a odsazuje se
    shora tak, aby sedělo na řádek s poli, která mají nad sebou popisek. */
-.pole-zaskrtavatko { display: flex; align-items: center; gap: 8px; white-space: normal; margin-top: 26px; }
+.pole-zaskrtavatko { display: flex; align-items: center; gap: 8px; white-space: normal; margin-top: 16px; }
 .pole-zaskrtavatko input[type="checkbox"] { width: auto; margin: 0; }
 /* Datumové pole appka do v4.74 nestylovala vůbec - prohlížeč ho kreslil
    nativně úzké, takže vedle plnošířkových vstupů vypadalo jako cizí prvek.
@@ -1344,8 +1347,47 @@ input[type="file"] { margin-top: 8px; }
 }
 /* V hlavičce řádku stojí ikona před odznakem úhrady ve stejné buňce. */
 .doklad-banka-bunka .ikona-platby { margin-right: 6px; }
-/* Náhled u výběru způsobu platby v detailu - ikona vedle popisku pole. */
-.ikona-platby-nahled { margin-left: 6px; }
+
+/* ---------- PŘEPÍNAČ ZPŮSOBU PLATBY (v4.75) ----------
+   Jan 2026-08-21: "udělej dvě pole s ikonami karty a mincí (hotovost)
+   graficky hezky". Uvnitř jsou obyčejná radio tlačítka (viz
+   vytvorPrepinacZpusobuPlatby v public/app.js) - dlaždice je jen jejich
+   kabát, takže to celé umí i klávesnice a odečítač. */
+.prepinac-platby { display: flex; gap: 6px; flex-wrap: wrap; }
+.prepinac-platby-volba {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 10px; margin: 0;
+  border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm);
+  background: var(--barva-karta); color: var(--barva-text);
+  font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  cursor: pointer; transition: border-color .12s, background .12s, color .12s;
+}
+/* Samotné kolečko je schované, ale NE přes display:none - takové pole
+   vypadne z pořadí pro tabulátor a přepínač by přestal jít ovládat
+   klávesnicí. Proto nulová velikost a viditelný obrys při zaměření. */
+.prepinac-platby-volba input[type="radio"] {
+  position: absolute; opacity: 0; width: 0; height: 0; margin: 0;
+}
+.prepinac-platby-volba:hover { border-color: var(--barva-primarni); }
+.prepinac-platby-volba:focus-within { outline: 2px solid var(--barva-primarni); outline-offset: 2px; }
+/* Vybraná dlaždice se pozná rámečkem I jeho zdvojením, ne jen odstínem -
+   samotná barva by při barvosleposti nestačila. Třídu `vybrano` navěšuje
+   JS (viz vytvorPrepinacZpusobuPlatby), schválně ne CSS přes :has() -
+   to je novinka, kterou starší prohlížeč tiše ignoruje a přepínač by pak
+   vypadal, že není vybráno nic. */
+.prepinac-platby-volba.vybrano {
+  border-color: var(--barva-primarni);
+  box-shadow: inset 0 0 0 1px var(--barva-primarni);
+}
+/* Text vybrané dlaždice zůstává v barvě textu, ne v barvě zvýraznění:
+   appka má tři vzhledy (světlý, tmavý, gold) a ve skinu gold je
+   `--barva-primarni` tmavá modř - obarvený nápis na tmavém pozadí ztmavl
+   do nečitelna. Výběr proto nese rámeček, který vypadá stejně všude, a
+   ikona se jen rozsvítí z tlumené do plné barvy textu. */
+.prepinac-platby-volba.vybrano .ikona-platby { color: var(--barva-text); }
+.prepinac-platby-ikona { display: inline-flex; align-items: center; color: var(--barva-text-tlumena); }
+.prepinac-platby-ikona .ikona-platby { width: 17px; height: 17px; vertical-align: 0; }
+.prepinac-platby-text { line-height: 1; }
 
 /* ---------- SERVIS A ÚDRŽBA (v4.75) ---------- */
 .servis-nalezy { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }

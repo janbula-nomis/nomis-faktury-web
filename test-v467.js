@@ -44,9 +44,24 @@ const { jeSparovano } = require('./lib/nazvyScanu');
 
 // Tělo odznaku bez komentářů - jinak si test najde vlastní vysvětlení
 // (past, do které jsem tenhle týden spadl čtyřikrát).
+//
+// (v4.75) Text odznaku i ikonu počítá `stavUhradyDokladu`, `bankSparovaniBadge`
+// z toho už jen skládá HTML - slice proto začíná u ní. Assertace, které dřív
+// hledaly hotové HTML, se změnily na spuštění funkce: kontroluje se chování,
+// ne to, jak je zdroj napsaný.
+const vm = require('vm');
 const ODZNAK = APP
-  .slice(APP.indexOf('function bankSparovaniBadge'), APP.indexOf('let firmyProVyberDokladu'))
+  .slice(APP.indexOf('function stavUhradyDokladu'), APP.indexOf('let firmyProVyberDokladu'))
   .split('\n').filter((r) => !/^\s*(\/\/|\*|\/\*)/.test(r)).join('\n');
+
+function stavUhrady(doklad) {
+  const zacatek = APP.indexOf('function stavUhradyDokladu');
+  const konec = APP.indexOf('\n}', zacatek) + 2;
+  const sandbox = {};
+  vm.createContext(sandbox);
+  vm.runInContext(APP.slice(zacatek, konec) + '\nthis.fn = stavUhradyDokladu;', sandbox);
+  return sandbox.fn(doklad);
+}
 
 console.log('\nv4.67 - sloupec Úhrada místo Banka\n');
 
@@ -62,28 +77,31 @@ test('nadpis vysvětlí, co ten sloupec znamená', () => {
 });
 
 test('obě cesty k úhradě dostanou ✓ a řeknou, čím se platilo', () => {
-  assert.ok(/>✓ Uhrazeno</.test(ODZNAK), 'chybí úhrada z bankovního výpisu');
-  assert.ok(/>✓ Uhrazeno hotově</.test(ODZNAK), 'chybí úhrada hotovostí');
+  const zBanky = stavUhrady({ Stav: 'Schváleno', Stav_parovani_bankou: 'Potvrzeno' });
+  const hotove = stavUhrady({ Stav: 'Schváleno', Hrazeno_mimo_ucet: 'ANO' });
+  assert.strictEqual(zBanky.text, '✓ Uhrazeno', 'chybí úhrada z bankovního výpisu');
+  assert.strictEqual(hotove.text, '✓ Uhrazeno hotově', 'chybí úhrada hotovostí');
 });
 
 test('obě cesty vypadají stejně silně - stejná třída odznaku', () => {
   // Doložená platba je doložená platba. Kdyby hotovost dostala slabší
   // barvu, vypadala by jako něco méně jistého, a to není pravda.
-  const radky = ODZNAK.split('\n').filter((r) => /✓ Uhrazeno/.test(r));
-  assert.strictEqual(radky.length, 2);
-  radky.forEach((r) => assert.ok(/badge-potvrzeno/.test(r), 'jedna z cest má jinou barvu'));
+  const zBanky = stavUhrady({ Stav: 'Schváleno', Stav_parovani_bankou: 'Potvrzeno' });
+  const hotove = stavUhrady({ Stav: 'Schváleno', Hrazeno_mimo_ucet: 'ANO' });
+  assert.strictEqual(zBanky.trida, 'badge-potvrzeno');
+  assert.strictEqual(hotove.trida, 'badge-potvrzeno', 'jedna z cest má jinou barvu');
 });
 
 test('slovo „Spárováno" už se na účetní nevytahuje', () => {
-  assert.ok(!/>✓ Spárováno</.test(ODZNAK));
-  assert.ok(!/>Nespár\./.test(ODZNAK));
+  assert.ok(!/✓ Spárováno/.test(ODZNAK));
+  assert.ok(!/Nespár\./.test(ODZNAK));
 });
 
 test('NÁVRH ✓ nedostane - nikdo ho neodklepl', () => {
-  const radek = ODZNAK.split('\n').filter((r) => /Návrh úhrady/.test(r));
-  assert.strictEqual(radek.length, 1, 'odznak návrhu zmizel');
-  assert.ok(!/✓/.test(radek[0]), 'nepotvrzený návrh se tváří jako hotový');
-  assert.ok(/badge-navrzeno/.test(radek[0]));
+  const navrh = stavUhrady({ Stav: 'Schváleno', Stav_parovani_bankou: 'Navrženo' });
+  assert.strictEqual(navrh.text, 'Návrh úhrady', 'odznak návrhu zmizel');
+  assert.ok(!/✓/.test(navrh.text), 'nepotvrzený návrh se tváří jako hotový');
+  assert.strictEqual(navrh.trida, 'badge-navrzeno');
 });
 
 test('…a nedostane ani „S" do názvu scanu na Disku', () => {
@@ -92,15 +110,15 @@ test('…a nedostane ani „S" do názvu scanu na Disku', () => {
 
 test('chybějící platba se nehlásí jako „Neuhrazeno"', () => {
   // Appka neví, jestli doklad zaplacený není, nebo jen chybí výpis.
-  assert.ok(/Nenalezena platba/.test(ODZNAK));
-  assert.ok(!/>Neuhrazeno</.test(ODZNAK), 'appka tvrdí něco, co nemůže vědět');
+  assert.strictEqual(stavUhrady({ Stav: 'Schváleno' }).text, 'Nenalezena platba');
+  assert.ok(!/'Neuhrazeno'/.test(ODZNAK), 'appka tvrdí něco, co nemůže vědět');
 });
 
 test('bublina u nenalezené platby řekne, že to nemusí být dluh', () => {
-  const radek = ODZNAK.split('\n').filter((r) => /Nenalezena platba/.test(r))[0];
-  assert.ok(/Nemusí to znamenat, že zaplacený není/.test(radek),
+  const popis = stavUhrady({ Stav: 'Schváleno' }).popis;
+  assert.ok(/Nemusí to znamenat, že zaplacený není/.test(popis),
     'člověk by mohl zaplatit podruhé');
-  assert.ok(/bankovní výpis/.test(radek), 'neřekne, kde může být příčina');
+  assert.ok(/bankovní výpis/.test(popis), 'neřekne, kde může být příčina');
 });
 
 test('hotovost je pořád úhrada i pro řazení a názvy scanů', () => {

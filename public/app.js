@@ -1501,10 +1501,20 @@ function aktualizujSouhrnFirmyDokladu() {
   souhrnEl.textContent = souhrnTextDokladu(filtrSchvalenychDokladu(schvalene));
 }
 
-// (v4.35) Viditelný text appka zkrátila kvůli přechodu na pevnou grid
-// mřížku - plné znění appka nechává v `title` atributu (tooltip).
-function bankSparovaniBadge(d) {
-  if (d.Stav !== 'Schváleno') return '';
+/*
+ * Stav úhrady dokladu jako JEDNO rozhodnutí - text odznaku i ikona.
+ *
+ * (v4.75) Proč to je pohromadě: v první verzi se odznak počítal tady a
+ * ikona zvlášť z `Zpusob_platby`, a Jan hned našel doklad, kde si to
+ * odporovalo - odznak hlásil „Uhrazeno hotově" a vedle svítila ikona
+ * karty (2026-08-21: *„uhrazeno hotově nemůže být ikona karty"*).
+ *
+ * Byl to doklad zaplacený SOUKROMOU kartou: `Zpusob_platby = "Karta"`
+ * a zároveň `Hrazeno_mimo_ucet = "ANO"`. Obojí je pravda a appka měla
+ * pravdu dvakrát, jen si ji řekla dvěma způsoby najednou. Dokud text
+ * a ikona vznikají na jednom místě, tohle se stát nemůže.
+ */
+function stavUhradyDokladu(d) {
   // (v4.67) Sloupec mluví o ÚHRADĚ, ne o párování. Jan 2026-08-20:
   // *„spárováno znamená také uhrazeno (výpis na účtu nebo hotovost)"*.
   // „Spárováno" byl termín z vnitřku appky - pro účetní je to jen mezikrok
@@ -1513,19 +1523,60 @@ function bankSparovaniBadge(d) {
   // Obě cesty k úhradě vypadají stejně silně, protože stejně silné jsou:
   // potvrzený bankovní pohyb i hotovost jsou obojí doložená platba. Liší se
   // jen v popisku, ať je poznat ČÍM se platilo.
+  const zpusob = String(d.Zpusob_platby || '').trim();
   if (String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO') {
-    return '<span class="badge-potvrzeno" title="Uhrazeno hotově nebo mimo účet – protějšek v bankovním výpisu se u takového dokladu nehledá">✓ Uhrazeno hotově</span>';
+    // Mimo účet neznamená automaticky hotovost - stejně tak to může být
+    // soukromá karta. Appka proto opíše, co u dokladu doopravdy stojí,
+    // místo aby všechno mimo účet nazvala hotovostí.
+    if (zpusob === 'Karta') {
+      return {
+        trida: 'badge-potvrzeno', text: '✓ Uhrazeno kartou', zpusob: 'Karta',
+        popis: 'Uhrazeno soukromou kartou mimo firemní účet – protějšek v bankovním výpisu se u takového dokladu nehledá',
+      };
+    }
+    if (zpusob === 'Převodem') {
+      return {
+        trida: 'badge-potvrzeno', text: '✓ Uhrazeno mimo účet', zpusob: 'Převodem',
+        popis: 'Uhrazeno převodem mimo firemní účet – protějšek v bankovním výpisu se u takového dokladu nehledá',
+      };
+    }
+    return {
+      trida: 'badge-potvrzeno', text: '✓ Uhrazeno hotově', zpusob: 'Hotovost',
+      popis: 'Uhrazeno hotově – protějšek v bankovním výpisu se u takového dokladu nehledá',
+    };
   }
   if (d.Stav_parovani_bankou === 'Potvrzeno') {
-    return '<span class="badge-potvrzeno" title="Uhrazeno – appka našla odpovídající pohyb v bankovním výpisu a účetní ho potvrdila">✓ Uhrazeno</span>';
+    return {
+      trida: 'badge-potvrzeno', text: '✓ Uhrazeno', zpusob: zpusob || 'Převodem',
+      popis: 'Uhrazeno – appka našla odpovídající pohyb v bankovním výpisu a účetní ho potvrdila',
+    };
   }
   if (d.Stav_parovani_bankou === 'Navrženo') {
-    return '<span class="badge-navrzeno" title="Appka našla v bankovním výpisu pohyb, který na doklad sedí, ale nikdo ho zatím nepotvrdil – odklepněte v Bankovních výpisech">Návrh úhrady</span>';
+    return {
+      trida: 'badge-navrzeno', text: 'Návrh úhrady', zpusob,
+      popis: 'Appka našla v bankovním výpisu pohyb, který na doklad sedí, ale nikdo ho zatím nepotvrdil – odklepněte v Bankovních výpisech',
+    };
   }
   // Janova volba: appka řekne, co VÍ (platbu nenašla), ne co neví. Tvrdé
   // „Neuhrazeno" by u faktury, ke které se jen ještě nenačetl výpis, svádělo
   // k zaplacení podruhé.
-  return '<span class="badge-chybi" title="Appka k tomuhle dokladu nenašla žádnou platbu. Nemusí to znamenat, že zaplacený není – může jen chybět načtený bankovní výpis, nebo se platba nespárovala.">Nenalezena platba</span>';
+  return {
+    trida: 'badge-chybi', text: 'Nenalezena platba', zpusob,
+    popis: 'Appka k tomuhle dokladu nenašla žádnou platbu. Nemusí to znamenat, že zaplacený není – může jen chybět načtený bankovní výpis, nebo se platba nespárovala.',
+  };
+}
+
+// (v4.35) Viditelný text appka zkrátila kvůli přechodu na pevnou grid
+// mřížku - plné znění appka nechává v `title` atributu (tooltip).
+// (v4.75) Ikona způsobu platby je součástí odznaku, ne samostatná buňka -
+// mřížka řádku má pevný počet sloupců a osmý by rozhodil zarovnání
+// hlavičky (chyba z v4.64).
+function bankSparovaniBadge(d) {
+  if (d.Stav !== 'Schváleno') return '';
+  const stavUhrady = stavUhradyDokladu(d);
+  return ikonaZpusobuPlatbyHtml(stavUhrady.zpusob) +
+    '<span class="' + stavUhrady.trida + '" title="' + escapeAttr(stavUhrady.popis) + '">' +
+    escapeHtml(stavUhrady.text) + '</span>';
 }
 
 let firmyProVyberDokladu = [];
@@ -2235,9 +2286,15 @@ const IKONY_PLATBY = {
     popis: 'Placeno kartou',
     svg: '<rect x="1.5" y="3.5" width="13" height="9" rx="1.8"/><path d="M1.5 6.5h13" stroke-width="2.2"/><path d="M3.8 10h3.2"/>',
   },
+  // Mince, ne bankovka. Jan 2026-08-21 na první verzi: *„uhrazeno hotově
+  // nemůže být ikona karty, ale třeba mince"*. Bankovka i karta jsou oboje
+  // ležatý obdélník - v patnácti pixelech se od sebe nepoznaly. Sloupeček
+  // mincí má úplně jinou siluetu, takže se s kartou splést nedá.
   Hotovost: {
     popis: 'Placeno hotově',
-    svg: '<rect x="1.5" y="4" width="13" height="8" rx="1.4"/><circle cx="8" cy="8" r="2.1"/><path d="M4 8h.01M12 8h.01" stroke-width="1.6"/>',
+    svg: '<ellipse cx="8" cy="4.6" rx="5.2" ry="2.1"/>'
+      + '<path d="M2.8 4.6v6.8c0 1.16 2.33 2.1 5.2 2.1s5.2-.94 5.2-2.1V4.6"/>'
+      + '<path d="M2.8 8c0 1.16 2.33 2.1 5.2 2.1s5.2-.94 5.2-2.1"/>',
   },
   'Převodem': {
     popis: 'Placeno převodem',
@@ -2259,6 +2316,95 @@ function ikonaZpusobuPlatbyHtml(zpusobPlatby) {
   return '<svg class="ikona-platby" viewBox="0 0 16 16" role="img" aria-label="' +
     escapeAttr(ikona.popis) + '"><title>' + escapeHtml(ikona.popis) + '</title>' +
     ikona.svg + '</svg>';
+}
+
+// ---------------------------------------------------------------------------
+// PŘEPÍNAČ ZPŮSOBU PLATBY (v4.75)
+//
+// Jan 2026-08-21: *„v další části udělej dvě pole s ikonami karty a mincí
+// (hotovost) graficky hezky"*.
+//
+// Dřív to bylo rolovací menu. Způsob platby má ale jen čtyři možnosti a dvě
+// z nich (karta, hotovost) opravuje Jan při kontrole nejčastěji - v menu se
+// za ně muselo dvakrát kliknout a nebylo vidět, co je vybrané, dokud ho
+// člověk nerozbalil. Jako dlaždice jsou všechny naráz na očích.
+//
+// TŘI VĚCI, KTERÉ SE TU NESMÍ ZMĚNIT
+//
+// 1) JSOU TO OPRAVDU RADIO TLAČÍTKA. Vypadají jako dlaždice, ale uvnitř je
+//    <input type="radio">, takže to umí klávesnice i odečítač a formulář se
+//    chová jako formulář. Naklikaná <div>ka by vypadala stejně a byla by
+//    nepoužitelná pro každého, kdo nemyší.
+// 2) IKONA NIKDY NESTOJÍ SAMA. U každé dlaždice je i slovo - „karta" a
+//    „mince" jsou v patnácti pixelech dvě kolečka a obdélník, ne informace.
+// 3) „NEUVEDENO" JE PLNOHODNOTNÁ VOLBA. Appka nesmí za člověka vybrat
+//    způsob platby jen proto, že vypadá líp, když je něco zaškrtnuté -
+//    u dokladu, ze kterého to AI nevyčetla, je pravda „nevíme".
+let poradiPrepinacePlatby = 0;
+
+function vytvorPrepinacZpusobuPlatby(vybrano) {
+  poradiPrepinacePlatby += 1;
+  const skupina = 'zpusob-platby-' + poradiPrepinacePlatby;
+  const prepinac = document.createElement('div');
+  prepinac.className = 'prepinac-platby';
+  prepinac.setAttribute('role', 'radiogroup');
+  prepinac.setAttribute('aria-label', 'Způsob platby');
+
+  const MOZNOSTI = [
+    { hodnota: 'Karta', popisek: 'Karta' },
+    { hodnota: 'Hotovost', popisek: 'Hotovost' },
+    { hodnota: 'Převodem', popisek: 'Převodem' },
+    { hodnota: '', popisek: 'Neuvedeno' },
+  ];
+
+  MOZNOSTI.forEach((m) => {
+    const dlazdice = document.createElement('label');
+    dlazdice.className = 'prepinac-platby-volba';
+    if (IKONY_PLATBY[m.hodnota]) dlazdice.title = IKONY_PLATBY[m.hodnota].popis;
+
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = skupina;
+    radio.value = m.hodnota;
+    radio.checked = String(vybrano || '') === m.hodnota;
+    dlazdice.appendChild(radio);
+
+    const obrazek = document.createElement('span');
+    obrazek.className = 'prepinac-platby-ikona';
+    // Prázdná volba dostane pomlčku místo ikony - zástupný otazník by
+    // vypadal jako chyba, a přitom „nevíme" je legitimní stav.
+    obrazek.innerHTML = ikonaZpusobuPlatbyHtml(m.hodnota) || '<span aria-hidden="true">–</span>';
+    dlazdice.appendChild(obrazek);
+
+    const text = document.createElement('span');
+    text.className = 'prepinac-platby-text';
+    text.textContent = m.popisek;
+    dlazdice.appendChild(text);
+
+    prepinac.appendChild(dlazdice);
+  });
+
+  // Zvýraznění vybrané dlaždice navěšuje JS, ne CSS: `:has(input:checked)`
+  // je novější vlastnost a prohlížeč, který ji neumí, ji tiše přeskočí -
+  // přepínač by pak vypadal, že není vybráno nic.
+  function oznacVybranou() {
+    prepinac.querySelectorAll('.prepinac-platby-volba').forEach((dl) => {
+      const radio = dl.querySelector('input[type="radio"]');
+      dl.classList.toggle('vybrano', !!(radio && radio.checked));
+    });
+  }
+  prepinac.addEventListener('change', oznacVybranou);
+  oznacVybranou();
+
+  // Volající pracuje s přepínačem jako s <select>em (`.value`), aby se
+  // ukládání dokladu nemuselo dozvědět, že se změnilo UI.
+  Object.defineProperty(prepinac, 'value', {
+    get() {
+      const vybrany = prepinac.querySelector('input[type="radio"]:checked');
+      return vybrany ? vybrany.value : '';
+    },
+  });
+  return prepinac;
 }
 
 // ---------------------------------------------------------------------------
@@ -2542,12 +2688,13 @@ function vytvorRadekDoklad(d) {
     // pevnému počtu sloupců mřížky, jednak proto, že se na ni v mobilním
     // režimu odkazuje CSS (v úzkém breakpointu byla tahle buňka schovaná
     // přes `nth-child(4)`, teď se místo toho přesouvá na druhý řádek karty).
-    // (v4.75) Ikona způsobu platby jde do TÉŽE buňky jako odznak úhrady,
-    // schválně ne do vlastního sloupce: mřížka řádku má pevný počet sloupců
-    // (viz .doklad-radek v public/style.css) a přidání osmého by rozhodilo
-    // zarovnání hlavičky - přesně ta chyba, která se stala ve v4.64.
-    '<span class="doklad-banka-bunka">' + ikonaZpusobuPlatbyHtml(d.Zpusob_platby) +
-      bankSparovaniBadge(d) + '</span>' +
+    // (v4.75) Ikona způsobu platby je součástí odznaku úhrady a jde do TÉŽE
+    // buňky, schválně ne do vlastního sloupce: mřížka řádku má pevný počet
+    // sloupců (viz .doklad-radek v public/style.css) a přidání osmého by
+    // rozhodilo zarovnání hlavičky - přesně ta chyba, která se stala ve
+    // v4.64. Ikonu vybírá bankSparovaniBadge společně s textem, aby si
+    // odznak a obrázek nemohly odporovat.
+    '<span class="doklad-banka-bunka">' + bankSparovaniBadge(d) + '</span>' +
     '<span class="dodavatel">' +
       escapeHtml(d.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (d.Dodavatel || '(bez dodavatele)')) +
     '</span>' +
@@ -2745,14 +2892,14 @@ function vytvorDetailDoklad(d) {
   // zatímco "Mimo účet" je rozhodnutí, že se na bankovní pohyb vůbec nemá
   // čekat. Firemní kartou zaplacený doklad na výpisu je, takže má "Karta" a
   // zároveň NEMÁ "Mimo účet".
-  const vstupZpusobPlatby = document.createElement('select');
-  ['', 'Karta', 'Hotovost', 'Převodem'].forEach((moznost) => {
-    const option = document.createElement('option');
-    option.value = moznost;
-    option.textContent = moznost || '— neuvedeno —';
-    if ((d.Zpusob_platby || '') === moznost) option.selected = true;
-    vstupZpusobPlatby.appendChild(option);
-  });
+  //
+  // (v4.75) Místo rolovacího menu jsou to dlaždice s ikonou. Jan
+  // 2026-08-21: *„udělej dvě pole s ikonami karty a mincí (hotovost)
+  // graficky hezky"*. Způsob platby má čtyři možnosti, z toho dvě, které
+  // Jan při kontrole opravuje nejčastěji - a v rolovacím menu se za ně
+  // muselo dvakrát kliknout. Jako dlaždice jsou vidět naráz a stejné
+  // ikony pak Jan potká i v seznamu.
+  const vstupZpusobPlatby = vytvorPrepinacZpusobuPlatby(d.Zpusob_platby || '');
   const vstupKarta = document.createElement('input');
   vstupKarta.type = 'text';
   vstupKarta.inputMode = 'numeric';
@@ -2786,20 +2933,13 @@ function vytvorDetailDoklad(d) {
   vstupKarta.addEventListener('input', prekresliDrzitele);
   prekresliDrzitele();
 
-  // Ikona vedle výběru způsobu platby se mění hned při přepnutí - je to
-  // stejná ikona jako v hlavičce řádku, takže je jasné, co v seznamu znamená.
-  const ikonaPlatby = document.createElement('span');
-  ikonaPlatby.className = 'ikona-platby-nahled';
-  function prekresliIkonuPlatby() {
-    ikonaPlatby.innerHTML = ikonaZpusobuPlatbyHtml(vstupZpusobPlatby.value);
-  }
-  vstupZpusobPlatby.addEventListener('change', prekresliIkonuPlatby);
-  prekresliIkonuPlatby();
-
-  const bunkaZpusob = pridejPole(mrizka, 3, 'Způsob platby', vstupZpusobPlatby);
-  bunkaZpusob.querySelector('label').appendChild(ikonaPlatby);
-  pridejPole(mrizka, 3, 'Karta (poslední 4 číslice)', vstupKarta, popisKarty);
-  pridejPole(mrizka, 6, '', labelMimoUcet);
+  // Přepínač potřebuje dvě třetiny řádku, ať se čtyři dlaždice vejdou na
+  // jeden řádek. Zaškrtávátko „Mimo účet" dostalo vlastní řádek celé -
+  // v třetině se jeho popisek ořezával uprostřed slova, a zrovna u něj
+  // na tom záleží: říká, že se na bankovní pohyb nemá čekat.
+  pridejPole(mrizka, 8, 'Způsob platby', vstupZpusobPlatby);
+  pridejPole(mrizka, 4, 'Karta (poslední 4 číslice)', vstupKarta, popisKarty);
+  pridejPole(mrizka, 0, '', labelMimoUcet);
 
   pridejPole(mrizka, 6, 'Číslo účtu dodavatele (pro QR Platbu)', vstupUcetDodavatele);
   pridejPole(mrizka, 3, 'Konstantní symbol', vstupKonstSym);

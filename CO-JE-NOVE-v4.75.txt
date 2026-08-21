@@ -25,7 +25,13 @@ CO JE V TÉHLE VERZI
 
 3) IKONY ZPŮSOBU PLATBY
    V seznamu je u každého dokladu vidět, ČÍM se platilo – karta,
-   hotovost, převod. Ikona má i popisek pro najetí myší.
+   mince (hotovost), převod. Ikona má i popisek pro najetí myší.
+   Odznak úhrady a ikona se počítají na jednom místě, takže si nemůžou
+   odporovat: doklad placený soukromou kartou mimo účet teď hlásí
+   „✓ Uhrazeno kartou", ne „hotově" s ikonou karty.
+
+   V detailu je způsob platby jako čtyři dlaždice s ikonami (Karta /
+   Hotovost / Převodem / Neuvedeno) místo rolovacího menu.
 
 4) DRŽITEL KARTY U ČÍSLA KARTY
    Pod čtyřčíslím karty appka napíše, kdo ji nosí (ze seznamu Platební
@@ -47,4 +53,4 @@ a údržba klepněte na „Zkontrolovat tabulku" – uvidíte, jestli v tabulce
 nechybí sloupce (to je ta věc, kvůli které se dřív neukládalo
 „Zaúčtováno").
 
-TESTY: 424 (node test-v452.js … test-v475.js), všechny prošly.
+TESTY: 437 (node test-v452.js … test-v475.js), všechny prošly.

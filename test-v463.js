@@ -272,8 +272,11 @@ test('obě cesty k úhradě mají ✓', () => {
   // *„spárováno znamená také uhrazeno (výpis na účtu nebo hotovost)"*.
   // Hlídané chování je ale pořád totéž: obojí je doložená platba a obojí
   // dostane ✓.
-  assert.ok(/>✓ Uhrazeno</.test(APP), 'chybí ✓ u úhrady z bankovního výpisu');
-  assert.ok(/>✓ Uhrazeno hotově</.test(APP), 'hotovost ✓ nedostala');
+  // (v4.75) Texty odznaků se přestěhovaly do `stavUhradyDokladu` (odznak
+  // a ikona musí vznikat na jednom místě, jinak si odporují) - proto se
+  // hledá `text: '✓ …'`, ne hotové HTML.
+  assert.ok(/text: '✓ Uhrazeno'/.test(APP), 'chybí ✓ u úhrady z bankovního výpisu');
+  assert.ok(/text: '✓ Uhrazeno hotově'/.test(APP), 'hotovost ✓ nedostala');
 });
 
 test('„Mimo účet" už nevypadá jako nedodělek', () => {
