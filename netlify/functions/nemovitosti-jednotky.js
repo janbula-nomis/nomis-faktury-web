@@ -90,9 +90,27 @@ exports.handler = async (event) => {
         // (v4.57) Nazev je nepovinný - když ho Jan nevyplní, appka jednotku
         // popíše Střediskem jako před v4.57 (viz schéma).
         Nazev: String(telo.Nazev || '').trim(),
+        // (v4.78) Byt / Dům / Pozemek / Ostatní - kvůli souhrnu portfolia
+        // („Váš majetek v kostce"). Prázdné znamená „nevyplněno", ne
+        // „ostatní"; souhrn to vypíše zvlášť, viz schéma.
+        Druh: String(telo.Druh || '').trim(),
         Adresa: String(telo.Adresa || '').trim(),
         Katastralni_uzemi: String(telo.Katastralni_uzemi || '').trim(),
         Cislo_LV: String(telo.Cislo_LV || '').trim(),
+        // (v4.80) Katastrální údaje pro předávací protokol a nájemní
+        // smlouvu - viz lib/nemovitostiJednotkySchema.js. Formulář je má až
+        // v editaci jednotky, endpoint je ale přijmout musí, aby šlo
+        // jednotku založit i s nimi.
+        Cislo_jednotky: String(telo.Cislo_jednotky || '').trim(),
+        Budova_cp: String(telo.Budova_cp || '').trim(),
+        Pozemek_parc_c: String(telo.Pozemek_parc_c || '').trim(),
+        Prislusenstvi: String(telo.Prislusenstvi || '').trim(),
+        // (v4.80) Kam se za byt platí - účet SVJ. Proč to nepatří do listu
+        // Ucty (a proč tu nejsou energie), je v
+        // lib/nemovitostiJednotkySchema.js.
+        SVJ_nazev: String(telo.SVJ_nazev || '').trim(),
+        SVJ_ucet: String(telo.SVJ_ucet || '').trim(),
+        SVJ_symbol: String(telo.SVJ_symbol || '').trim(),
         Plocha_m2: telo.Plocha_m2 !== undefined ? String(telo.Plocha_m2).trim() : '',
         Dispozice: String(telo.Dispozice || '').trim(),
         Podlazi: String(telo.Podlazi || '').trim(),

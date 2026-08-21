@@ -955,6 +955,15 @@
         <button type="button" id="tlacitko-servis-doplnit">Doplnit chybějící sloupce</button>
         <div id="servis-doplnit-vysledek" style="margin-top:10px"></div>
 
+        <h3 style="margin-top:22px">Doplnit údaje firem z rejstříku</h3>
+        <p class="popis">Doplní IČO, DIČ a číslo účtu k firmám v seznamu podle údajů ověřených
+          v obchodním rejstříku. <strong>Nic nepřepisuje</strong> – vyplní jen prázdná pole a rozdíly
+          proti rejstříku vypíše, ať se na ně můžete podívat. Čísla účtů v rejstříku nejsou (není to
+          veřejný údaj), ta jsou opsaná z vašich podepsaných smluv a dodatků – proto je u každého
+          napsáno, odkud pochází.</p>
+        <button type="button" id="tlacitko-firmy-nahled" class="sekundarni">Ukázat, co by se doplnilo</button>
+        <div id="firmy-rejstrik-vysledek" style="margin-top:10px"></div>
+
         <h3 style="margin-top:22px">Osiřelé soubory v Inboxu</h3>
         <p class="popis">Vypíše soubory ve složce <code>00_Inbox</code> na Disku, ke kterým v appce
           není žádný doklad, faktura ani smlouva. Vznikají, když se soubor nahraje, ale zápis do
@@ -1064,6 +1073,111 @@
         <table id="tabulka-firmy">
           <thead><tr><th>Název</th><th>IČO</th><th>DIČ</th><th>Plátce DPH</th><th>Bankovní účet</th><th>Akce</th></tr></thead>
           <tbody id="tabulka-firmy-telo"></tbody>
+        </table>
+        </div>
+      </details>
+
+      <!-- (v4.80) Pronajímatelé - hlavičky smluv a předávacích protokolů.
+           Proč to není součást Firem (a proč tu Ing. Jan Bula smí být jako
+           fyzická osoba), vysvětluje lib/pronajimateleSchema.js. -->
+      <details class="panel-skladaci">
+        <summary>Pronajímatelé</summary>
+        <p class="popis">Hlavičky, které se tisknou do nájemních smluv a předávacích protokolů.
+          Je to něco jiného než <strong>Firmy</strong>: tam je účetní identita, na které visí každý
+          doklad, tady text pro dokument – sídlo, spisová značka, kdo za společnost jedná. Může tu
+          být i fyzická osoba (Ing. Jan Bula pronajímá byty i sám za sebe), která do Firem nepatří.</p>
+
+        <h3>Přidat pronajímatele</h3>
+        <label for="novy-p-nazev">Jméno nebo firma</label>
+        <input type="text" id="novy-p-nazev" placeholder="např. NOMIS &amp; Homes s.r.o. nebo Ing. Jan Bula" />
+        <label for="novy-p-druh">Druh</label>
+        <select id="novy-p-druh">
+          <option value="Firma">Firma</option>
+          <option value="Osoba">Fyzická osoba</option>
+        </select>
+        <label for="novy-p-firma">Patří k firmě (nepovinné)</label>
+        <select id="novy-p-firma"></select>
+        <p class="popis">Jen nápověda: u bytu evidovaného pod touhle firmou appka pronajímatele
+          předvybere. Rozhodnutí zůstává na vás.</p>
+        <div class="mriz-2">
+          <div><label for="novy-p-ico">IČO</label><input type="text" id="novy-p-ico" /></div>
+          <div><label for="novy-p-dic">DIČ</label><input type="text" id="novy-p-dic" /></div>
+        </div>
+        <label for="novy-p-sidlo">Sídlo / trvale bytem</label>
+        <input type="text" id="novy-p-sidlo" />
+        <div class="mriz-2">
+          <div><label for="novy-p-znacka">Spisová značka</label><input type="text" id="novy-p-znacka" placeholder="např. C 415688 vedená u Městského soudu v Praze" /></div>
+          <div><label for="novy-p-narozeni">Datum narození (u osoby)</label><input type="date" id="novy-p-narozeni" /></div>
+        </div>
+        <label for="novy-p-zastoupena">Za společnost jedná</label>
+        <input type="text" id="novy-p-zastoupena" placeholder="např. Ing. Jan Bula, jednatel" />
+        <div class="mriz-2">
+          <div><label for="novy-p-ucet">Bankovní účet</label><input type="text" id="novy-p-ucet" /></div>
+          <div><label for="novy-p-telefon">Telefon</label><input type="text" id="novy-p-telefon" /></div>
+        </div>
+        <label for="novy-p-email">E-mail</label>
+        <input type="text" id="novy-p-email" />
+        <button id="tlacitko-pridat-pronajimatele">Přidat pronajímatele</button>
+        <div id="pronajimatele-zprava"></div>
+
+        <h3 style="margin-top:24px">Existující pronajímatelé</h3>
+        <p class="popis">„Výchozí“ je ten, kterého appka nabídne jako první. Označit se dá jen jeden –
+          když ho přepnete, u předchozího se zaškrtnutí zruší.</p>
+        <div id="pronajimatele-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-pronajimatele">
+          <thead><tr><th>Název</th><th>Druh</th><th>IČO</th><th>Sídlo / bytem</th><th>Účet</th><th>Výchozí</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-pronajimatele-telo"></tbody>
+        </table>
+        </div>
+      </details>
+
+      <!-- (v4.81) Nájemci - druhá strana smlouvy. Stejné sloupce jako
+           Pronajímatelé; proč jsou to přesto dva listy, je v hlavičce
+           lib/smluvniStrany.js. -->
+      <details class="panel-skladaci">
+        <summary>Nájemci</summary>
+        <p class="popis">Kdo si od vás byt pronajímá – jméno nebo firma, IČ, sídlo a kdo za
+          společnost jedná. Vyplňuje se jednou: <strong>Schulte Group a.s.</strong> máte na víc
+          bytech a bez číselníku byste jeho údaje opisoval do každé smlouvy znovu. Do tištěné
+          smlouvy se pak nájemce doplní z tohohle seznamu; text „druhá strana“ na smlouvě
+          zůstává, jak je – podle něj se párují platby.</p>
+
+        <h3>Přidat nájemce</h3>
+        <label for="novy-n-nazev">Jméno nebo firma</label>
+        <input type="text" id="novy-n-nazev" placeholder="např. Schulte Group a.s. nebo Marie Kresliak" />
+        <label for="novy-n-druh">Druh</label>
+        <select id="novy-n-druh">
+          <option value="Firma">Firma</option>
+          <option value="Osoba">Fyzická osoba</option>
+        </select>
+        <div class="mriz-2">
+          <div><label for="novy-n-ico">IČO</label><input type="text" id="novy-n-ico" /></div>
+          <div><label for="novy-n-dic">DIČ</label><input type="text" id="novy-n-dic" /></div>
+        </div>
+        <label for="novy-n-sidlo">Sídlo / trvale bytem</label>
+        <input type="text" id="novy-n-sidlo" />
+        <div class="mriz-2">
+          <div><label for="novy-n-znacka">Spisová značka</label><input type="text" id="novy-n-znacka" placeholder="např. B 28456 vedená u Městského soudu v Praze" /></div>
+          <div><label for="novy-n-narozeni">Datum narození (u osoby)</label><input type="date" id="novy-n-narozeni" /></div>
+        </div>
+        <label for="novy-n-zastoupena">Za společnost jedná</label>
+        <input type="text" id="novy-n-zastoupena" placeholder="např. Ing. Marek Šulek a Marie Procházková, členové představenstva" />
+        <div class="mriz-2">
+          <div><label for="novy-n-ucet">Bankovní účet</label><input type="text" id="novy-n-ucet" /></div>
+          <div><label for="novy-n-telefon">Telefon</label><input type="text" id="novy-n-telefon" /></div>
+        </div>
+        <label for="novy-n-email">E-mail</label>
+        <input type="text" id="novy-n-email" />
+        <button id="tlacitko-pridat-najemce">Přidat nájemce</button>
+        <div id="najemci-zprava"></div>
+
+        <h3 style="margin-top:24px">Existující nájemci</h3>
+        <div id="najemci-nacitani" class="nacitani">Načítám…</div>
+        <div style="overflow-x:auto">
+        <table id="tabulka-najemci">
+          <thead><tr><th>Název</th><th>Druh</th><th>IČO</th><th>Sídlo / bytem</th><th>Kontakt</th><th>Akce</th></tr></thead>
+          <tbody id="tabulka-najemci-telo"></tbody>
         </table>
         </div>
       </details>
@@ -1271,5 +1385,13 @@
 
 </div>
 <script src="app.js"></script>
+<!-- (v4.80) Karta bytu a předávací protokol. Musí být AŽ ZA app.js -
+     používá z něj escapeHtml, parsujCastkuZListu, formatCastkaSMenou,
+     zavolejApi a APP_VERZE. Service worker nic nekešuje (viz sw.js),
+     takže druhý soubor nic nekomplikuje. -->
+<!-- (v4.81) Pevný text nájemní smlouvy - přepis Janovy vlastní smlouvy.
+     Musí být PŘED dokumenty.js, který z něj skládá dokument. -->
+<script src="smlouvaText.js"></script>
+<script src="dokumenty.js"></script>
 </body>
 </html>

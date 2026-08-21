@@ -2041,6 +2041,43 @@ input[type="file"] { margin-top: 8px; }
 }
 .portfolio-karta .polozka-upozorneni.ok { background: #e8f7f0; color: var(--barva-uspech); }
 .portfolio-karta .polozka-upozorneni .ikona-stav { flex: none; }
+/* (v4.79) Sbalený řádek upozornění. Jedenáct jmen slepených čárkami do
+   jednoho odstavce zabralo na mobilu půl obrazovky a ikona plavala
+   uprostřed - vidět je proto jen věta s počtem, seznam se rozbalí. */
+/* Musí přebít `.portfolio-karta .polozka-upozorneni { display: flex }` výš -
+   jinak si summary a rozbalený seznam sednou VEDLE SEBE do dvou sloupců. */
+.portfolio-karta .polozka-upozorneni.pozornost-skladaci { display: block; padding: 0; }
+.pozornost-skladaci summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; cursor: pointer; list-style: none;
+}
+.pozornost-skladaci summary::-webkit-details-marker { display: none; }
+.pozornost-skladaci summary::after {
+  content: '▸'; margin-left: auto; font-size: 11px; opacity: .7; transition: transform .15s;
+}
+.pozornost-skladaci[open] summary::after { transform: rotate(90deg); }
+.pozornost-detaily, .zprava-seznam {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 2px 10px 9px 33px; font-size: 12px;
+}
+.pozornost-detaily span, .zprava-seznam span { overflow-wrap: anywhere; }
+/* Totéž u bloků „Po platnosti" a „Končí do 90 dnů" nad seznamem bytů. */
+.zprava-skladaci summary { cursor: pointer; list-style: none; display: flex; align-items: center; }
+.zprava-skladaci summary::-webkit-details-marker { display: none; }
+.zprava-skladaci summary::after {
+  content: '▸'; margin-left: auto; font-size: 11px; opacity: .7; transition: transform .15s;
+}
+.zprava-skladaci[open] summary::after { transform: rotate(90deg); }
+.zprava-skladaci .zprava-seznam { padding: 6px 0 4px; }
+
+/* Souhrn se na úzkém okně nesmí roztlačit ven z karty - dlouhá částka
+   i dlouhý název druhu se zalomí, ne přetečou. */
+.portfolio-hodnota, .portfolio-soucet strong { overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .portfolio-radek { grid-template-columns: 10px 1fr 38px minmax(88px, auto); gap: 8px; font-size: 13px; }
+  .portfolio-soucet strong { font-size: 16px; }
+  .pozornost-detaily, .zprava-seznam { padding-left: 10px; }
+}
 
 /* ---------- KARTA BYTU: ZÁLOŽKY (v4.77) ----------
    Jan 2026-08-21: "podíváme se na modul nemovitosti, moc se mi nelíbí,
@@ -2730,3 +2767,321 @@ body.sken-okno-otevreno { overflow: hidden; }
   padding: 2px 0;
   word-break: break-word;
 }
+
+/* ==========================================================================
+   (v4.80) DOKUMENTY - karta bytu a předávací protokol
+   ==========================================================================
+   Jan 2026-08-21 poslal jako vzor svůj formulář „Párování podle čísel bytů"
+   (SVJ Holečkova) se slovy *„ty karty se mi nelíbí, udělej to graficky jako
+   toto"*. Tenhle blok je přepis toho formuláře do CSS.
+
+   ODKUD SE BERE KAŽDÁ HODNOTA
+
+   Barvy i rozměry jsou VYMĚŘENÉ z jeho PDF, ne odhadnuté:
+     výplň polí k vyplnění  #ccd7ff   (levandulová, jako pole v Acrobatu)
+     vlasové linky          #bfbfbf
+     druhotný text          #737373
+     text                   #191919
+
+   ČTYŘI VĚCI, KTERÉ TEN VZOR DĚLAJÍ TÍM, ČÍM JE
+
+   1) DVA ŘÁDKY U KAŽDÉHO POPISKU - česky tučně, anglicky kurzívou šedě pod
+      tím. V protokolu to není ozdoba: podepisuje ho nájemník, který často
+      česky neumí, a Janův vzor od Century 21 sám říká, že byl vyhotoven
+      v české a anglické verzi. Karta bytu je naopak jen pro Jana a zůstává
+      česky - anglické řádky by ji natáhly na dvojnásobek bez užitku.
+   2) ČERNÉ KOLEČKO S ČÍSLEM. Ve vzoru značí byt, tady oddíl protokolu.
+      Je to jediný silný grafický prvek na stránce, proto smí být jen jeden
+      druh a jen na jednom místě.
+   3) POLE K VYPLNĚNÍ JE PLOCHA, NE LINKA. Tečkovaná linka říká „něco tu
+      chybí", levandulový obdélník říká „tohle vyplň". Druhé je pokyn,
+      první je stížnost.
+   4) VLASOVÉ LINKY A HODNĚ VZDUCHU. Žádné orámované tabulky - jen tenké
+      vodorovné čáry mezi řádky a nad skupinou sloupců.
+
+   ROZDÍL, NA KTERÉM TO STOJÍ
+
+   „(prázdné)" a levandulové pole NEJSOU totéž a nesmí se sloučit:
+     (prázdné)          appka VÍ, že tam nic není (na štítku nic nestojí)
+     levandulové pole   appka to NEVÍ, dopisuje se rukou nebo v prohlížeči
+   Ve vzoru je ten rozdíl taky - „(prázdné)" u schránek bez štítku vedle
+   modrých polí k doplnění. */
+
+.dokument-vrstva {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(20, 24, 33, 0.65);
+  overflow-y: auto;
+  padding: 0 0 40px;
+}
+/* Pozadí appky se pod otevřeným dokumentem nescrolluje - jinak by se při
+   posunu na telefonu hýbaly obě vrstvy naráz. */
+body.dokument-otevreny { overflow: hidden; }
+
+.dokument-lista {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--barva-karta);
+  border-bottom: 1px solid var(--barva-hranice);
+}
+.dokument-nazev {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+.dokument-lista button { flex: 0 0 auto; }
+
+/* Co appka neví - žlutý pruh nad dokumentem. Na papír se netiskne (viz
+   `@media print`): je to pokyn pro toho, kdo tiskne, ne součást listiny. */
+.dokument-upozorneni {
+  max-width: 210mm;
+  margin: 12px auto 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: #fff8e1;
+  border: 1px solid #f0d68a;
+  color: #6b5300;
+  font-size: 12.5px;
+}
+.dokument-upozorneni ul { margin: 6px 0 0; padding-left: 18px; }
+.dokument-upozorneni li { margin: 2px 0; }
+
+/* Samotný list. Bílý i v tmavém režimu - dokument je pořád papír. */
+.dokument-list {
+  max-width: 210mm;
+  margin: 14px auto;
+  padding: 18mm 16mm;
+  background: #ffffff;
+  color: #191919;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* --- Hlavička dokumentu ------------------------------------------------ */
+.dok-hlavicka { margin-bottom: 20px; }
+.dokument-list h1 { font-size: 19px; font-weight: 700; margin: 0; line-height: 1.2; }
+/* Anglický název pod českým - kurzívou a šedě, přesně jako ve vzoru. */
+.dok-nadpis-en { font-size: 14px; font-style: italic; color: #737373; margin-top: 2px; }
+.dok-podnadpis { font-size: 11.5px; color: #737373; margin-top: 8px; }
+.dok-uvod { font-size: 11px; color: #444; margin: 10px 0 0; }
+.dok-uvod em { display: block; color: #737373; }
+
+/* --- Oddíl s černým kolečkem ------------------------------------------- */
+.dok-sekce { margin-top: 20px; }
+.dok-sekce-hlava {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  border-bottom: 1px solid #191919;
+  padding-bottom: 5px;
+  margin-bottom: 10px;
+}
+/* Černé kolečko s číslem oddílu. `flex: none`, ať se nikdy nesmrskne do
+   ovála, když je nadpis dlouhý. */
+/* U protokolu je uvnitř arabská číslice, u smlouvy římská („VIII") - proto
+   pilulka s minimální šířkou, ne pevný kruh. Kruh by osmičku ořízl. */
+.dok-cislo {
+  flex: none;
+  min-width: 20px;
+  padding: 0 6px;
+  height: 20px;
+  border-radius: 999px;
+  background: #191919;
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+}
+.dokument-list h2 { font-size: 12.5px; font-weight: 700; margin: 0; letter-spacing: 0.01em; }
+.dok-h2-en { font-size: 11px; font-style: italic; color: #737373; font-weight: 400; }
+.dokument-list h3 { font-size: 11.5px; font-weight: 700; margin: 14px 0 5px; }
+.dok-h3-en { font-style: italic; color: #737373; font-weight: 400; }
+
+/* --- Řádek „popisek: hodnota" ------------------------------------------ */
+.dok-pole {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px solid #e8e8e8;
+}
+.dok-popisek { flex: 0 0 38%; font-size: 11px; }
+.dok-popisek em { display: block; font-size: 10px; color: #737373; }
+.dok-hodnota { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+
+/* --- Pole k vyplnění vs. známé prázdno --------------------------------- */
+/* Levandulová plocha = „tohle vyplň". Rozměr i barva jsou ze vzoru. */
+.dok-vyplnit {
+  display: inline-block;
+  min-width: 150px;
+  height: 20px;
+  background: #ccd7ff;
+  border-radius: 2px;
+  vertical-align: middle;
+}
+.dok-hodnota > .dok-vyplnit,
+.dok-tabulka td > .dok-vyplnit { width: 100%; min-width: 40px; }
+.dok-psaci .dok-vyplnit { display: block; width: 100%; height: 22px; margin: 8px 0; }
+/* Appka VÍ, že tam nic není - to je jiná informace než prázdné pole. */
+.dok-prazdne { color: #737373; font-style: italic; font-weight: 400; }
+.dok-drobne { font-size: 10px; color: #737373; font-weight: 400; }
+/* Očíslované odstavce smlouvy. Číslo visí vlevo mimo text, aby odstavce
+   začínaly na stejné svislici jako zbytek dokumentu - v Janově smlouvě to
+   tak je a při čtení devíti stran to drží oko na místě. */
+.dok-odstavce { margin: 6px 0 0; padding-left: 22px; }
+.dok-odstavce > li { margin: 0 0 8px; padding-left: 4px; }
+.dok-odstavce > li::marker { font-weight: 700; }
+/* Vypsaná specifikace bytu uvnitř odstavce - odsazená, ať se v odstavci
+   pozná, co je popis nemovitosti a co věta smlouvy. */
+.dok-vypis {
+  margin: 6px 0;
+  padding: 7px 10px;
+  border-left: 2px solid #191919;
+  background: #f7f8fa;
+}
+.dok-text { margin: 7px 0; }
+/* Anglická verze odstavce jde na vlastní řádek, ne za tečku české věty -
+   jinak se obě věty slijí do jednoho bloku a nedá se přeskočit ta, které
+   člověk nerozumí. */
+.dok-text em { display: block; color: #737373; margin-top: 3px; }
+
+/* --- Dvě smluvní strany vedle sebe ------------------------------------- */
+.dok-dve-strany { display: flex; gap: 22px; }
+.dok-strana { flex: 1 1 0; min-width: 0; }
+/* Skupinová hlavička nad sloupcem - prostrkaná verzálka s čárou nad ní,
+   jako „ZVONEK / DOORBELL" ve vzoru. */
+.dok-role {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  border-top: 1px solid #191919;
+  padding-top: 5px;
+  margin-bottom: 8px;
+}
+.dok-role em { font-weight: 400; font-style: italic; color: #737373; letter-spacing: 0.04em; text-transform: none; }
+.dok-strana-nazev { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.dok-zastupce { margin-top: 10px; }
+
+/* --- Tabulky ----------------------------------------------------------- */
+/* Bez rámečků. Jen čára pod hlavičkou a vlasová linka mezi řádky - těžké
+   mřížky ve vzoru nikde nejsou. */
+.dok-tabulka { width: 100%; border-collapse: collapse; margin: 4px 0 12px; font-size: 11.5px; }
+.dok-tabulka th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 0 8px 5px 0;
+  border-bottom: 1px solid #191919;
+  vertical-align: bottom;
+}
+.dok-tabulka th em { display: block; font-size: 9.5px; font-style: italic; color: #737373; font-weight: 400; }
+.dok-tabulka td {
+  padding: 7px 8px 7px 0;
+  border-bottom: 1px solid #e8e8e8;
+  vertical-align: middle;
+}
+.dok-tabulka tr:last-child td { border-bottom: none; }
+
+/* --- Podpisy ------------------------------------------------------------ */
+.dok-podpisy { display: flex; gap: 26px; margin-top: 26px; }
+.dok-podpis { flex: 1 1 0; min-width: 0; }
+/* „V ……… dne ………" musí zůstat na JEDNOM řádku - se dvěma poli po 150 px
+   se to v půlce stránky zalomí a podpisová linka se nalepí na datum. */
+.dok-podpis-mesto { font-size: 11px; margin-bottom: 34px; white-space: nowrap; }
+.dok-podpis-mesto .dok-vyplnit { min-width: 84px; height: 18px; }
+.dok-podpis-linka { border-bottom: 1px solid #191919; }
+.dok-podpis-popis { font-size: 10.5px; color: #444; margin-top: 5px; }
+.dok-podpis-popis em { color: #737373; }
+.dok-podpis-popis strong { display: block; font-size: 11px; color: #191919; margin-top: 2px; }
+
+/* --- Patička ------------------------------------------------------------ */
+.dok-paticka {
+  margin-top: 22px;
+  padding-top: 8px;
+  border-top: 1px solid #bfbfbf;
+  font-size: 9.5px;
+  color: #737373;
+}
+
+/* Záložka Dokumenty na kartě bytu. */
+.dokumenty-vyber { margin-top: 10px; max-width: 420px; }
+.dokumenty-vyber label { display: block; font-size: 11px; color: var(--barva-text-tlumena); }
+.dokumenty-tlacitka { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+@media (max-width: 640px) {
+  .dokument-list { padding: 12mm 8mm; margin: 8px; }
+  /* Dvě strany vedle sebe se na telefonu nevejdou - skládají se pod sebe.
+     Na tisku zůstávají vedle sebe (tiskový blok níž tohle nedědí). */
+  .dok-dve-strany, .dok-podpisy { flex-direction: column; gap: 14px; }
+  .dok-pole { flex-direction: column; gap: 2px; }
+  .dok-popisek { flex: none; }
+  .dok-hodnota > .dok-vyplnit { min-width: 100%; }
+}
+
+/* --------------------------------------------------------------------------
+   TISK
+   --------------------------------------------------------------------------
+   Tiskne se JEN dokument. Zbytek appky (záložky, karty, lišta) se schová -
+   jinak by z tiskárny vyjelo patnáct stran seznamu dokladů. */
+@media print {
+  body { background: #ffffff; }
+  body.dokument-otevreny #app { display: none !important; }
+  .dokument-vrstva { position: static; background: none; padding: 0; overflow: visible; }
+  .dokument-lista, .dokument-upozorneni { display: none !important; }
+  .dokument-list {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    font-size: 10.5pt;
+  }
+  /* Levandulová pole musí na papíře zůstat - jsou to místa k vyplnění.
+     Bez tohohle je prohlížeč při „tisku bez pozadí" zahodí a z formuláře
+     zbude prázdno bez náznaku, kam psát. */
+  .dok-vyplnit {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: #ccd7ff !important;
+  }
+  .dok-cislo {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: #191919 !important;
+    color: #ffffff !important;
+  }
+  /* Nadpis nesmí zůstat na konci stránky sám a podpisová část se nesmí
+     roztrhnout mezi dvě stránky - podpis bez prohlášení nad ním je
+     k ničemu. */
+  .dokument-list h2, .dokument-list h3, .dok-sekce-hlava { break-after: avoid; page-break-after: avoid; }
+  .dok-neroztrhnout { break-inside: avoid; page-break-inside: avoid; }
+  .dok-tabulka { break-inside: auto; }
+  .dok-tabulka tr { break-inside: avoid; page-break-inside: avoid; }
+  .dok-tabulka thead { display: table-header-group; }
+  /* Odstavec smlouvy se nesmí roztrhnout mezi stránky - půlka ujednání
+     na konci strany se při čtení ztratí. */
+  .dok-odstavce > li { break-inside: avoid; page-break-inside: avoid; }
+  .dok-vypis {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: #f7f8fa !important;
+  }
+}
+
+@page { size: A4; margin: 16mm; }

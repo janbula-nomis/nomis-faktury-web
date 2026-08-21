@@ -36,7 +36,11 @@ const { requireAuth } = require('../../lib/requireAuth');
 const { getSheetsClient, getDriveClient } = require('../../lib/google');
 const { opakujPriLimitu } = require('../../lib/opakuj');
 const { LISTY } = require('../../lib/listySchema');
+const { readSheetObjects, updateRow } = require('../../lib/sheetsHelpers');
+const { navrhDoplneniFirem } = require('../../lib/rejstrikFirem');
 const { json } = require('../../lib/http');
+
+const FIRMY_HEADERS = ['Nazev', 'ICO', 'DIC', 'Platce_DPH', 'Bankovni_ucet'];
 
 // Kolik souborů z Inboxu se prochází nejvýš. Drive vrací po stránkách;
 // strop je tu proto, aby funkce nespadla na časový limit u velkého Inboxu.
@@ -122,6 +126,42 @@ async function doplnSloupce(sheets, spreadsheetId) {
     vysledky.push({ list: list.nazev, akce: 'doplneno', chybi, zprava: 'Doplněno: ' + chybi.join(', ') });
   }
   return vysledky;
+}
+
+/*
+ * Doplnění IČ, DIČ a čísla účtu do listu Firmy z rejstříkových údajů
+ * (od v4.80). Tabulka údajů i jejich původ jsou v lib/rejstrikFirem.js.
+ *
+ * Drží se stejného pravidla jako zbytek servisu: `nahled = true` jen
+ * SPOČÍTÁ, co by se stalo, a nic nezapíše. Zápis se dělá až druhým
+ * voláním, po tom, co si to Jan přečetl.
+ *
+ * Přepis existující hodnoty se NEDĚJE nikdy - ani na požádání. Rozdíly se
+ * vypíšou a opraví se ručně v Nastavení → Firmy. Servisní tlačítko, které
+ * umí přepsat IČO, je tlačítko, kterým se dá jedním omylem rozhodit
+ * fakturace.
+ */
+async function doplnUdajeFirem(sheets, spreadsheetId, nahled) {
+  const { rows } = await readSheetObjects(sheets, spreadsheetId, 'Firmy');
+  const { zmeny, nezname } = navrhDoplneniFirem(rows);
+
+  if (!nahled) {
+    for (let i = 0; i < zmeny.length; i += 1) {
+      const zmena = zmeny[i];
+      if (!Object.keys(zmena.doplni).length) continue;
+      const soucasny = rows.find((f) => f._row === zmena.row);
+      await updateRow(sheets, spreadsheetId, 'Firmy', FIRMY_HEADERS, zmena.row,
+        Object.assign({}, soucasny, zmena.doplni));
+    }
+  }
+
+  return {
+    zmeny,
+    nezname,
+    pocetDoplnenych: zmeny.filter((z) => Object.keys(z.doplni).length).length,
+    pocetRozdilu: zmeny.filter((z) => Object.keys(z.rozdily).length).length,
+    zapsano: !nahled,
+  };
 }
 
 /*
@@ -222,13 +262,24 @@ exports.handler = async (event) => {
         return json(200, Object.assign({ ok: true }, vysledek));
       }
 
-      return json(400, { error: 'Neznámá akce. Očekává se kontrola-tabulky nebo osirele-soubory.' });
+      if (akce === 'nahled-udaju-firem') {
+        const vysledek = await doplnUdajeFirem(sheets, spreadsheetId, true);
+        return json(200, Object.assign({ ok: true }, vysledek));
+      }
+
+      return json(400, { error: 'Neznámá akce. Očekává se kontrola-tabulky, osirele-soubory nebo nahled-udaju-firem.' });
     }
 
     if (event.httpMethod === 'POST') {
       const { akce } = JSON.parse(event.body || '{}');
+
+      if (String(akce || '') === 'doplnit-udaje-firem') {
+        const vysledek = await doplnUdajeFirem(sheets, spreadsheetId, false);
+        return json(200, Object.assign({ ok: true }, vysledek));
+      }
+
       if (String(akce || '') !== 'doplnit-sloupce') {
-        return json(400, { error: 'Neznámá akce. Očekává se doplnit-sloupce.' });
+        return json(400, { error: 'Neznámá akce. Očekává se doplnit-sloupce nebo doplnit-udaje-firem.' });
       }
       const vysledky = await doplnSloupce(sheets, spreadsheetId);
       const doplneno = vysledky.filter((v) => v.akce === 'doplneno');
