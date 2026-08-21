@@ -1276,6 +1276,107 @@ th.cislo, td.cislo { text-align: right; white-space: nowrap; }
 
 input[type="file"] { margin-top: 8px; }
 
+/* ---------- MŘÍŽKA POLÍ V DETAILU (v4.75) ----------
+   Jan 2026-08-21: "upravíme grafiku, data mohou být vedle sebe, jsou to
+   čísla". Detail dokladu měl každé pole na vlastním řádku a byl přes
+   1 400 px vysoký - částka, DPH a datum splatnosti se čtou POHROMADĚ, ale
+   byly od sebe na tři obrazovky scrollování daleko.
+
+   Dvanáct sloupců je schválně: dělí se beze zbytku na půlky, třetiny,
+   čtvrtiny i šestiny, takže se šířka pole dá zvolit podle toho, co v něm
+   je (měna 2/12, částka 4/12, dodavatel 9/12), a ne podle toho, co mřížka
+   dovolí. Šířky zadává JS třídou `pole-N` (viz pridejPole v public/app.js),
+   nikdy inline stylem - jinak by je nepřebil mobilní breakpoint níž. */
+.pole-mrizka { display: grid; grid-template-columns: repeat(12, 1fr); gap: 0 10px; align-items: start; }
+/* Výchozí je celý řádek: co si o šířku neřekne, ji dostane celou. Dlouhé
+   texty (poznámka appky, upozornění k účtu) tak nikdy netrčí ve třetině. */
+.pole-mrizka > * { grid-column: span 12; min-width: 0; }
+.pole-mrizka > .pole-2 { grid-column: span 2; }
+.pole-mrizka > .pole-3 { grid-column: span 3; }
+.pole-mrizka > .pole-4 { grid-column: span 4; }
+.pole-mrizka > .pole-5 { grid-column: span 5; }
+.pole-mrizka > .pole-6 { grid-column: span 6; }
+.pole-mrizka > .pole-8 { grid-column: span 8; }
+.pole-mrizka > .pole-9 { grid-column: span 9; }
+/* Popisek se v úzkém poli nesmí zalomit na dva řádky - rozhodilo by to
+   výšku jedné buňky proti sousedním a vstupy vedle sebe by přestaly být
+   zarovnané. Co se nevejde, ukáže tooltip (title). */
+.pole-mrizka label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pole-mrizka input, .pole-mrizka select { width: 100%; }
+/* Nadpis skupiny (ČÁSTKY / DATA / PLATBA / ZAÚČTOVÁNÍ) - bez něj by detail
+   byl mřížka dvaceti stejných okének. */
+.pole-skupina {
+  grid-column: span 12;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--barva-text-tlumena); margin-top: 14px;
+  border-top: 1px solid var(--barva-hranice); padding-top: 8px;
+}
+.pole-mrizka > .pole-skupina:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
+/* Zaškrtávátko v mřížce má popisek vedle sebe, ne nad sebou, a odsazuje se
+   shora tak, aby sedělo na řádek s poli, která mají nad sebou popisek. */
+.pole-zaskrtavatko { display: flex; align-items: center; gap: 8px; white-space: normal; margin-top: 26px; }
+.pole-zaskrtavatko input[type="checkbox"] { width: auto; margin: 0; }
+/* Datumové pole appka do v4.74 nestylovala vůbec - prohlížeč ho kreslil
+   nativně úzké, takže vedle plnošířkových vstupů vypadalo jako cizí prvek.
+   V mřížce musí vyplnit svůj sloupec stejně jako ostatní. */
+.pole-mrizka input[type="date"] {
+  width: 100%; padding: 8px 10px; font-size: 14px; font-family: inherit;
+  border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm);
+  background: var(--barva-karta); color: var(--barva-text);
+}
+/* Jméno držitele karty pod čtyřčíslím (v4.75). Na jeden řádek s useknutím -
+   dvouřádkový text by posunul pole vedle a rozhodil mřížku; celé znění je
+   v tooltipu (title, viz prekresliDrzitele v public/app.js). */
+.popis-karty {
+  font-size: 10.5px; margin-top: 4px; line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---------- IKONY ZPŮSOBU PLATBY (v4.75) ----------
+   Jan 2026-08-21: "navrhni také ikony pro platbu kartou a hotovost".
+   Kreslené linkou v currentColor, takže ikona zdědí barvu textu kolem
+   sebe a funguje i v tmavém motivu bez druhé sady obrázků. */
+.ikona-platby {
+  width: 15px; height: 15px; flex: none; vertical-align: -3px;
+  fill: none; stroke: currentColor; stroke-width: 1.3;
+  stroke-linecap: round; stroke-linejoin: round;
+  color: var(--barva-text-tlumena);
+}
+/* V hlavičce řádku stojí ikona před odznakem úhrady ve stejné buňce. */
+.doklad-banka-bunka .ikona-platby { margin-right: 6px; }
+/* Náhled u výběru způsobu platby v detailu - ikona vedle popisku pole. */
+.ikona-platby-nahled { margin-left: 6px; }
+
+/* ---------- SERVIS A ÚDRŽBA (v4.75) ---------- */
+.servis-nalezy { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.servis-nalez {
+  border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm);
+  padding: 8px 10px; font-size: 12.5px;
+}
+.servis-sloupce { font-size: 11.5px; color: var(--barva-text-tlumena); margin-top: 3px; word-break: break-word; }
+
+/* Mřížka polí na úzkém okně. Skládá se ve dvou krocích, ne rovnou na jeden
+   sloupec: na tabletu se čtveřice Částka/Měna/DPH/Sazba složí do dvojic
+   (pořád se čtou vedle sebe), teprve na telefonu jde všechno pod sebe.
+   Selektory musí mít stejnou váhu jako `.pole-mrizka > .pole-4` výš, proto
+   jsou vypsané jmenovitě - `> *` by je nepřebilo a šlo by to řešit jen
+   přes !important. */
+@media (max-width: 700px) {
+  .pole-mrizka > .pole-2,
+  .pole-mrizka > .pole-3,
+  .pole-mrizka > .pole-4 { grid-column: span 6; }
+  .pole-mrizka > .pole-5,
+  .pole-mrizka > .pole-6,
+  .pole-mrizka > .pole-8,
+  .pole-mrizka > .pole-9 { grid-column: span 12; }
+}
+@media (max-width: 480px) {
+  .pole-mrizka > .pole-2,
+  .pole-mrizka > .pole-3,
+  .pole-mrizka > .pole-4 { grid-column: span 12; }
+  .pole-zaskrtavatko { margin-top: 14px; }
+}
+
 /* ---------- RESPONZIVITA / MOBIL (backlog, položka 17) ----------
    Appka do v4.6.2 řešila responzivitu jen bodově (skládací řádky od v3.7,
    jeden úzký breakpoint na tabulky níž) - tenhle blok appka prochází
@@ -2424,3 +2525,13 @@ body.sken-okno-otevreno { overflow: hidden; }
 /* Stav se nesmí zmáčknout na nulu - nese i vysvětlení, proč soubor neprošel. */
 .nahrat-fronta-stav { flex: 0 0 auto; max-width: 55%; text-align: right; }
 :root[data-motiv="tmavy"] .nahrat-fronta-radek { border-top-color: #2f3542; }
+
+/* (v4.73) Cesta ke složce v archivu, kterou má člověk otevřít na Disku.
+   Neproporcionální písmo schválně - lomítka a mezery se v něm čtou
+   jednoznačně a cesta se dá bez přemýšlení opsat. */
+.archiv-cesta {
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  font-size: 12.5px;
+  padding: 2px 0;
+  word-break: break-word;
+}

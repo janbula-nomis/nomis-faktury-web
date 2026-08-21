@@ -1,0 +1,50 @@
+NOMIS FAKTURY – v4.75 (21. 8. 2026)
+===================================
+
+CO JE V TÉHLE VERZI
+
+1) SERVIS A ÚDRŽBA V NASTAVENÍ
+   Tlačítko „Srovnat číslování" a import CSV jízd se přestěhovaly do
+   Nastavení → Servis a údržba. Uživatel je tam nevidí (Nastavení je jen
+   pro admina) a v Přijatých fakturách i Knize jízd zbylo jen to, co se
+   používá denně.
+
+   Přibyly tři nové nástroje:
+   - Zkontrolovat tabulku ... vypíše, které listy/sloupce v Google
+     tabulce chybí. JEN ČTE, nic nemění.
+   - Doplnit chybějící sloupce ... totéž co /api/setup, jedním klepnutím.
+     Nic nepřepisuje ani nemaže.
+   - Najít osiřelé soubory ... co leží v 00_Inbox bez záznamu v appce
+     (zbytky po nahrání, kterému spadl zápis). Appka je jen VYPÍŠE.
+
+2) KOMPAKTNÍ DETAIL DOKLADU I VYDANÉ FAKTURY
+   Čísla a data jsou vedle sebe. Detail spadl z ~1 400 px na ~620 px,
+   takže na obrazovku se vejdou dva až tři doklady místo jednoho. Pole
+   jsou rozdělená do skupin ČÁSTKY / DATA / PLATBA / ZAÚČTOVÁNÍ.
+   Na telefonu se mřížka sama složí zpět pod sebe.
+
+3) IKONY ZPŮSOBU PLATBY
+   V seznamu je u každého dokladu vidět, ČÍM se platilo – karta,
+   hotovost, převod. Ikona má i popisek pro najetí myší.
+
+4) DRŽITEL KARTY U ČÍSLA KARTY
+   Pod čtyřčíslím karty appka napíše, kdo ji nosí (ze seznamu Platební
+   karty). Do dokladu se pořád ukládá jen čtyřčíslí – držitel patří ke
+   kartě, ne k dokladu.
+
+JAK TO NAHRÁT
+
+Soubory z tohoto balíčku nakopírujte do repozitáře přes stávající
+(zachovejte cesty) a nechte Netlify nasadit. V patičce appky pak musí
+být „Verze appky: v4.75 – 2026-08-21".
+
+POZOR – NOVÉ SOUBORY (musí se nahrát, jinak appka spadne):
+   lib/listySchema.js
+   netlify/functions/servis.js
+
+SETUP: spouštět netřeba. Ale hned po nasazení si v Nastavení → Servis
+a údržba klepněte na „Zkontrolovat tabulku" – uvidíte, jestli v tabulce
+nechybí sloupce (to je ta věc, kvůli které se dřív neukládalo
+„Zaúčtováno").
+
+TESTY: 424 (node test-v452.js … test-v475.js), všechny prošly.

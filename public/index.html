@@ -273,30 +273,6 @@
         <div id="doklady-souhrn-firmy" class="popis"></div>
       </div>
 
-      <!-- Srovnání číslování (v4.49) - Jan: "je možné ještě všechny doklady
-           roku 2026 upravit a doplnit číslování, než se to pošle účetní?".
-           Jen pro admina/účetní - appka blok běžné roli schová (zobrazApp v
-           public/app.js) a backend ho stejně odmítne (precislovani.js). -->
-      <div id="doklady-cislovani" class="skryto" style="margin:10px 0">
-        <button type="button" id="cislovani-otevrit" class="sekundarni">Srovnat číslování…</button>
-        <div id="cislovani-panel" class="skryto" style="margin-top:10px">
-          <p class="popis">Appka srovná evidenční čísla (FP 001-rok) za vybraný rok do souvislé řady –
-            zvlášť pro každou firmu, seřazeno podle DUZP (a když chybí, podle data dokladu). Doplní i čísla,
-            která chybí. Nejdřív ukáže náhled, teprve po potvrzení zapisuje. Doklady čekající na schválení
-            číslo nedostanou – to jim appka přidělí až při schválení.</p>
-          <label for="cislovani-rok" style="margin-top:10px">Rok</label>
-          <select id="cislovani-rok" style="max-width:140px"></select>
-          <label for="cislovani-typ" style="margin-top:10px">Co srovnat</label>
-          <select id="cislovani-typ" style="max-width:260px">
-            <option value="doklady">Přijaté doklady (FP)</option>
-            <option value="vydane">Vydané faktury (FV)</option>
-          </select>
-          <div class="tlacitka-nahrani" style="margin-top:12px">
-            <button type="button" id="cislovani-nahled">Zobrazit náhled</button>
-          </div>
-          <div id="cislovani-vysledek" style="margin-top:12px"></div>
-        </div>
-      </div>
       <div id="doklady-nacitani" class="nacitani">Načítám…</div>
       <div id="doklady-zprava" class="zprava uspech skryto"></div>
       <div class="doklad-tabulka-obal">
@@ -399,23 +375,6 @@
         <div id="kniha-jizd-zprava"></div>
       </details>
 
-      <details class="panel-skladaci" style="margin-top:10px">
-        <summary>Import CSV uložených cest (od v4.8)</summary>
-        <p class="popis">Soubor exportu jízd z auta appka očekává za JEDNO konkrétní auto najednou (appka
-          auto ze souboru sama nepozná) - vyberte firmu a auto, ke kterému export patří, řidiče volitelně
-          (appka ho zapíše ke všem importovaným jízdám stejně). Appka opakovaný import stejného souboru
-          bezpečně přeskočí (žádné duplicity).</p>
-        <label for="kj-import-firma">Firma</label>
-        <select id="kj-import-firma"></select>
-        <label for="kj-import-auto">Auto</label>
-        <select id="kj-import-auto"></select>
-        <label for="kj-import-ridic">Řidič (nepovinné, appka ho zapíše ke všem jízdám ze souboru)</label>
-        <input type="text" id="kj-import-ridic" />
-        <label for="kj-import-soubor">Soubor CSV</label>
-        <input type="file" id="kj-import-soubor" accept=".csv" />
-        <button id="tlacitko-import-jizd">Importovat</button>
-        <div id="kj-import-zprava"></div>
-      </details>
 
       <div class="prepinac-sekce" style="margin-top:16px">
         <button type="button" id="kj-sekce-jizdy" class="prepinac-sekce-tlacitko aktivni" data-sekce="jizdy">Jízdy</button>
@@ -908,7 +867,11 @@
            limit velikosti odpovědi. Appka nejdřív ukáže náhled a teprve
            po potvrzení sahá na soubory. -->
       <details class="panel-skladaci" id="panel-prejmenovat-scany" style="margin-top:16px">
-        <summary>Pojmenovat scany na Disku (pro účetní)</summary>
+        <!-- (v4.73) Panel se jmenoval „Pojmenovat scany na Disku" a Jan ho
+             kvůli tomu nenašel, když hledal archiv - ptal se „kde je to
+             stažení do archivu?". Název teď říká, k čemu to je, ne co to
+             technicky dělá. -->
+        <summary>Archiv scanů na Disku – uložení a stažení (pro účetní)</summary>
         <p class="popis">Appka přejmenuje scany schválených dokladů na Google Disku do tvaru
           <strong>„ZU FP 001-2026 – ČEZ Prodej.pdf“</strong>, kde <strong>Z</strong> = zaúčtováno
           a <strong>U</strong> = uhrazeno (z bankovního výpisu nebo hotově). Předpona je na začátku
@@ -949,6 +912,77 @@
     <div id="zalozka-nastaveni" class="karta skryto">
       <h2>Nastavení</h2>
       <p class="popis">Administrace appky – uživatelé, firmy, auta a napojení na Google. Vidí jen role admin.</p>
+
+      <!-- (v4.75) SERVIS A ÚDRŽBA. Jan 2026-08-21: *„tlačítko Srovnat
+           číslování a další servisní tlačítka, která jsme potřebovali jen
+           pro změnu, přesun do Nastavení, aby je uživatel neviděl - je to
+           přehlednější"*. Nastavení vidí jen admin, takže se tím zároveň
+           řeší i to skrytí; jednotlivé bloky už proto nemají vlastní
+           zamykání. -->
+      <details class="panel-skladaci">
+        <summary>Servis a údržba</summary>
+        <p class="popis">Nástroje, které se použijí jednou za čas – po aktualizaci appky, při úklidu
+          nebo když něco nesedí. V běžné práci je nepotřebujete a uživatelé je nevidí.</p>
+
+        <h3>Kontrola tabulky</h3>
+        <p class="popis">Appka projde vaši Google tabulku a vypíše, které listy nebo sloupce proti
+          současné verzi chybí. <strong>Jen čte, nic nemění.</strong> Chybějící sloupec je zákeřný:
+          hodnota, která do něj měla jít, se do tabulky nezapíše – přesně to potkalo zaškrtávátko
+          „Zaúčtováno“.</p>
+        <button type="button" id="tlacitko-servis-kontrola" class="sekundarni">Zkontrolovat tabulku</button>
+        <div id="servis-kontrola-vysledek" style="margin-top:10px"></div>
+
+        <h3 style="margin-top:22px">Doplnit chybějící sloupce</h3>
+        <p class="popis">Doplní chybějící sloupce na konec hlavičkového řádku – totéž, co dělá
+          <code>/api/setup</code>, ale jedním klepnutím. <strong>Nic nepřepisuje ani nemaže</strong>
+          a do listů s daty nesype ukázkové řádky. Chybějící celý list appka odtud nezakládá, na to
+          je pořád <code>/api/setup</code>.</p>
+        <button type="button" id="tlacitko-servis-doplnit">Doplnit chybějící sloupce</button>
+        <div id="servis-doplnit-vysledek" style="margin-top:10px"></div>
+
+        <h3 style="margin-top:22px">Osiřelé soubory v Inboxu</h3>
+        <p class="popis">Vypíše soubory ve složce <code>00_Inbox</code> na Disku, ke kterým v appce
+          není žádný doklad, faktura ani smlouva. Vznikají, když se soubor nahraje, ale zápis do
+          tabulky spadne. <strong>Appka je jen vypíše</strong> – smazat je můžete na Disku sami.</p>
+        <button type="button" id="tlacitko-servis-osirele" class="sekundarni">Najít osiřelé soubory</button>
+        <div id="servis-osirele-vysledek" style="margin-top:10px"></div>
+
+        <h3 style="margin-top:22px">Srovnat číslování</h3>
+        <p class="popis">Appka srovná evidenční čísla (FP 001-rok) za vybraný rok do souvislé řady –
+          zvlášť pro každou firmu, seřazeno podle DUZP (a když chybí, podle data dokladu). Doplní i čísla,
+          která chybí. Nejdřív ukáže náhled, teprve po potvrzení zapisuje. Doklady čekající na schválení
+          číslo nedostanou – to jim appka přidělí až při schválení.</p>
+        <button type="button" id="cislovani-otevrit" class="sekundarni">Srovnat číslování…</button>
+        <div id="cislovani-panel" class="skryto" style="margin-top:10px">
+          <label for="cislovani-rok" style="margin-top:10px">Rok</label>
+          <select id="cislovani-rok" style="max-width:140px"></select>
+          <label for="cislovani-typ" style="margin-top:10px">Co srovnat</label>
+          <select id="cislovani-typ" style="max-width:260px">
+            <option value="doklady">Přijaté doklady (FP)</option>
+            <option value="vydane">Vydané faktury (FV)</option>
+          </select>
+          <div class="tlacitka-nahrani" style="margin-top:12px">
+            <button type="button" id="cislovani-nahled">Zobrazit náhled</button>
+          </div>
+          <div id="cislovani-vysledek" style="margin-top:12px"></div>
+        </div>
+
+        <h3 style="margin-top:22px">Import CSV uložených cest</h3>
+        <p class="popis">Soubor exportu jízd z auta appka očekává za JEDNO konkrétní auto najednou (appka
+          auto ze souboru sama nepozná) – vyberte firmu a auto, ke kterému export patří, řidiče volitelně
+          (appka ho zapíše ke všem importovaným jízdám stejně). Appka opakovaný import stejného souboru
+          bezpečně přeskočí (žádné duplicity).</p>
+        <label for="kj-import-firma">Firma</label>
+        <select id="kj-import-firma"></select>
+        <label for="kj-import-auto">Auto</label>
+        <select id="kj-import-auto"></select>
+        <label for="kj-import-ridic">Řidič (nepovinné, appka ho zapíše ke všem jízdám ze souboru)</label>
+        <input type="text" id="kj-import-ridic" />
+        <label for="kj-import-soubor">Soubor CSV</label>
+        <input type="file" id="kj-import-soubor" accept=".csv" />
+        <button id="tlacitko-import-jizd">Importovat</button>
+        <div id="kj-import-zprava"></div>
+      </details>
 
       <details class="panel-skladaci">
         <summary>Google účet appky</summary>

@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.72 – 2026-08-20';
+const APP_VERZE = 'v4.75 – 2026-08-21';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -471,20 +471,21 @@ function zobrazApp() {
   const bankaExcelExport = document.getElementById('banka-excel-export');
   if (bankaExcelExport) bankaExcelExport.classList.toggle('skryto', !jeUcetniNeboAdmin);
 
-  // Srovnání číslování za rok (v4.49) - hromadný úklid evidenčních čísel.
-  // Stejný důvod schování jako u Excel exportu o řádek výš: záložka Přijaté
-  // doklady je otevřená všem rolím, ale přepsat čísla celé firmy za celý rok
-  // smí jen admin/účetní (backend to stejně odmítne, viz precislovani.js -
-  // tohle je jen o tom, aby appka nenabízela tlačítko končící chybou 403).
-  const dokladyCislovani = document.getElementById('doklady-cislovani');
-  if (dokladyCislovani) dokladyCislovani.classList.toggle('skryto', !jeUcetniNeboAdmin);
-  // Obsluhu appka navěsí až tady, ne při načtení skriptu - do zobrazApp()
-  // se dá dostat i podruhé (znovupřihlášení bez reloadu, viz volání na
-  // konci souboru), a bez téhle pojistky by se posluchače přidaly dvakrát
-  // a tlačítko "Srovnat číslování…" by panel otevřelo a hned zase zavřelo.
-  if (jeUcetniNeboAdmin && !cislovaniInicializovano) {
+  // Servis a údržba (v4.75) - srovnání číslování, kontrola tabulky, doplnění
+  // sloupců, osiřelé soubory, import CSV jízd. Jan 2026-08-21: *„tlačítko
+  // Srovnat číslování a další servisní tlačítka, která jsme potřebovali jen
+  // pro změnu, přesun do Nastavení, aby je uživatel neviděl"*.
+  //
+  // Bloky proto už nemají vlastní schovávání podle role - celá záložka
+  // Nastavení je jen pro admina, takže je běžný uživatel ani účetní nevidí.
+  // Obsluhu appka navěsí až tady, ne při načtení skriptu: do zobrazApp() se
+  // dá dostat i podruhé (znovupřihlášení bez reloadu, viz volání na konci
+  // souboru) a bez téhle pojistky by se posluchače přidaly dvakrát - panel
+  // by se po kliknutí otevřel a hned zase zavřel.
+  if (jeAdmin && !servisInicializovan) {
     inicializujCislovani();
-    cislovaniInicializovano = true;
+    inicializujServis();
+    servisInicializovan = true;
   }
 
   // Jan (2026-07-19, v4.11 → zrušeno v4.29): appka dřív běžné roli schovávala
@@ -1550,17 +1551,21 @@ async function nactiDoklady() {
     // nasazení pustí /api/setup, ty dva listy v Sheets ještě neexistují a
     // doklady se kvůli tomu nesmí přestat zobrazovat; jen se u nich zatím
     // nenabídne účet.
-    const [dataDoklady, dataFirmy, dataStrediska, dataOsnova, dataPredkontace] = await Promise.all([
+    const [dataDoklady, dataFirmy, dataStrediska, dataOsnova, dataPredkontace, dataKarty] = await Promise.all([
       zavolejApi('/doklady', { method: 'GET' }),
       zavolejApi('/firmy', { method: 'GET' }).catch(() => ({ firmy: [] })),
       zavolejApi('/strediska', { method: 'GET' }).catch(() => ({ strediska: [] })),
       zavolejApi('/uctova-osnova', { method: 'GET' }).catch(() => ({ ucty: [] })),
       zavolejApi('/predkontace', { method: 'GET' }).catch(() => ({ predkontace: [] })),
+      // (v4.75) Platební karty kvůli jménu držitele u dokladu - stejná
+      // tolerance jako výš, viz popisDrzitelKarty().
+      zavolejApi('/platebni-karty', { method: 'GET' }).catch(() => ({ karty: [] })),
     ]);
     firmyProVyberDokladu = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
     strediskaSeznam = dataStrediska.strediska || [];
     uctovaOsnovaSeznam = dataOsnova.ucty || [];
     predkontaceSeznam = dataPredkontace.predkontace || [];
+    dokladyKartySeznam = dataKarty.karty || [];
     nacitani.classList.add('skryto');
     vyplnVyberFiremDokladu(dataDoklady.doklady || []);
     vykresliDoklady(dataDoklady.doklady || []);
@@ -2146,6 +2151,155 @@ function souhrnTextDokladu(vyber) {
 // i tlačítko vytěžení a zablokuje vstupy v tabulce - stejné omezení jako u
 // hlavičkových polí (backend by stejně vrátil 403, tohle je jen rovnou
 // srozumitelnější UI).
+// ---------------------------------------------------------------------------
+// MŘÍŽKA POLÍ (v4.75)
+//
+// Jan 2026-08-21: *„upravíme grafiku, data mohou být vedle sebe, jsou to
+// čísla"*. Detail dokladu měl každé pole na vlastním řádku, takže vytěžená
+// faktura byla přes 1 400 px vysoká a částka s DPH, datum dokladu a datum
+// splatnosti - údaje, které se čtou POHROMADĚ - byly od sebe na tři obrazovky
+// scrollování daleko.
+//
+// Mřížka má 12 sloupců a pole si říká, kolik jich zabere (`pole-4` = třetina).
+// Krátké hodnoty (částka, měna, sazba, datum, čtyřčíslí karty) tak sedí vedle
+// sebe, dlouhé (dodavatel, číslo účtu) mají celý řádek.
+//
+// DVĚ VĚCI, KTERÉ SE TU NESMÍ ZMĚNIT
+//
+// 1) NA MOBILU SE MŘÍŽKA SKLÁDÁ ZPĚT POD SEBE. Dělá to CSS (viz media
+//    dotaz u .pole-mrizka v public/style.css), ne JS. Kdyby se šířky
+//    zadrátovaly do `style.width`, appka by na telefonu měla čtyři pole
+//    o šířce 60 px vedle sebe.
+// 2) POPISEK PATŘÍ KE KAŽDÉMU POLI ZVLÁŠŤ. Dřív jeden popisek mluvil za dvě
+//    pole („Částka a měna"), což vedle sebe nedává smysl - a hlavně to
+//    znamenalo, že druhé pole popisek nemělo vůbec.
+function vytvorMrizkuPoli() {
+  const mrizka = document.createElement('div');
+  mrizka.className = 'pole-mrizka';
+  return mrizka;
+}
+
+/**
+ * Přidá do mřížky jedno pole (popisek + libovolné vstupy pod ním).
+ *
+ * @param {HTMLElement} mrizka - výsledek vytvorMrizkuPoli()
+ * @param {number} sirka - kolik z 12 sloupců pole zabere (0 = celý řádek)
+ * @param {string} popisek - text nad polem ('' = bez popisku)
+ * @param {...HTMLElement} prvky - vstupy, které do pole patří
+ * @returns {HTMLElement} buňka, kdyby do ní volající chtěl přidat něco dál
+ */
+function pridejPole(mrizka, sirka, popisek, ...prvky) {
+  const bunka = document.createElement('div');
+  if (sirka) bunka.className = 'pole-' + sirka;
+  if (popisek) {
+    const label = document.createElement('label');
+    label.textContent = popisek;
+    bunka.appendChild(label);
+  }
+  prvky.forEach((p) => { if (p) bunka.appendChild(p); });
+  mrizka.appendChild(bunka);
+  return bunka;
+}
+
+// Šedý nadpis skupiny přes celou šířku (ČÁSTKY / DATA / PLATBA / ZAÚČTOVÁNÍ).
+// Bez něj by se z detailu stala mřížka dvaceti stejně vypadajících okének;
+// takhle je poznat, kde jedna věc končí a druhá začíná.
+function pridejSkupinuPoli(mrizka, nadpis) {
+  const prvek = document.createElement('div');
+  prvek.className = 'pole-skupina';
+  prvek.textContent = nadpis;
+  mrizka.appendChild(prvek);
+  return prvek;
+}
+
+// ---------------------------------------------------------------------------
+// IKONY ZPŮSOBU PLATBY (v4.75)
+//
+// Jan 2026-08-21: *„navrhni také ikony pro platbu kartou a hotovost"*.
+//
+// Proč vůbec: v seznamu dokladů se dá poznat, jestli je doklad uhrazený
+// (badge ✓ Uhrazeno), ale ne ČÍM. Účetní přitom potřebuje vidět hlavně to,
+// co se nebude párovat s výpisem - hotovost - a co má hledat pod čtyřčíslím
+// karty. Ikona to řekne bez jediného slova navíc v už tak plné hlavičce.
+//
+// Ikony jsou inline SVG, ne emoji ani ikonový font: emoji vypadá na každém
+// systému jinak (a na Windows je 💵 zelený obdélník bez čitelného tvaru) a
+// font by byl další soubor ke stažení. `currentColor` znamená, že ikona
+// zdědí barvu textu kolem - funguje tak i v tmavém motivu.
+//
+// Ikona NIKDY nestojí sama: má `title` i `aria-label`, aby se dala přečíst
+// i myší a odečítačem. Tvar sám o sobě není informace, kterou by appka
+// směla podávat jen barvou nebo jen obrázkem.
+const IKONY_PLATBY = {
+  Karta: {
+    popis: 'Placeno kartou',
+    svg: '<rect x="1.5" y="3.5" width="13" height="9" rx="1.8"/><path d="M1.5 6.5h13" stroke-width="2.2"/><path d="M3.8 10h3.2"/>',
+  },
+  Hotovost: {
+    popis: 'Placeno hotově',
+    svg: '<rect x="1.5" y="4" width="13" height="8" rx="1.4"/><circle cx="8" cy="8" r="2.1"/><path d="M4 8h.01M12 8h.01" stroke-width="1.6"/>',
+  },
+  'Převodem': {
+    popis: 'Placeno převodem',
+    svg: '<path d="M2 6h9.5M9 3.5 12 6 9 8.5"/><path d="M14 10H4.5M7 12.5 4 10l3-2.5"/>',
+  },
+};
+
+/**
+ * Ikona způsobu platby jako HTML (pro řádky seznamu, které se skládají
+ * z řetězců), nebo '' když způsob platby appka nezná.
+ *
+ * Prázdný způsob platby schválně nedostane žádnou ikonu ani zástupný
+ * otazník: appka říká, co ví, ne co neví.
+ */
+function ikonaZpusobuPlatbyHtml(zpusobPlatby) {
+  const klic = String(zpusobPlatby || '').trim();
+  const ikona = IKONY_PLATBY[klic];
+  if (!ikona) return '';
+  return '<svg class="ikona-platby" viewBox="0 0 16 16" role="img" aria-label="' +
+    escapeAttr(ikona.popis) + '"><title>' + escapeHtml(ikona.popis) + '</title>' +
+    ikona.svg + '</svg>';
+}
+
+// ---------------------------------------------------------------------------
+// DRŽITEL KARTY (v4.75)
+//
+// Jan 2026-08-21: *„zároveň přiřaď k číslu karty také držitele, co máš
+// v seznamech, aby tam bylo jméno"*.
+//
+// Seznam karet (list Platebni_karty) si appka natáhne při načtení dokladů -
+// GET /api/platebni-karty smí kterýkoli přihlášený uživatel. Když se ho
+// natáhnout nepodaří (starší tabulka bez toho listu), zůstane prázdný a
+// appka u karty prostě nenapíše nic; doklady se kvůli tomu nesmí přestat
+// zobrazovat.
+let dokladyKartySeznam = [];
+
+/**
+ * Věta pod polem s číslem karty: kdo kartu nosí, případně že ji appka nezná.
+ *
+ * Vrací TEXT, ne HTML - volající ho dává do textContent. Držitel je jméno
+ * člověka a nemá se cestou přes innerHTML kde ztratit ani rozbít.
+ *
+ * Držitel se do dokladu NEUKLÁDÁ. Patří ke kartě, ne k dokladu - kdyby se
+ * opsal do řádku dokladu, po výměně držitele by u starých dokladů zůstalo
+ * viset jméno, které už neplatí.
+ */
+function popisDrzitelKarty(cisloKarty) {
+  const ctyri = posledniCtyriZTextu(cisloKarty);
+  if (!ctyri) return '';
+  const karta = dokladyKartySeznam.find((k) => posledniCtyriZTextu(k.Cislo_karty) === ctyri);
+  // Karta, kterou appka v seznamu nemá, není chyba - založí se sama při
+  // příštím vytěžení dokladu. Appka to tedy jen konstatuje.
+  if (!karta) return 'Kartu •••• ' + ctyri + ' appka zatím nezná – doplní se v Nastavení → Platební karty.';
+  const casti = [];
+  if (String(karta.Drzitel || '').trim()) casti.push(String(karta.Drzitel).trim());
+  if (String(karta.Popis || '').trim()) casti.push(String(karta.Popis).trim());
+  if (String(karta.Firma || '').trim()) casti.push(String(karta.Firma).trim());
+  // Karta v seznamu je, ale nikdo u ní držitele nevyplnil - i to je odpověď.
+  if (!casti.length) return 'Karta •••• ' + ctyri + ' – držitel zatím není vyplněný (Nastavení → Platební karty).';
+  return 'Karta •••• ' + ctyri + ' – ' + casti.join(' · ');
+}
+
 function vytvorSekciPolozek(opts) {
   const sekce = document.createElement('div');
   sekce.className = 'polozky-sekce';
@@ -2388,7 +2542,12 @@ function vytvorRadekDoklad(d) {
     // pevnému počtu sloupců mřížky, jednak proto, že se na ni v mobilním
     // režimu odkazuje CSS (v úzkém breakpointu byla tahle buňka schovaná
     // přes `nth-child(4)`, teď se místo toho přesouvá na druhý řádek karty).
-    '<span class="doklad-banka-bunka">' + bankSparovaniBadge(d) + '</span>' +
+    // (v4.75) Ikona způsobu platby jde do TÉŽE buňky jako odznak úhrady,
+    // schválně ne do vlastního sloupce: mřížka řádku má pevný počet sloupců
+    // (viz .doklad-radek v public/style.css) a přidání osmého by rozhodilo
+    // zarovnání hlavičky - přesně ta chyba, která se stala ve v4.64.
+    '<span class="doklad-banka-bunka">' + ikonaZpusobuPlatbyHtml(d.Zpusob_platby) +
+      bankSparovaniBadge(d) + '</span>' +
     '<span class="dodavatel">' +
       escapeHtml(d.Stav === 'Zpracovává se' ? '(čeká na zpracování)' : (d.Dodavatel || '(bez dodavatele)')) +
     '</span>' +
@@ -2464,107 +2623,17 @@ function vytvorDetailDoklad(d) {
     return wrap;
   }
 
-  const labelDodavatel = document.createElement('label');
-  labelDodavatel.textContent = 'Dodavatel';
+  // (v4.75) Od tady dolů se pole skládají do mřížky - viz vytvorMrizkuPoli()
+  // výš pro důvod i pravidla.
+  const mrizka = vytvorMrizkuPoli();
+  wrap.appendChild(mrizka);
+
   const vstupDodavatel = document.createElement('input');
   vstupDodavatel.type = 'text';
   vstupDodavatel.value = d.Dodavatel || '';
-  wrap.appendChild(labelDodavatel);
-  wrap.appendChild(vstupDodavatel);
-  if (d.Poznamka) {
-    const poznamkaDiv = document.createElement('div');
-    poznamkaDiv.className = 'poznamka-dokladu';
-    poznamkaDiv.textContent = 'ⓘ ' + d.Poznamka;
-    wrap.appendChild(poznamkaDiv);
-  }
+  pridejPole(mrizka, 9, 'Dodavatel', vstupDodavatel);
 
-  const labelDatum = document.createElement('label');
-  labelDatum.textContent = 'Datum dokladu';
-  const vstupDatum = document.createElement('input');
-  vstupDatum.type = 'date';
-  vstupDatum.value = d.Datum_dokladu || '';
-  wrap.appendChild(labelDatum);
-  wrap.appendChild(vstupDatum);
-
-  const labelCastka = document.createElement('label');
-  labelCastka.textContent = 'Částka a měna';
-  const vstupCastka = document.createElement('input');
-  vstupCastka.type = 'number';
-  vstupCastka.step = '0.01';
-  // <input type="number"> vyžaduje tečku jako oddělovač desetin - kdyby
-  // Sheets vrátilo českou čárku (viz parsujCastkuZListu výše), input by
-  // hodnotu tiše nepřijal a zobrazil by se prázdný. Proto normalizace přes
-  // parsujCastkuZListu, ne přímo d.Castka.
-  vstupCastka.value = d.Castka !== undefined && d.Castka !== '' ? parsujCastkuZListu(d.Castka) : '';
-  vstupCastka.style.marginBottom = '6px';
-  const vstupMena = document.createElement('input');
-  vstupMena.type = 'text';
-  vstupMena.value = d.Mena || '';
-  vstupMena.style.maxWidth = '90px';
-  wrap.appendChild(labelCastka);
-  wrap.appendChild(vstupCastka);
-  wrap.appendChild(vstupMena);
-
-  // DPH/Sazba_DPH (od v4.6, viz claude/nomis-faktury-backlog.md, položka 9) -
-  // appka pole nabízí jako AI odhad ze zpracování dokladu + ruční kontrolu,
-  // stejná konvence jako ostatní vytěžovaná pole. Používá se jen u firem
-  // plátců DPH (dnes NOMIS Investment) pro měsíční DPH bilanci v Daňovém
-  // přehledu - u ostatních firem se pole dají klidně nechat prázdná.
-  const labelDph = document.createElement('label');
-  labelDph.textContent = 'DPH (částka) a sazba (%)';
-  const vstupDph = document.createElement('input');
-  vstupDph.type = 'number';
-  vstupDph.step = '0.01';
-  vstupDph.value = d.DPH !== undefined && d.DPH !== '' ? parsujCastkuZListu(d.DPH) : '';
-  vstupDph.style.marginBottom = '6px';
-  const vstupSazbaDph = document.createElement('input');
-  vstupSazbaDph.type = 'text';
-  vstupSazbaDph.value = d.Sazba_DPH || '';
-  vstupSazbaDph.style.maxWidth = '90px';
-  wrap.appendChild(labelDph);
-  wrap.appendChild(vstupDph);
-  wrap.appendChild(vstupSazbaDph);
-
-  // Rozšíření pro Money S3 export a QR Platbu (v4.32, viz claude/nomis-
-  // faktury-backlog.md a lib/dokladySchema.js pro plné zdůvodnění) - appka
-  // pole nabízí jako AI odhad + ruční kontrolu, stejná konvence jako DPH/
-  // Sazba_DPH výš. Datum splatnosti + Konst./spec. symbol appka posílá do
-  // Money S3 exportu (viz lib/moneyS3Export.js), DUZP appka navíc používá i
-  // pro řazení DPH bilance v Daňovém přehledu.
-  const labelSplatnost = document.createElement('label');
-  labelSplatnost.textContent = 'Datum splatnosti';
-  const vstupSplatnost = document.createElement('input');
-  vstupSplatnost.type = 'date';
-  vstupSplatnost.value = d.Datum_splatnosti || '';
-  wrap.appendChild(labelSplatnost);
-  wrap.appendChild(vstupSplatnost);
-
-  const labelSymboly = document.createElement('label');
-  labelSymboly.textContent = 'Konstantní a specifický symbol';
-  const vstupKonstSym = document.createElement('input');
-  vstupKonstSym.type = 'text';
-  vstupKonstSym.value = d.Konstantni_symbol || '';
-  vstupKonstSym.placeholder = 'konstantní symbol';
-  vstupKonstSym.style.marginBottom = '6px';
-  const vstupSpecSym = document.createElement('input');
-  vstupSpecSym.type = 'text';
-  vstupSpecSym.value = d.Specificky_symbol || '';
-  vstupSpecSym.placeholder = 'specifický symbol';
-  wrap.appendChild(labelSymboly);
-  wrap.appendChild(vstupKonstSym);
-  wrap.appendChild(vstupSpecSym);
-
-  const labelDuzp = document.createElement('label');
-  labelDuzp.textContent = 'DUZP (datum uskutečnění zdanitelného plnění)';
-  const vstupDuzp = document.createElement('input');
-  vstupDuzp.type = 'date';
-  vstupDuzp.value = d.DUZP || '';
-  vstupDuzp.title = 'Vyplňte, jen pokud se liší od data dokladu (appka jinak pro export/DPH bilanci použije datum dokladu).';
-  wrap.appendChild(labelDuzp);
-  wrap.appendChild(vstupDuzp);
-
-  const labelTypDokladu = document.createElement('label');
-  labelTypDokladu.textContent = 'Typ dokladu';
+  // Typ dokladu je krátký výběr - patří vedle dodavatele, ne na vlastní řádek.
   const vstupTypDokladu = document.createElement('select');
   ['Faktura', 'Dobropis', 'Zálohová faktura'].forEach((moznost) => {
     const option = document.createElement('option');
@@ -2573,47 +2642,195 @@ function vytvorDetailDoklad(d) {
     if ((d.Typ_dokladu || 'Faktura') === moznost) option.selected = true;
     vstupTypDokladu.appendChild(option);
   });
-  wrap.appendChild(labelTypDokladu);
-  wrap.appendChild(vstupTypDokladu);
+  pridejPole(mrizka, 3, 'Typ dokladu', vstupTypDokladu);
 
-  const labelUcetDodavatele = document.createElement('label');
-  labelUcetDodavatele.textContent = 'Číslo účtu dodavatele (pro QR Platbu)';
+  if (d.Poznamka) {
+    const poznamkaDiv = document.createElement('div');
+    poznamkaDiv.className = 'poznamka-dokladu';
+    poznamkaDiv.textContent = 'ⓘ ' + d.Poznamka;
+    mrizka.appendChild(poznamkaDiv);
+  }
+
+  pridejSkupinuPoli(mrizka, 'Částky');
+
+  const vstupCastka = document.createElement('input');
+  vstupCastka.type = 'number';
+  vstupCastka.step = '0.01';
+  // <input type="number"> vyžaduje tečku jako oddělovač desetin - kdyby
+  // Sheets vrátilo českou čárku (viz parsujCastkuZListu výše), input by
+  // hodnotu tiše nepřijal a zobrazil by se prázdný. Proto normalizace přes
+  // parsujCastkuZListu, ne přímo d.Castka.
+  vstupCastka.value = d.Castka !== undefined && d.Castka !== '' ? parsujCastkuZListu(d.Castka) : '';
+  pridejPole(mrizka, 4, 'Částka', vstupCastka);
+
+  const vstupMena = document.createElement('input');
+  vstupMena.type = 'text';
+  vstupMena.value = d.Mena || '';
+  pridejPole(mrizka, 2, 'Měna', vstupMena);
+
+  // DPH/Sazba_DPH (od v4.6, viz claude/nomis-faktury-backlog.md, položka 9) -
+  // appka pole nabízí jako AI odhad ze zpracování dokladu + ruční kontrolu,
+  // stejná konvence jako ostatní vytěžovaná pole. Používá se jen u firem
+  // plátců DPH (dnes NOMIS Investment) pro měsíční DPH bilanci v Daňovém
+  // přehledu - u ostatních firem se pole dají klidně nechat prázdná.
+  const vstupDph = document.createElement('input');
+  vstupDph.type = 'number';
+  vstupDph.step = '0.01';
+  vstupDph.value = d.DPH !== undefined && d.DPH !== '' ? parsujCastkuZListu(d.DPH) : '';
+  pridejPole(mrizka, 4, 'DPH (částka)', vstupDph);
+
+  const vstupSazbaDph = document.createElement('input');
+  vstupSazbaDph.type = 'text';
+  vstupSazbaDph.value = d.Sazba_DPH || '';
+  pridejPole(mrizka, 2, 'Sazba (%)', vstupSazbaDph);
+
+  // Rozšíření pro Money S3 export a QR Platbu (v4.32, viz claude/nomis-
+  // faktury-backlog.md a lib/dokladySchema.js pro plné zdůvodnění) - appka
+  // pole nabízí jako AI odhad + ruční kontrolu, stejná konvence jako DPH/
+  // Sazba_DPH výš. Datum splatnosti + Konst./spec. symbol appka posílá do
+  // Money S3 exportu (viz lib/moneyS3Export.js), DUZP appka navíc používá i
+  // pro řazení DPH bilance v Daňovém přehledu.
+  pridejSkupinuPoli(mrizka, 'Data');
+
+  const vstupDatum = document.createElement('input');
+  vstupDatum.type = 'date';
+  vstupDatum.value = d.Datum_dokladu || '';
+  pridejPole(mrizka, 4, 'Datum dokladu', vstupDatum);
+
+  const vstupSplatnost = document.createElement('input');
+  vstupSplatnost.type = 'date';
+  vstupSplatnost.value = d.Datum_splatnosti || '';
+  pridejPole(mrizka, 4, 'Datum splatnosti', vstupSplatnost);
+
+  const vstupDuzp = document.createElement('input');
+  vstupDuzp.type = 'date';
+  vstupDuzp.value = d.DUZP || '';
+  vstupDuzp.title = 'Vyplňte, jen pokud se liší od data dokladu (appka jinak pro export/DPH bilanci použije datum dokladu).';
+  // Popisek se zkrátil na „DUZP" - celé znění zůstává v tooltipu. Ve třetině
+  // řádku by se plný text stejně nevešel a zalomil by mřížku.
+  const bunkaDuzp = pridejPole(mrizka, 4, 'DUZP', vstupDuzp);
+  bunkaDuzp.querySelector('label').title = 'DUZP – datum uskutečnění zdanitelného plnění';
+
+  pridejSkupinuPoli(mrizka, 'Platba');
+
+  const vstupKonstSym = document.createElement('input');
+  vstupKonstSym.type = 'text';
+  vstupKonstSym.value = d.Konstantni_symbol || '';
+  vstupKonstSym.placeholder = 'např. 0308';
+  const vstupSpecSym = document.createElement('input');
+  vstupSpecSym.type = 'text';
+  vstupSpecSym.value = d.Specificky_symbol || '';
+  vstupSpecSym.placeholder = 'specifický symbol';
+
   const vstupUcetDodavatele = document.createElement('input');
   vstupUcetDodavatele.type = 'text';
   vstupUcetDodavatele.value = d.Cislo_uctu_dodavatele || '';
   vstupUcetDodavatele.placeholder = 'např. 19-2000145399/0800 nebo IBAN';
-  wrap.appendChild(labelUcetDodavatele);
-  wrap.appendChild(vstupUcetDodavatele);
+  // Doklad zaplacený hotově nebo soukromou kartou nikdy nebude mít
+  // protějšek v Bankovních výpisech (tam appka páruje jen odchozí platby
+  // z firemního účtu) - tenhle příznak to u dokladu rovnou zviditelní,
+  // ať účetní ví, že na bankovní pohyb u něj nemá čekat.
+  const labelMimoUcet = document.createElement('label');
+  labelMimoUcet.className = 'pole-zaskrtavatko';
+  const vstupMimoUcet = document.createElement('input');
+  vstupMimoUcet.type = 'checkbox';
+  vstupMimoUcet.checked = String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO';
+  vstupMimoUcet.title = 'Hrazeno hotově nebo soukromou kartou (nečekat na spárování s bankovním výpisem)';
+  labelMimoUcet.appendChild(vstupMimoUcet);
+  labelMimoUcet.appendChild(document.createTextNode('Mimo účet (hotově/soukromou kartou)'));
 
-  const labelFirma = document.createElement('label');
-  labelFirma.textContent = 'Firma';
+  // Způsob platby a platební karta (od v4.52) - obojí vytěží AI z dokladu
+  // (viz lib/gemini.js), tady jde o kontrolu a opravu. Pozor, tohle je něco
+  // jiného než "Mimo účet" o řádek výš: způsob platby říká, ČÍM se platilo,
+  // zatímco "Mimo účet" je rozhodnutí, že se na bankovní pohyb vůbec nemá
+  // čekat. Firemní kartou zaplacený doklad na výpisu je, takže má "Karta" a
+  // zároveň NEMÁ "Mimo účet".
+  const vstupZpusobPlatby = document.createElement('select');
+  ['', 'Karta', 'Hotovost', 'Převodem'].forEach((moznost) => {
+    const option = document.createElement('option');
+    option.value = moznost;
+    option.textContent = moznost || '— neuvedeno —';
+    if ((d.Zpusob_platby || '') === moznost) option.selected = true;
+    vstupZpusobPlatby.appendChild(option);
+  });
+  const vstupKarta = document.createElement('input');
+  vstupKarta.type = 'text';
+  vstupKarta.inputMode = 'numeric';
+  vstupKarta.maxLength = 4;
+  vstupKarta.value = d.Platebni_karta || '';
+  // Schválně jen čtyři číslice, i v UI: appka celé číslo karty neukládá
+  // nikde (viz lib/platebniKartySchema.js) a tenhle placeholder ani maxLength
+  // neměnit tak, aby to vypadalo, že se sem píše celé číslo.
+  vstupKarta.placeholder = '4 číslice';
+  vstupKarta.title = 'Poslední čtyři číslice karty - appka je používá při hledání odpovídajícího bankovního pohybu.';
+
+  // (v4.75) Držitel karty. Jan 2026-08-21: *„zároveň přiřaď k číslu karty
+  // také držitele, co máš v seznamech, aby tam bylo jméno"*.
+  //
+  // Čtyřčíslí samo o sobě nikomu nic neřekne - „1234" je karta, ale čí?
+  // Seznam Platebni_karty držitele zná (doplňuje se v Nastavení → Platební
+  // karty), takže ho appka rovnou dopíše pod pole. Jméno appka jen UKAZUJE,
+  // do dokladu se pořád ukládá jen čtyřčíslí: držitel patří ke kartě, ne
+  // k dokladu, a kdyby se opsal do dokladu, po výměně držitele by u starých
+  // dokladů zůstalo staré jméno.
+  const popisKarty = document.createElement('div');
+  popisKarty.className = 'popis popis-karty';
+  function prekresliDrzitele() {
+    const text = popisDrzitelKarty(vstupKarta.value);
+    popisKarty.textContent = text;
+    // Jméno se do třetiny řádku nemusí vejít - useknutí řeší CSS (ellipsis)
+    // a celé znění zůstává v tooltipu. Zalomení na dva řádky by posunulo
+    // pole vedle a rozhodilo mřížku.
+    popisKarty.title = text;
+  }
+  vstupKarta.addEventListener('input', prekresliDrzitele);
+  prekresliDrzitele();
+
+  // Ikona vedle výběru způsobu platby se mění hned při přepnutí - je to
+  // stejná ikona jako v hlavičce řádku, takže je jasné, co v seznamu znamená.
+  const ikonaPlatby = document.createElement('span');
+  ikonaPlatby.className = 'ikona-platby-nahled';
+  function prekresliIkonuPlatby() {
+    ikonaPlatby.innerHTML = ikonaZpusobuPlatbyHtml(vstupZpusobPlatby.value);
+  }
+  vstupZpusobPlatby.addEventListener('change', prekresliIkonuPlatby);
+  prekresliIkonuPlatby();
+
+  const bunkaZpusob = pridejPole(mrizka, 3, 'Způsob platby', vstupZpusobPlatby);
+  bunkaZpusob.querySelector('label').appendChild(ikonaPlatby);
+  pridejPole(mrizka, 3, 'Karta (poslední 4 číslice)', vstupKarta, popisKarty);
+  pridejPole(mrizka, 6, '', labelMimoUcet);
+
+  pridejPole(mrizka, 6, 'Číslo účtu dodavatele (pro QR Platbu)', vstupUcetDodavatele);
+  pridejPole(mrizka, 3, 'Konstantní symbol', vstupKonstSym);
+  pridejPole(mrizka, 3, 'Specifický symbol', vstupSpecSym);
+
+  pridejSkupinuPoli(mrizka, 'Zaúčtování');
+
   const vstupFirma = document.createElement('select');
   vstupFirma.innerHTML = moznostiFirmy(d.Firma_potvrzena || d.Firma_AI_odhad || '');
-  wrap.appendChild(labelFirma);
-  wrap.appendChild(vstupFirma);
+  pridejPole(mrizka, 4, 'Firma', vstupFirma);
 
-  const labelKategorie = document.createElement('label');
-  labelKategorie.textContent = 'Kategorie';
   const vstupKategorie = document.createElement('select');
   vstupKategorie.innerHTML = moznostiKategorie(d.Kategorie || '');
-  wrap.appendChild(labelKategorie);
-  wrap.appendChild(vstupKategorie);
+  pridejPole(mrizka, 4, 'Kategorie', vstupKategorie);
 
   // Účet MD (od v4.52) - hned pod Kategorií, protože se z ní odvozuje.
   // Janova volba byla *"Podle kategorie, jde přepsat"*, takže tohle NENÍ jen
   // zobrazení navrženého účtu, ale plnohodnotné pole: co je tady vybrané, to
   // se uloží a to půjde účetní do exportu.
-  const labelUcetMD = document.createElement('label');
-  labelUcetMD.textContent = 'Účet MD (nákladový účet)';
   const vstupUcetMD = document.createElement('select');
   vstupUcetMD.innerHTML = moznostiUctuMD(
     d.Firma_potvrzena || d.Firma_AI_odhad || '', d.Ucet_MD || '',
   );
+  pridejPole(mrizka, 4, 'Účet MD (nákladový účet)', vstupUcetMD);
+
+  // Upozornění k účtu má vlastní řádek přes celou šířku - text je dlouhý
+  // („…nastavte v Nastavení → Předkontace…") a ve třetině řádku by se
+  // zalomil na pět řádků a rozhodil mřížku.
   const upozorneniUcet = document.createElement('div');
   upozorneniUcet.className = 'popis upozorneni-ucet';
-  wrap.appendChild(labelUcetMD);
-  wrap.appendChild(vstupUcetMD);
-  wrap.appendChild(upozorneniUcet);
+  mrizka.appendChild(upozorneniUcet);
 
   // Druhá polovina Janovy volby *"Nechat prázdné a upozornit"*: appka nikdy
   // nedosadí náhradní účet, ale prázdno u dokladu nenechá tiše - napíše, PROČ
@@ -2661,12 +2878,9 @@ function vytvorDetailDoklad(d) {
   vstupUcetMD.addEventListener('change', prekresliUpozorneniUctu);
   prekresliUpozorneniUctu();
 
-  const labelStredisko = document.createElement('label');
-  labelStredisko.textContent = 'Středisko';
   const vstupStredisko = document.createElement('select');
   vstupStredisko.innerHTML = moznostiStrediska(d.Stredisko || '');
-  wrap.appendChild(labelStredisko);
-  wrap.appendChild(vstupStredisko);
+  pridejPole(mrizka, 4, 'Středisko', vstupStredisko);
   // Pozn.: samostatné pole SPZ bylo od v3.8 zrušené - konkrétní auto je
   // teď součástí Střediska (např. "Auto - Tesla"), takže by šlo o
   // duplicitní údaj. Sloupec SPZ_auta v Sheets zůstává beze změny kvůli
@@ -2677,68 +2891,19 @@ function vytvorDetailDoklad(d) {
   // ruční kontrolu/opravu, stejná konvence jako u DPH výše. Slouží k Knize
   // jízd (záložka Kniha jízd) - appka podle Střediska (auta) a měsíce
   // spočítá průměrnou spotřebu.
-  const labelPalivo = document.createElement('label');
-  labelPalivo.textContent = 'Palivo - litry a druh';
   const vstupLitry = document.createElement('input');
   vstupLitry.type = 'number';
   vstupLitry.step = '0.01';
   vstupLitry.value = d.Mnozstvi_litru !== undefined && d.Mnozstvi_litru !== '' ? parsujCastkuZListu(d.Mnozstvi_litru) : '';
-  vstupLitry.style.marginBottom = '6px';
   vstupLitry.placeholder = 'litry';
+  pridejPole(mrizka, 2, 'Palivo (litry)', vstupLitry);
+
   const vstupDruhPaliva = document.createElement('input');
   vstupDruhPaliva.type = 'text';
   vstupDruhPaliva.value = d.Druh_paliva || '';
-  vstupDruhPaliva.placeholder = 'druh paliva (Nafta/Benzín…)';
-  wrap.appendChild(labelPalivo);
-  wrap.appendChild(vstupLitry);
-  wrap.appendChild(vstupDruhPaliva);
+  vstupDruhPaliva.placeholder = 'Nafta/Benzín…';
+  pridejPole(mrizka, 2, 'Druh paliva', vstupDruhPaliva);
 
-  // Doklad zaplacený hotově nebo soukromou kartou nikdy nebude mít
-  // protějšek v Bankovních výpisech (tam appka páruje jen odchozí platby
-  // z firemního účtu) - tenhle příznak to u dokladu rovnou zviditelní,
-  // ať účetní ví, že na bankovní pohyb u něj nemá čekat.
-  const labelMimoUcet = document.createElement('label');
-  labelMimoUcet.style.display = 'flex';
-  labelMimoUcet.style.alignItems = 'center';
-  labelMimoUcet.style.gap = '8px';
-  const vstupMimoUcet = document.createElement('input');
-  vstupMimoUcet.type = 'checkbox';
-  vstupMimoUcet.checked = String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO';
-  vstupMimoUcet.title = 'Hrazeno hotově nebo soukromou kartou (nečekat na spárování s bankovním výpisem)';
-  labelMimoUcet.appendChild(vstupMimoUcet);
-  labelMimoUcet.appendChild(document.createTextNode('Mimo účet (hotově/soukromou kartou)'));
-  wrap.appendChild(labelMimoUcet);
-
-  // Způsob platby a platební karta (od v4.52) - obojí vytěží AI z dokladu
-  // (viz lib/gemini.js), tady jde o kontrolu a opravu. Pozor, tohle je něco
-  // jiného než "Mimo účet" o řádek výš: způsob platby říká, ČÍM se platilo,
-  // zatímco "Mimo účet" je rozhodnutí, že se na bankovní pohyb vůbec nemá
-  // čekat. Firemní kartou zaplacený doklad na výpisu je, takže má "Karta" a
-  // zároveň NEMÁ "Mimo účet".
-  const labelZpusobPlatby = document.createElement('label');
-  labelZpusobPlatby.textContent = 'Způsob platby a karta';
-  const vstupZpusobPlatby = document.createElement('select');
-  ['', 'Karta', 'Hotovost', 'Převodem'].forEach((moznost) => {
-    const option = document.createElement('option');
-    option.value = moznost;
-    option.textContent = moznost || '— neuvedeno —';
-    if ((d.Zpusob_platby || '') === moznost) option.selected = true;
-    vstupZpusobPlatby.appendChild(option);
-  });
-  vstupZpusobPlatby.style.marginBottom = '6px';
-  const vstupKarta = document.createElement('input');
-  vstupKarta.type = 'text';
-  vstupKarta.inputMode = 'numeric';
-  vstupKarta.maxLength = 4;
-  vstupKarta.value = d.Platebni_karta || '';
-  // Schválně jen čtyři číslice, i v UI: appka celé číslo karty neukládá
-  // nikde (viz lib/platebniKartySchema.js) a tenhle placeholder ani maxLength
-  // neměnit tak, aby to vypadalo, že se sem píše celé číslo.
-  vstupKarta.placeholder = 'poslední 4 číslice karty';
-  vstupKarta.title = 'Poslední čtyři číslice karty - appka je používá při hledání odpovídajícího bankovního pohybu.';
-  wrap.appendChild(labelZpusobPlatby);
-  wrap.appendChild(vstupZpusobPlatby);
-  wrap.appendChild(vstupKarta);
 
   if (d.Zdrojovy_soubor_URL) {
     const souborDiv = document.createElement('div');
@@ -2929,8 +3094,9 @@ async function ulozZmenu(id, zmeny, tlacitko) {
 // Kdyby si počítal vlastní návrh, byla by to druhá verze téhož pravidla a
 // dřív nebo později by ukazoval něco jiného, než co se pak zapíše.
 let cislovaniNavrhAktualni = null;
-// Pojistka proti dvojímu navěšení obsluhy - viz zobrazApp() výš.
-let cislovaniInicializovano = false;
+// Pojistka proti dvojímu navěšení obsluhy celé sekce Servis a údržba -
+// viz zobrazApp() výš.
+let servisInicializovan = false;
 
 function inicializujCislovani() {
   const otevrit = document.getElementById('cislovani-otevrit');
@@ -2957,6 +3123,141 @@ function inicializujCislovani() {
     if (skryto) document.getElementById('cislovani-vysledek').innerHTML = '';
   });
   nahled.addEventListener('click', nactiNahledCislovani);
+}
+
+// ---------------------------------------------------------------------------
+// SERVISNÍ NÁSTROJE (v4.75)
+//
+// Jan 2026-08-21: *„…co tam ještě může být?"* - do Nastavení přibyly tři
+// věci, které se během posledních dvou dnů ukázaly jako potřebné, ale
+// neviditelné:
+//
+//   Kontrola tabulky   - které listy/sloupce v Google tabulce chybí. Chybějící
+//                        sloupec appka při zápisu tiše přeskočí (viz
+//                        lib/sheetsHelpers.js), takže se to jinak pozná až
+//                        tím, že hodnota po načtení stránky zmizí - přesně
+//                        to potkalo zaškrtávátko „Zaúčtováno".
+//   Doplnit sloupce    - totéž, co dělá /api/setup, ale jedním klepnutím.
+//   Osiřelé soubory    - co leží v 00_Inbox bez záznamu v appce (soubor se
+//                        nahrál, ale zápis řádku spadl na limit Googlu).
+//
+// Backend: netlify/functions/servis.js. Tam platí i pravidlo, že kontrola
+// nikdy nic nezapisuje a že appka žádný soubor nemaže - tady se tedy nabízí
+// jen výpis a odkaz na Disk, ne tlačítko „smazat".
+function inicializujServis() {
+  const kontrola = document.getElementById('tlacitko-servis-kontrola');
+  const doplnit = document.getElementById('tlacitko-servis-doplnit');
+  const osirele = document.getElementById('tlacitko-servis-osirele');
+  if (kontrola) kontrola.addEventListener('click', () => spustKontroluTabulky(kontrola));
+  if (doplnit) doplnit.addEventListener('click', () => spustDoplneniSloupcu(doplnit));
+  if (osirele) osirele.addEventListener('click', () => spustHledaniOsirelych(osirele));
+}
+
+// Servisní akce běží dlouho (projít 26 listů = 26 čtení) - tlačítko se proto
+// po dobu běhu vypne, ať se stejná akce nespustí třikrát za sebou a nesežere
+// minutový limit Googlu.
+async function servisAkce(tlacitko, textBehem, cilId, prace) {
+  const cil = document.getElementById(cilId);
+  const puvodni = tlacitko.textContent;
+  tlacitko.disabled = true;
+  tlacitko.textContent = textBehem;
+  if (cil) cil.innerHTML = '<p class="popis">Pracuji…</p>';
+  try {
+    const html = await prace();
+    if (cil) cil.innerHTML = html;
+  } catch (e) {
+    if (cil) cil.innerHTML = '<p class="zprava chyba">' + escapeHtml(e.message) + '</p>';
+  } finally {
+    tlacitko.disabled = false;
+    tlacitko.textContent = puvodni;
+  }
+}
+
+function spustKontroluTabulky(tlacitko) {
+  return servisAkce(tlacitko, 'Kontroluji…', 'servis-kontrola-vysledek', async () => {
+    const data = await zavolejApi('/servis?akce=kontrola-tabulky', { method: 'GET' });
+    const nalezy = data.nalezy || [];
+    if (!nalezy.length) {
+      return '<p class="zprava uspech">Tabulka je v pořádku – všech ' + (data.listuCelkem || 0) +
+        ' listů má všechny sloupce, které appka používá.</p>';
+    }
+    let html = '<p class="zprava varovani">Appka našla ' + nalezy.length +
+      ' listů, kde něco chybí. Dokud se to nedoplní, hodnoty do chybějících sloupců se ' +
+      '<strong>neuloží</strong>.</p><div class="servis-nalezy">';
+    nalezy.forEach((n) => {
+      html += '<div class="servis-nalez"><strong>' + escapeHtml(n.list) + '</strong> – ' +
+        escapeHtml(n.zprava);
+      if ((n.chybi || []).length) {
+        html += '<div class="servis-sloupce">' + escapeHtml(n.chybi.join(', ')) + '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div><p class="popis">Sloupce doplní tlačítko níž; chybějící celý list založí ' +
+      '<code>/api/setup</code>.</p>';
+    return html;
+  });
+}
+
+function spustDoplneniSloupcu(tlacitko) {
+  return servisAkce(tlacitko, 'Doplňuji…', 'servis-doplnit-vysledek', async () => {
+    const data = await zavolejApi('/servis', {
+      method: 'POST',
+      body: JSON.stringify({ akce: 'doplnit-sloupce' }),
+    });
+    const zmeneno = (data.vysledky || []).filter((v) => v.akce === 'doplneno');
+    const preskoceno = (data.vysledky || []).filter((v) => v.akce === 'preskoceno');
+    if (!zmeneno.length && !preskoceno.length) {
+      return '<p class="zprava uspech">Nebylo co doplňovat – tabulka už všechny sloupce má.</p>';
+    }
+    let html = '';
+    if (zmeneno.length) {
+      html += '<p class="zprava uspech">Doplněno ' + (data.celkemSloupcu || 0) + ' sloupců v ' +
+        zmeneno.length + ' listech. Nic se nepřepsalo ani nesmazalo – sloupce přibyly na konec ' +
+        'hlavičkového řádku.</p><div class="servis-nalezy">';
+      zmeneno.forEach((v) => {
+        html += '<div class="servis-nalez"><strong>' + escapeHtml(v.list) + '</strong>' +
+          '<div class="servis-sloupce">' + escapeHtml((v.chybi || []).join(', ')) + '</div></div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<p class="zprava uspech">Sloupce byly v pořádku, nic se nedoplňovalo.</p>';
+    }
+    if (preskoceno.length) {
+      html += '<p class="zprava varovani">Tyhle listy v tabulce vůbec nejsou a tohle tlačítko je ' +
+        'nezakládá – spusťte <code>/api/setup</code>: ' +
+        escapeHtml(preskoceno.map((v) => v.list).join(', ')) + '</p>';
+    }
+    return html;
+  });
+}
+
+function spustHledaniOsirelych(tlacitko) {
+  return servisAkce(tlacitko, 'Hledám…', 'servis-osirele-vysledek', async () => {
+    const data = await zavolejApi('/servis?akce=osirele-soubory', { method: 'GET' });
+    if (data.chyba) return '<p class="zprava varovani">' + escapeHtml(data.chyba) + '</p>';
+    const osirele = data.osirele || [];
+    if (!osirele.length) {
+      return '<p class="zprava uspech">Žádné osiřelé soubory – všech ' + (data.projito || 0) +
+        ' souborů v Inboxu má v appce svůj záznam.</p>';
+    }
+    let html = '<p class="zprava varovani">Appka našla ' + osirele.length + ' souborů (z ' +
+      (data.projito || 0) + ' prohlédnutých), ke kterým nemá žádný doklad, fakturu ani smlouvu. ' +
+      'Nejspíš zbyly po nahrání, kterému spadl zápis do tabulky. <strong>Appka je nemaže</strong> – ' +
+      'smazat je můžete na Disku sami.</p><div class="servis-nalezy">';
+    osirele.forEach((s) => {
+      html += '<div class="servis-nalez"><a href="https://drive.google.com/file/d/' +
+        encodeURIComponent(s.id) + '/view" target="_blank" rel="noopener">' +
+        escapeHtml(s.nazev) + '</a>' +
+        '<div class="servis-sloupce">' + escapeHtml((s.vytvoreno || '').slice(0, 10)) + '</div></div>';
+    });
+    html += '</div>';
+    if (data.zbyvaProjit) {
+      html += '<p class="popis">Appka prošla prvních ' + (data.projito || 0) + ' souborů, ' +
+        'dalších ' + data.zbyvaProjit + ' se do jednoho běhu nevešlo – po úklidu spusťte kontrolu ' +
+        'znovu.</p>';
+    }
+    return html;
+  });
 }
 
 async function nactiNahledCislovani() {
@@ -3994,127 +4295,22 @@ function vytvorDetailVydanaFaktura(f) {
     return wrap;
   }
 
-  const labelFirma = document.createElement('label');
-  labelFirma.textContent = 'Firma (vystavuje)';
+  // (v4.75) Stejná mřížka jako u přijatých dokladů - Jan 2026-08-21 na
+  // otázku, kde ji chce, odpověděl *„udělej to i u vydaných faktur"*.
+  // Skupiny i šířky proto sedí na detail dokladu: kdo přeskakuje mezi
+  // přijatými a vydanými, hledá částku pořád na stejném místě.
+  const mrizka = vytvorMrizkuPoli();
+  wrap.appendChild(mrizka);
+
   const vstupFirma = document.createElement('select');
   vstupFirma.innerHTML = moznostiFirmySeznam(vfFirmySeznam, f.Firma || '');
-  wrap.appendChild(labelFirma);
-  wrap.appendChild(vstupFirma);
+  pridejPole(mrizka, 5, 'Firma (vystavuje)', vstupFirma);
 
-  const labelCislo = document.createElement('label');
-  labelCislo.textContent = 'Číslo faktury';
   const vstupCislo = document.createElement('input');
   vstupCislo.type = 'text';
   vstupCislo.value = f.Cislo_faktury || '';
-  wrap.appendChild(labelCislo);
-  wrap.appendChild(vstupCislo);
+  pridejPole(mrizka, 4, 'Číslo faktury', vstupCislo);
 
-  const labelJednotka = document.createElement('label');
-  labelJednotka.textContent = 'Jednotka';
-  const vstupJednotka = document.createElement('input');
-  vstupJednotka.type = 'text';
-  vstupJednotka.setAttribute('list', 'seznam-jednotek');
-  vstupJednotka.value = f.Jednotka || '';
-  wrap.appendChild(labelJednotka);
-  wrap.appendChild(vstupJednotka);
-
-  const labelZakaznik = document.createElement('label');
-  labelZakaznik.textContent = 'Zákazník';
-  const vstupZakaznik = document.createElement('input');
-  vstupZakaznik.type = 'text';
-  vstupZakaznik.value = f.Zakaznik || '';
-  wrap.appendChild(labelZakaznik);
-  wrap.appendChild(vstupZakaznik);
-
-  const labelIco = document.createElement('label');
-  labelIco.textContent = 'IČO zákazníka';
-  const vstupIco = document.createElement('input');
-  vstupIco.type = 'text';
-  vstupIco.value = f.ICO_zakaznika || '';
-  wrap.appendChild(labelIco);
-  wrap.appendChild(vstupIco);
-
-  const labelVystaveni = document.createElement('label');
-  labelVystaveni.textContent = 'Datum vystavení';
-  const vstupVystaveni = document.createElement('input');
-  vstupVystaveni.type = 'date';
-  vstupVystaveni.value = f.Datum_vystaveni || '';
-  wrap.appendChild(labelVystaveni);
-  wrap.appendChild(vstupVystaveni);
-
-  const labelSplatnost = document.createElement('label');
-  labelSplatnost.textContent = 'Datum splatnosti';
-  const vstupSplatnost = document.createElement('input');
-  vstupSplatnost.type = 'date';
-  vstupSplatnost.value = f.Datum_splatnosti || '';
-  wrap.appendChild(labelSplatnost);
-  wrap.appendChild(vstupSplatnost);
-
-  const labelCastka = document.createElement('label');
-  labelCastka.textContent = 'Částka a měna';
-  const vstupCastka = document.createElement('input');
-  vstupCastka.type = 'number';
-  vstupCastka.step = '0.01';
-  vstupCastka.value = f.Castka !== undefined && f.Castka !== '' ? parsujCastkuZListu(f.Castka) : '';
-  vstupCastka.style.marginBottom = '6px';
-  const vstupMena = document.createElement('input');
-  vstupMena.type = 'text';
-  vstupMena.value = f.Mena || 'CZK';
-  vstupMena.style.maxWidth = '90px';
-  wrap.appendChild(labelCastka);
-  wrap.appendChild(vstupCastka);
-  wrap.appendChild(vstupMena);
-
-  // DPH/Sazba_DPH (od v4.6, viz claude/nomis-faktury-backlog.md, položka 9) -
-  // appka pole nabízí jako AI odhad ze zpracování faktury + ruční kontrolu,
-  // stejná konvence jako u Dokladů. Používá se jen u firem plátců DPH (dnes
-  // NOMIS Investment) jako VÝSTUP DPH pro měsíční bilanci v Daňovém přehledu.
-  const labelDph = document.createElement('label');
-  labelDph.textContent = 'DPH (částka) a sazba (%)';
-  const vstupDph = document.createElement('input');
-  vstupDph.type = 'number';
-  vstupDph.step = '0.01';
-  vstupDph.value = f.DPH !== undefined && f.DPH !== '' ? parsujCastkuZListu(f.DPH) : '';
-  vstupDph.style.marginBottom = '6px';
-  const vstupSazbaDph = document.createElement('input');
-  vstupSazbaDph.type = 'text';
-  vstupSazbaDph.value = f.Sazba_DPH || '';
-  vstupSazbaDph.style.maxWidth = '90px';
-  wrap.appendChild(labelDph);
-  wrap.appendChild(vstupDph);
-  wrap.appendChild(vstupSazbaDph);
-
-  // Rozšíření pro Money S3 export (v4.32, viz claude/nomis-faktury-
-  // backlog.md a lib/vydaneFakturySchema.js pro plné zdůvodnění) - appka
-  // pole nabízí jako AI odhad + ruční kontrolu, stejná konvence jako DPH/
-  // Sazba_DPH výš. DUZP appka navíc používá pro řazení DPH bilance v
-  // Daňovém přehledu.
-  const labelSymboly = document.createElement('label');
-  labelSymboly.textContent = 'Konstantní a specifický symbol';
-  const vstupKonstSym = document.createElement('input');
-  vstupKonstSym.type = 'text';
-  vstupKonstSym.value = f.Konstantni_symbol || '';
-  vstupKonstSym.placeholder = 'konstantní symbol';
-  vstupKonstSym.style.marginBottom = '6px';
-  const vstupSpecSym = document.createElement('input');
-  vstupSpecSym.type = 'text';
-  vstupSpecSym.value = f.Specificky_symbol || '';
-  vstupSpecSym.placeholder = 'specifický symbol';
-  wrap.appendChild(labelSymboly);
-  wrap.appendChild(vstupKonstSym);
-  wrap.appendChild(vstupSpecSym);
-
-  const labelDuzp = document.createElement('label');
-  labelDuzp.textContent = 'DUZP (datum uskutečnění zdanitelného plnění)';
-  const vstupDuzp = document.createElement('input');
-  vstupDuzp.type = 'date';
-  vstupDuzp.value = f.DUZP || '';
-  vstupDuzp.title = 'Vyplňte, jen pokud se liší od data vystavení (appka jinak pro export/DPH bilanci použije datum vystavení).';
-  wrap.appendChild(labelDuzp);
-  wrap.appendChild(vstupDuzp);
-
-  const labelTypDokladu = document.createElement('label');
-  labelTypDokladu.textContent = 'Typ dokladu';
   const vstupTypDokladu = document.createElement('select');
   ['Faktura', 'Dobropis', 'Zálohová faktura'].forEach((moznost) => {
     const option = document.createElement('option');
@@ -4123,16 +4319,95 @@ function vytvorDetailVydanaFaktura(f) {
     if ((f.Typ_dokladu || 'Faktura') === moznost) option.selected = true;
     vstupTypDokladu.appendChild(option);
   });
-  wrap.appendChild(labelTypDokladu);
-  wrap.appendChild(vstupTypDokladu);
+  pridejPole(mrizka, 3, 'Typ dokladu', vstupTypDokladu);
 
-  const labelPoznamka = document.createElement('label');
-  labelPoznamka.textContent = 'Poznámka';
+  const vstupZakaznik = document.createElement('input');
+  vstupZakaznik.type = 'text';
+  vstupZakaznik.value = f.Zakaznik || '';
+  pridejPole(mrizka, 5, 'Zákazník', vstupZakaznik);
+
+  const vstupIco = document.createElement('input');
+  vstupIco.type = 'text';
+  vstupIco.value = f.ICO_zakaznika || '';
+  pridejPole(mrizka, 3, 'IČO zákazníka', vstupIco);
+
+  const vstupJednotka = document.createElement('input');
+  vstupJednotka.type = 'text';
+  vstupJednotka.setAttribute('list', 'seznam-jednotek');
+  vstupJednotka.value = f.Jednotka || '';
+  pridejPole(mrizka, 4, 'Jednotka', vstupJednotka);
+
+  pridejSkupinuPoli(mrizka, 'Částky');
+
+  const vstupCastka = document.createElement('input');
+  vstupCastka.type = 'number';
+  vstupCastka.step = '0.01';
+  vstupCastka.value = f.Castka !== undefined && f.Castka !== '' ? parsujCastkuZListu(f.Castka) : '';
+  pridejPole(mrizka, 4, 'Částka', vstupCastka);
+
+  const vstupMena = document.createElement('input');
+  vstupMena.type = 'text';
+  vstupMena.value = f.Mena || 'CZK';
+  pridejPole(mrizka, 2, 'Měna', vstupMena);
+
+  // DPH/Sazba_DPH (od v4.6, viz claude/nomis-faktury-backlog.md, položka 9) -
+  // appka pole nabízí jako AI odhad ze zpracování faktury + ruční kontrolu,
+  // stejná konvence jako u Dokladů. Používá se jen u firem plátců DPH (dnes
+  // NOMIS Investment) jako VÝSTUP DPH pro měsíční bilanci v Daňovém přehledu.
+  const vstupDph = document.createElement('input');
+  vstupDph.type = 'number';
+  vstupDph.step = '0.01';
+  vstupDph.value = f.DPH !== undefined && f.DPH !== '' ? parsujCastkuZListu(f.DPH) : '';
+  pridejPole(mrizka, 4, 'DPH (částka)', vstupDph);
+
+  const vstupSazbaDph = document.createElement('input');
+  vstupSazbaDph.type = 'text';
+  vstupSazbaDph.value = f.Sazba_DPH || '';
+  pridejPole(mrizka, 2, 'Sazba (%)', vstupSazbaDph);
+
+  pridejSkupinuPoli(mrizka, 'Data');
+
+  const vstupVystaveni = document.createElement('input');
+  vstupVystaveni.type = 'date';
+  vstupVystaveni.value = f.Datum_vystaveni || '';
+  pridejPole(mrizka, 4, 'Datum vystavení', vstupVystaveni);
+
+  const vstupSplatnost = document.createElement('input');
+  vstupSplatnost.type = 'date';
+  vstupSplatnost.value = f.Datum_splatnosti || '';
+  pridejPole(mrizka, 4, 'Datum splatnosti', vstupSplatnost);
+
+  // Rozšíření pro Money S3 export (v4.32, viz claude/nomis-faktury-
+  // backlog.md a lib/vydaneFakturySchema.js pro plné zdůvodnění) - appka
+  // pole nabízí jako AI odhad + ruční kontrolu, stejná konvence jako DPH/
+  // Sazba_DPH výš. DUZP appka navíc používá pro řazení DPH bilance v
+  // Daňovém přehledu. Popisek je zkrácený na „DUZP", plné znění zůstává
+  // v tooltipu - stejně jako u přijatých dokladů.
+  const vstupDuzp = document.createElement('input');
+  vstupDuzp.type = 'date';
+  vstupDuzp.value = f.DUZP || '';
+  vstupDuzp.title = 'Vyplňte, jen pokud se liší od data vystavení (appka jinak pro export/DPH bilanci použije datum vystavení).';
+  const bunkaDuzp = pridejPole(mrizka, 4, 'DUZP', vstupDuzp);
+  bunkaDuzp.querySelector('label').title = 'DUZP – datum uskutečnění zdanitelného plnění';
+
+  pridejSkupinuPoli(mrizka, 'Platba');
+
+  const vstupKonstSym = document.createElement('input');
+  vstupKonstSym.type = 'text';
+  vstupKonstSym.value = f.Konstantni_symbol || '';
+  vstupKonstSym.placeholder = 'např. 0308';
+  pridejPole(mrizka, 3, 'Konstantní symbol', vstupKonstSym);
+
+  const vstupSpecSym = document.createElement('input');
+  vstupSpecSym.type = 'text';
+  vstupSpecSym.value = f.Specificky_symbol || '';
+  vstupSpecSym.placeholder = 'specifický symbol';
+  pridejPole(mrizka, 3, 'Specifický symbol', vstupSpecSym);
+
   const vstupPoznamka = document.createElement('input');
   vstupPoznamka.type = 'text';
   vstupPoznamka.value = f.Poznamka || '';
-  wrap.appendChild(labelPoznamka);
-  wrap.appendChild(vstupPoznamka);
+  pridejPole(mrizka, 6, 'Poznámka', vstupPoznamka);
 
   if (f.Zdrojovy_soubor_URL) {
     const souborDiv = document.createElement('div');
@@ -11825,6 +12100,40 @@ function vykresliVysledekScanu(el, data) {
   });
   tabulka.appendChild(telo);
   el.appendChild(tabulka);
+
+  /*
+   * (v4.73) Kam si pro to jít.
+   *
+   * Jan se po archivaci zeptal „kde je to stažení do archivu?" - a měl
+   * pravdu, že to nikde nestálo. Stahuje se z Google Disku, ne z appky
+   * (zip skládá Google), jenže dokud appka neřekne KTEROU složku otevřít,
+   * je to k ničemu. Vypíšou se skutečné cesty z právě zpracovaných řádků,
+   * ne obecný návod.
+   */
+  if (data.rezim === 'provedeno' && doArchivu && data.prejmenovano > 0) {
+    const slozky = [];
+    (data.polozky || []).forEach((p) => {
+      if (p.akce !== 'archivovano' || !p.slozka) return;
+      if (slozky.indexOf(p.slozka) === -1) slozky.push(p.slozka);
+    });
+    if (slozky.length) {
+      const kam = document.createElement('div');
+      kam.className = 'zprava info';
+      const uvod = document.createElement('p');
+      uvod.style.margin = '0 0 6px';
+      uvod.innerHTML = '<strong>Kde si to stáhnete:</strong> otevřete Google Disk, najděte složku'
+        + (slozky.length > 1 ? ' (jednu z těchto)' : '') + ' a klepněte na ni pravým tlačítkem → '
+        + '<strong>Stáhnout</strong>. Zip poskládá Google, takže to zvládne i stovky souborů.';
+      kam.appendChild(uvod);
+      slozky.sort().forEach((cesta) => {
+        const radek = document.createElement('div');
+        radek.className = 'archiv-cesta';
+        radek.textContent = cesta;
+        kam.appendChild(radek);
+      });
+      el.appendChild(kam);
+    }
+  }
 
   if (data.rezim === 'nahled' && data.kPrejmenovani > 0) {
     const potvrd = document.createElement('button');
