@@ -1327,6 +1327,11 @@ input[type="file"] { margin-top: 8px; }
   border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm);
   background: var(--barva-karta); color: var(--barva-text);
 }
+/* Věta místo zaškrtávátka „Mimo účet" u hotovosti (v4.75) - hotovost je
+   mimo účet z definice, takže se tam není o čem rozhodovat a appka místo
+   otázky napíše, co z toho plyne. */
+.poznamka-hotovost { font-size: 11.5px; margin-top: 16px; }
+
 /* Jméno držitele karty pod čtyřčíslím (v4.75). Na jeden řádek s useknutím -
    dvouřádkový text by posunul pole vedle a rozhodil mřížku; celé znění je
    v tooltipu (title, viz prekresliDrzitele v public/app.js). */
@@ -1388,6 +1393,60 @@ input[type="file"] { margin-top: 8px; }
 .prepinac-platby-ikona { display: inline-flex; align-items: center; color: var(--barva-text-tlumena); }
 .prepinac-platby-ikona .ikona-platby { width: 17px; height: 17px; vertical-align: 0; }
 .prepinac-platby-text { line-height: 1; }
+
+/* ---------- STATISTICKÉ DLAŽDICE A IKONY STAVŮ (v4.76) ----------
+   Jan 2026-08-21: "udělej hezké ikony místo jen textu, kolik je zaúčtováno
+   apod." + "do Dashboardu přidej také informace, jaký objem je zaúčtován
+   a kolik zbývá".
+
+   Dlaždice jsou schválně střídmé: rámeček, tlumený popisek s ikonou a jedno
+   velké číslo. Barvu nese jen stav (hotovo/čeká) a i ten ji nese jako
+   DOPLNĚK k ikoně a popisku - barva sama by pro barvoslepého uživatele
+   neřekla nic. */
+.ikona-stav {
+  width: 15px; height: 15px; flex: none;
+  fill: none; stroke: currentColor; stroke-width: 1.3;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.stat-rada {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px; margin: 8px 0 4px;
+}
+/* V kartě firmy na Dashboardu jsou dlaždice jen dvě a karta je úzká. */
+.stat-rada-uzka { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.stat-dlazdice {
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--barva-hranice); border-radius: var(--radius-sm);
+  background: var(--barva-karta); padding: 8px 10px; min-width: 0;
+}
+.stat-hlavicka { display: flex; align-items: center; gap: 6px; color: var(--barva-text-tlumena); }
+.stat-popisek {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.stat-hodnota { font-size: 20px; font-weight: 700; line-height: 1.15; letter-spacing: -0.01em; }
+/* Jedna měna na řádek - appka měny nikdy neslepuje do jednoho čísla. */
+.stat-detail { display: block; font-size: 11.5px; color: var(--barva-text-tlumena); }
+.stat-poznamka { font-size: 11.5px; color: var(--barva-text-tlumena); margin-top: 2px; }
+/* Stavy: barva je vždycky JEN doplněk k ikoně a popisku. */
+.stat-dlazdice.stat-hotovo { border-color: #bfe6d5; background: #f2fbf7; }
+.stat-dlazdice.stat-hotovo .stat-hlavicka { color: var(--barva-uspech); }
+.stat-dlazdice.stat-ceka { border-color: #efd9a8; background: #fffbf0; }
+.stat-dlazdice.stat-ceka .stat-hlavicka { color: var(--barva-varovani); }
+
+/* Souhrn nad seznamem schválených dokladů - do v4.75 to byla jedna věta
+   ve třídě `popis`, od v4.76 jsou to dlaždice. */
+.souhrn-dokladu { margin: 6px 0 10px; }
+
+/* Měřička podílu zaúčtovaných dokladů. Ukazuje podíl POČTU, ne částek -
+   podíl částek by musel sečíst měny dohromady, což appka nedělá nikde.
+   Procento i obě čísla stojí pod pruhem, takže pruh sám nic nenese. */
+.mericka {
+  height: 8px; border-radius: 999px; background: var(--barva-hranice);
+  overflow: hidden; margin: 6px 0 4px;
+}
+.mericka-vypln { height: 100%; background: var(--barva-uspech); border-radius: 999px; }
+.mericka-popis { font-size: 11.5px; color: var(--barva-text-tlumena); margin-bottom: 2px; }
 
 /* ---------- SERVIS A ÚDRŽBA (v4.75) ---------- */
 .servis-nalezy { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -2072,6 +2131,10 @@ input[type="file"] { margin-top: 8px; }
 /* (v4.51) Tipy a varování u příjmu: v tmavém motivu nesmí zůstat světlé
    podbarvení, jinak z detailu svítí bílý obdélník. Barva textu se dědí z
    `--barva-text`, takže se tu nastavuje jen pozadí. */
+/* (v4.76) Dlaždice se stavem mají v tmavém motivu vlastní pozadí - světle
+   zelená/žlutá z denního motivu by pod světlým textem zmizela. */
+:root[data-motiv="tmavy"] .stat-dlazdice.stat-hotovo { background: #1c3a2e; border-color: #2c5a47; }
+:root[data-motiv="tmavy"] .stat-dlazdice.stat-ceka { background: #3a3222; border-color: #5a4c2c; }
 :root[data-motiv="tmavy"] .prijem-tipy { background: #22314f; }
 :root[data-motiv="tmavy"] .prijem-varovani { background: #3a2222; }
 :root[data-motiv="tmavy"] .stav-ke-kontrole,

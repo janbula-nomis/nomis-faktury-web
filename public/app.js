@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.75 – 2026-08-21';
+const APP_VERZE = 'v4.76 – 2026-08-21';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -1498,7 +1498,7 @@ function aktualizujSouhrnFirmyDokladu() {
   const vyber = document.getElementById('doklady-vyber-firmy');
   if (!souhrnEl || !vyber || dokladySekce !== 'schvalene' || !vyber.value) return;
   const schvalene = dokladySeznamAktualni.filter((d) => d.Stav === 'Schváleno');
-  souhrnEl.textContent = souhrnTextDokladu(filtrSchvalenychDokladu(schvalene));
+  souhrnEl.innerHTML = souhrnDokladuHtml(filtrSchvalenychDokladu(schvalene));
 }
 
 /*
@@ -1524,7 +1524,7 @@ function stavUhradyDokladu(d) {
   // potvrzený bankovní pohyb i hotovost jsou obojí doložená platba. Liší se
   // jen v popisku, ať je poznat ČÍM se platilo.
   const zpusob = String(d.Zpusob_platby || '').trim();
-  if (String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO') {
+  if (jeHrazenoMimoUcet(d)) {
     // Mimo účet neznamená automaticky hotovost - stejně tak to může být
     // soukromá karta. Appka proto opíše, co u dokladu doopravdy stojí,
     // místo aby všechno mimo účet nazvala hotovostí.
@@ -1983,8 +1983,20 @@ function klicEvidencnihoCisla(hodnota) {
   return { rok: parseInt(m[2], 10), poradi: parseInt(m[1], 10), text };
 }
 
+// (v4.75) Přesná kopie lib/nazvyScanu.js -> jeHrazenoMimoUcet. Jan
+// 2026-08-21: *„když zakliknu hotově, znamená to že to je mimo účet, tak
+// se to doubluje"* - hotovost se na výpisu z firemního účtu neobjeví nikdy,
+// takže „Hotovost" a příznak „mimo účet" jsou jedno tvrzení, ne dva údaje.
+// Prohlížeč si `lib/` načíst neumí (appka nemá build krok), takže je to tu
+// zduplikované; test-v475.js hlídá, že se obě kopie nerozešly.
+function jeHrazenoMimoUcet(d) {
+  if (!d) return false;
+  if (textCislo(d.Hrazeno_mimo_ucet).toUpperCase() === 'ANO') return true;
+  return textCislo(d.Zpusob_platby) === 'Hotovost';
+}
+
 function klicBanky(d) {
-  if (textCislo(d.Hrazeno_mimo_ucet).toUpperCase() === 'ANO') return PORADI_BANKY.sparovano;
+  if (jeHrazenoMimoUcet(d)) return PORADI_BANKY.sparovano;
   const stav = textCislo(d.Stav_parovani_bankou);
   if (stav === 'Potvrzeno') return PORADI_BANKY.sparovano;
   if (stav === 'Navrženo') return PORADI_BANKY.navrh;
@@ -2094,7 +2106,7 @@ function vykresliDoklady(doklady) {
     const vyber = document.getElementById('doklady-vyber-firmy');
     if (!vyber || !vyber.value) {
       kontejner.innerHTML = '<div class="nacitani">Vyberte firmu…</div>';
-      if (souhrnEl) souhrnEl.textContent = '';
+      if (souhrnEl) souhrnEl.innerHTML = '';
       return;
     }
     const vyber2 = filtrSchvalenychDokladu(filtrovane);
@@ -2103,9 +2115,9 @@ function vykresliDoklady(doklady) {
       ? 'Tomuhle filtru neodpovídá žádný doklad – zkuste zrušit zúžení na '
         + (vyber2.zauctovani === 'ano' ? 'zaúčtované.' : 'nezaúčtované.')
       : 'U téhle firmy a období zatím žádné schválené doklady nejsou.';
-    if (souhrnEl) souhrnEl.textContent = souhrnTextDokladu(vyber2);
+    if (souhrnEl) souhrnEl.innerHTML = souhrnDokladuHtml(vyber2);
   } else if (souhrnEl) {
-    souhrnEl.textContent = '';
+    souhrnEl.innerHTML = '';
   }
 
   // (v4.66) Řadí se podle sloupce, který si člověk vybral v hlavičce.
@@ -2170,18 +2182,43 @@ function filtrSchvalenychDokladu(schvalene) {
   return { firma, mesic, rok, zauctovani, vBloku, kZobrazeni };
 }
 
-function souhrnTextDokladu(vyber) {
-  const zauctovanych = vyber.vBloku.filter((d) =>
-    String(d.Zauctovano || '').trim().toUpperCase() === 'ANO').length;
-  let text = vyber.vBloku.length + '× schválený doklad, z toho ' + zauctovanych + '× zaúčtováno.';
+/*
+ * Souhrn nad seznamem schválených dokladů.
+ *
+ * (v4.76) Byla to jedna věta („12× schválený doklad, z toho 3× zaúčtováno.").
+ * Jan 2026-08-21: *„udělej hezké ikony místo jen textu, kolik je zaúčtováno
+ * apod."* - a hlavně: k počtu patří i OBJEM. Dvacet paragonů po stokoruně a
+ * jedna faktura za půl milionu je dvacet jedna dokladů a úplně jiná práce.
+ *
+ * Souhrn se schválně počítá z `vBloku` (celý blok po filtru firmy/období),
+ * ne z `kZobrazeni` - kdyby se počítal ze zobrazených řádků, hlásil by při
+ * zúžení na „jen nezaúčtované" pokaždé „0 zaúčtováno". Technicky pravda,
+ * ale účetní by z toho četla, že nemá hotové nic.
+ */
+function souhrnDokladuHtml(vyber) {
+  const zauctovane = vyber.vBloku.filter((d) =>
+    String(d.Zauctovano || '').trim().toUpperCase() === 'ANO');
+  const nezauctovane = vyber.vBloku.filter((d) =>
+    String(d.Zauctovano || '').trim().toUpperCase() !== 'ANO');
+
+  let html = '<div class="stat-rada">'
+    + statDlazdice('doklad', vyber.vBloku.length, 'Schválené doklady',
+      castkyJakoRadky(castkyDokladuPodleMeny(vyber.vBloku)))
+    + statDlazdice('zauctovano', zauctovane.length, 'Zaúčtováno',
+      castkyJakoRadky(castkyDokladuPodleMeny(zauctovane)), zauctovane.length ? 'hotovo' : '')
+    + statDlazdice('zbyva', nezauctovane.length, 'Zbývá zaúčtovat',
+      castkyJakoRadky(castkyDokladuPodleMeny(nezauctovane)), nezauctovane.length ? 'ceka' : '')
+    + '</div>';
+
   // Když filtr něco skrývá, appka to NAPÍŠE. Jinak by se dalo snadno
   // uzavřít měsíc s tím, že „už tam nic není", a ono tam bylo - jen
   // schované filtrem.
   if (vyber.zauctovani) {
-    text += ' Zobrazeno: ' + vyber.kZobrazeni.length + '× '
-      + (vyber.zauctovani === 'ano' ? 'zaúčtovaný' : 'nezaúčtovaný') + '.';
+    html += '<div class="stat-poznamka">Zobrazeno: ' + vyber.kZobrazeni.length + '× '
+      + (vyber.zauctovani === 'ano' ? 'zaúčtovaný' : 'nezaúčtovaný')
+      + ' – dlaždice nahoře počítají celý vybraný měsíc, ne jen zobrazené řádky.</div>';
   }
-  return text;
+  return html;
 }
 
 // Skládací řádek Dokladu (od v3.7, stejný vzor jako vytvorRadekBanka níž) -
@@ -2405,6 +2442,111 @@ function vytvorPrepinacZpusobuPlatby(vybrano) {
     },
   });
   return prepinac;
+}
+
+// ---------------------------------------------------------------------------
+// IKONY STAVŮ A STATISTICKÉ DLAŽDICE (v4.76)
+//
+// Jan 2026-08-21: *„udělej hezké ikony místo jen textu, kolik je zaúčtováno
+// apod."*.
+//
+// Čísla, která se čtou jedním pohledem („kolik zbývá zaúčtovat"), byla
+// schovaná v obyčejné větě mezi filtrem a seznamem. Věta se čte odshora
+// dolů; dlaždice s ikonou se pozná periferním viděním - a v Dashboardu, kde
+// je karet vedle sebe pět, je to rozdíl mezi „přečíst" a „všimnout si".
+//
+// Stejná pravidla jako u ikon způsobu platby (viz IKONY_PLATBY výš): inline
+// SVG kreslené linkou v `currentColor`, žádné emoji ani ikonový font, a
+// IKONA NIKDY NESTOJÍ SAMA - vždycky s číslem a popiskem. Tvar sám o sobě
+// není informace, kterou by appka směla podávat jen obrázkem.
+const IKONY_STAVU = {
+  doklad: {
+    popis: 'Doklad',
+    svg: '<path d="M9.3 1.6H4.4a1.3 1.3 0 0 0-1.3 1.3v10.2a1.3 1.3 0 0 0 1.3 1.3h7.2a1.3 1.3 0 0 0 1.3-1.3V5.3z"/>'
+      + '<path d="M9.3 1.6v3.7h3.6"/><path d="M5.6 8.4h4.8M5.6 11h3.2"/>',
+  },
+  zauctovano: {
+    popis: 'Zaúčtováno',
+    svg: '<path d="M9.3 1.6H4.4a1.3 1.3 0 0 0-1.3 1.3v10.2a1.3 1.3 0 0 0 1.3 1.3h7.2a1.3 1.3 0 0 0 1.3-1.3V5.3z"/>'
+      + '<path d="M9.3 1.6v3.7h3.6"/><path d="m5.5 9.9 1.7 1.7 3.4-3.6"/>',
+  },
+  zbyva: {
+    popis: 'Zbývá zaúčtovat',
+    svg: '<circle cx="8" cy="8" r="6"/><path d="M8 4.4V8l2.5 1.7"/>',
+  },
+  keSchvaleni: {
+    popis: 'Čeká na schválení',
+    svg: '<path d="M3.4 2.8h9.2l1.3 6.2v3.2a1.1 1.1 0 0 1-1.1 1.1H3.2a1.1 1.1 0 0 1-1.1-1.1V9z"/>'
+      + '<path d="M2.1 9h3.3l1 1.9h3.2l1-1.9h3.3"/>',
+  },
+  banka: {
+    popis: 'Bankovní pohyb',
+    svg: '<path d="M6.4 9.6a2.7 2.7 0 0 0 4 .3l1.6-1.6a2.7 2.7 0 0 0-3.8-3.8l-.9.9"/>'
+      + '<path d="M9.6 6.4a2.7 2.7 0 0 0-4-.3L4 7.7a2.7 2.7 0 0 0 3.8 3.8l.9-.9"/>',
+  },
+  prijem: {
+    popis: 'Příjem na účtu',
+    svg: '<path d="M8 2.4v6.5"/><path d="M5.5 6.4 8 8.9l2.5-2.5"/>'
+      + '<path d="M2.6 10.6v1.6a1.2 1.2 0 0 0 1.2 1.2h8.4a1.2 1.2 0 0 0 1.2-1.2v-1.6"/>',
+  },
+  hotovo: {
+    popis: 'Hotovo',
+    svg: '<circle cx="8" cy="8" r="6"/><path d="m5.3 8.2 1.9 1.9 3.6-3.9"/>',
+  },
+};
+
+/**
+ * Ikona stavu jako HTML, nebo '' u neznámého klíče.
+ *
+ * `role="img"` + `aria-label` schválně: dlaždice sice popisek má, ale ikona
+ * se čte i sama (třeba v řádku upozornění) a odečítač nemá co dělat
+ * s obrázkem bez jména.
+ */
+function ikonaStavuHtml(klic, tridaNavic) {
+  const ikona = IKONY_STAVU[klic];
+  if (!ikona) return '';
+  return '<svg class="ikona-stav' + (tridaNavic ? ' ' + tridaNavic : '') + '" viewBox="0 0 16 16" '
+    + 'role="img" aria-label="' + escapeAttr(ikona.popis) + '"><title>' + escapeHtml(ikona.popis)
+    + '</title>' + ikona.svg + '</svg>';
+}
+
+/**
+ * Jedna dlaždice: ikona s popiskem, velké číslo a (nepovinně) částky pod ním.
+ *
+ * `detail` je pole už naformátovaných částek - JEDNA MĚNA NA ŘÁDEK. Appka
+ * měny nikdy nesčítá dohromady (nemá kurzovní lístek), takže tady nesmí
+ * vzniknout jeden slepenec „1 000 Kč + 40 EUR": vypadal by jako součet,
+ * kterým není.
+ */
+function statDlazdice(klic, hodnota, popisek, detail, stav) {
+  const castky = (detail || [])
+    .map((t) => '<span class="stat-detail">' + escapeHtml(t) + '</span>')
+    .join('');
+  return '<div class="stat-dlazdice' + (stav ? ' stat-' + stav : '') + '">'
+    + '<span class="stat-hlavicka">' + ikonaStavuHtml(klic) + '<span class="stat-popisek">'
+    + escapeHtml(popisek) + '</span></span>'
+    + '<span class="stat-hodnota">' + escapeHtml(String(hodnota)) + '</span>'
+    + castky + '</div>';
+}
+
+/**
+ * Sečte částky dokladů podle měny. Dobropis snižuje (stejné znaménko jako
+ * v Dashboardu i v Daňovém přehledu - opravný doklad ruší dřívější náklad,
+ * nepřidává nový).
+ */
+function castkyDokladuPodleMeny(doklady) {
+  const podleMeny = {};
+  (doklady || []).forEach((d) => {
+    const mena = String(d.Mena || 'CZK').trim().toUpperCase() || 'CZK';
+    const znamenko = d.Typ_dokladu === 'Dobropis' ? -1 : 1;
+    podleMeny[mena] = (podleMeny[mena] || 0) + parsujCastkuZListu(d.Castka) * znamenko;
+  });
+  return podleMeny;
+}
+
+// Mapa MĚNA -> ČÁSTKA jako pole hotových textů, jeden na měnu.
+function castkyJakoRadky(podleMeny) {
+  return serazeneMeny(podleMeny).map((mena) => formatCastkaSMenou(podleMeny[mena], mena));
 }
 
 // ---------------------------------------------------------------------------
@@ -2877,14 +3019,49 @@ function vytvorDetailDoklad(d) {
   // protějšek v Bankovních výpisech (tam appka páruje jen odchozí platby
   // z firemního účtu) - tenhle příznak to u dokladu rovnou zviditelní,
   // ať účetní ví, že na bankovní pohyb u něj nemá čekat.
+  //
+  // (v4.75) Jan hned po nasazení dlaždic: *„když zakliknu hotově, znamená
+  // to že to je mimo účet, tak se to doubluje"*. Má pravdu - hotovost se
+  // na firemním výpisu neobjeví NIKDY, tam se není o čem rozhodovat.
+  // U karty ale ano (firemní karta na výpisu je, soukromá ne) a u převodu
+  // taky, takže zaškrtávátko nemůže zmizet úplně.
+  //
+  // Appka ho proto ukazuje jen tam, kde je to opravdu otázka, a u hotovosti
+  // místo něj napíše, co z toho plyne. Hodnotu si přitom drží dál - kdo si
+  // omylem přepne na Hotovost a zpátky na Kartu, o své zaškrtnutí nepřijde.
   const labelMimoUcet = document.createElement('label');
   labelMimoUcet.className = 'pole-zaskrtavatko';
   const vstupMimoUcet = document.createElement('input');
   vstupMimoUcet.type = 'checkbox';
   vstupMimoUcet.checked = String(d.Hrazeno_mimo_ucet || '').trim() === 'ANO';
-  vstupMimoUcet.title = 'Hrazeno hotově nebo soukromou kartou (nečekat na spárování s bankovním výpisem)';
+  const textMimoUcet = document.createTextNode('');
   labelMimoUcet.appendChild(vstupMimoUcet);
-  labelMimoUcet.appendChild(document.createTextNode('Mimo účet (hotově/soukromou kartou)'));
+  labelMimoUcet.appendChild(textMimoUcet);
+
+  const poznamkaHotovost = document.createElement('div');
+  poznamkaHotovost.className = 'popis poznamka-hotovost';
+  poznamkaHotovost.textContent = 'Hotovost se s bankovním výpisem nepáruje – appka takový doklad '
+    + 'bere rovnou jako uhrazený a platbu k němu nehledá.';
+
+  // Jediné místo, které rozhoduje, co se uloží do Hrazeno_mimo_ucet.
+  // U hotovosti je to dané, jinde se ptáme zaškrtávátka.
+  function jeMimoUcet() {
+    return vstupZpusobPlatby.value === 'Hotovost' || vstupMimoUcet.checked;
+  }
+
+  function prekresliMimoUcet() {
+    const hotove = vstupZpusobPlatby.value === 'Hotovost';
+    labelMimoUcet.classList.toggle('skryto', hotove);
+    poznamkaHotovost.classList.toggle('skryto', !hotove);
+    // Popisek mluví o tom, co je u zvoleného způsobu platby ta otázka.
+    // „Mimo účet (hotově/soukromou kartou)" u vybrané karty mátlo: hotovost
+    // v tu chvíli není ve hře.
+    textMimoUcet.textContent = vstupZpusobPlatby.value === 'Karta'
+      ? 'Soukromá karta – nehledat platbu v bankovním výpisu'
+      : 'Mimo firemní účet – nehledat platbu v bankovním výpisu';
+    vstupMimoUcet.title = 'Doklad se nezaplatil z firemního účtu, takže na něj v bankovním '
+      + 'výpisu nečekejte.';
+  }
 
   // Způsob platby a platební karta (od v4.52) - obojí vytěží AI z dokladu
   // (viz lib/gemini.js), tady jde o kontrolu a opravu. Pozor, tohle je něco
@@ -2937,9 +3114,12 @@ function vytvorDetailDoklad(d) {
   // jeden řádek. Zaškrtávátko „Mimo účet" dostalo vlastní řádek celé -
   // v třetině se jeho popisek ořezával uprostřed slova, a zrovna u něj
   // na tom záleží: říká, že se na bankovní pohyb nemá čekat.
+  vstupZpusobPlatby.addEventListener('change', prekresliMimoUcet);
+  prekresliMimoUcet();
+
   pridejPole(mrizka, 8, 'Způsob platby', vstupZpusobPlatby);
   pridejPole(mrizka, 4, 'Karta (poslední 4 číslice)', vstupKarta, popisKarty);
-  pridejPole(mrizka, 0, '', labelMimoUcet);
+  pridejPole(mrizka, 0, '', labelMimoUcet, poznamkaHotovost);
 
   pridejPole(mrizka, 6, 'Číslo účtu dodavatele (pro QR Platbu)', vstupUcetDodavatele);
   pridejPole(mrizka, 3, 'Konstantní symbol', vstupKonstSym);
@@ -3088,7 +3268,10 @@ function vytvorDetailDoklad(d) {
       Stredisko: vstupStredisko.value.trim(),
       Mnozstvi_litru: vstupLitry.value,
       Druh_paliva: vstupDruhPaliva.value.trim(),
-      Hrazeno_mimo_ucet: vstupMimoUcet.checked ? 'ANO' : '',
+      // (v4.75) Ne přímo ze zaškrtávátka - u hotovosti je odpověď daná,
+      // viz jeMimoUcet() a Janovo *„když zakliknu hotově, znamená to že to
+      // je mimo účet, tak se to doubluje"*.
+      Hrazeno_mimo_ucet: jeMimoUcet() ? 'ANO' : '',
       Datum_splatnosti: vstupSplatnost.value,
       Konstantni_symbol: vstupKonstSym.value.trim(),
       Specificky_symbol: vstupSpecSym.value.trim(),
@@ -3602,6 +3785,50 @@ function radkySouhrnPodleMeny(popis, podleMeny, tridaFn) {
     .join('');
 }
 
+/*
+ * Blok „Zaúčtování" v kartě firmy (v4.76).
+ *
+ * Jan 2026-08-21: *„do Dashboardu přidej také informace, jaký objem je
+ * zaúčtován a kolik zbývá"*.
+ *
+ * TŘI VĚCI, KTERÉ SE TU NESMÍ ZMĚNIT
+ *
+ * 1) PRUH UKAZUJE PODÍL POČTU, NE ČÁSTEK. Podíl částek by musel sečíst měny
+ *    dohromady - to appka nedělá nikde a nezačne s tím v ozdobném pruhu.
+ *    Objem je pod pruhem, po měnách, v číslech.
+ * 2) PRUH NENÍ JEDINÝ NOSITEL INFORMACE. Vedle něj stojí procento i obě
+ *    čísla; samotná barevná výplň by barvoslepému uživateli (a na tisku)
+ *    neřekla nic.
+ * 3) BEZ SCHVÁLENÝCH DOKLADŮ SE NIC NEPŘEDSTÍRÁ. Nula z nuly není „100 %
+ *    hotovo" - appka napíše, že za období není co účtovat.
+ */
+function vykresliZauctovaniKarty(zauctovani) {
+  const z = zauctovani || {};
+  const hotovo = z.zauctovanoPocet || 0;
+  const zbyva = z.zbyvaPocet || 0;
+  const celkem = hotovo + zbyva;
+
+  let html = '<div class="dash-stredisko-nadpis">Zaúčtování (12 měsíců)</div>';
+  if (!celkem) {
+    return html + '<div class="popis" style="margin:0">Za tohle období nejsou žádné schválené '
+      + 'doklady k zaúčtování.</div>';
+  }
+
+  const procenta = Math.round((hotovo / celkem) * 100);
+  html += '<div class="mericka" role="img" aria-label="Zaúčtováno ' + procenta + ' % z '
+    + celkem + ' schválených dokladů">'
+    + '<div class="mericka-vypln" style="width:' + procenta + '%"></div></div>'
+    + '<div class="mericka-popis">' + procenta + ' % dokladů zaúčtováno ('
+    + hotovo + ' z ' + celkem + ')</div>'
+    + '<div class="stat-rada stat-rada-uzka">'
+    + statDlazdice('zauctovano', hotovo, 'Zaúčtováno',
+      castkyJakoRadky(z.zauctovanoCastky), hotovo ? 'hotovo' : '')
+    + statDlazdice('zbyva', zbyva, 'Zbývá zaúčtovat',
+      castkyJakoRadky(z.zbyvaCastky), zbyva ? 'ceka' : '')
+    + '</div>';
+  return html;
+}
+
 function vytvorDashFirmaKarta(f) {
   const karta = document.createElement('div');
   karta.className = 'dash-firma-karta';
@@ -3645,15 +3872,24 @@ function vytvorDashFirmaKarta(f) {
       '</div>';
   }
 
+  // (v4.76) ZAÚČTOVÁNÍ. Jan 2026-08-21: *„do Dashboardu přidej také
+  // informace, jaký objem je zaúčtován a kolik zbývá"*. Do teď šlo
+  // z Dashboardu vyčíst, kolik firma utratila, ale ne kolik z toho má
+  // účetní hotové - a přitom to je otázka, se kterou se na začátku měsíce
+  // volá: „kolik toho ještě zbývá?"
+  html += vykresliZauctovaniKarty(f.zauctovani);
+
   const upozorneni = [];
   if (f.dokladyKeSchvaleni > 0) {
     upozorneni.push(
-      '<div class="polozka-upozorneni">⚠ ' + f.dokladyKeSchvaleni + '× doklad čeká na schválení</div>'
+      '<div class="polozka-upozorneni">' + ikonaStavuHtml('keSchvaleni') + f.dokladyKeSchvaleni
+      + '× doklad čeká na schválení</div>'
     );
   }
   if (f.pohybyNesparovane > 0) {
     upozorneni.push(
-      '<div class="polozka-upozorneni">⚠ ' + f.pohybyNesparovane + '× nespárovaný bankovní pohyb</div>'
+      '<div class="polozka-upozorneni">' + ikonaStavuHtml('banka') + f.pohybyNesparovane
+      + '× nespárovaný bankovní pohyb</div>'
     );
   }
   // (v4.61) Příjmy, které dorazily na účet, ale nikdo je nezařadil. Do
@@ -3668,13 +3904,14 @@ function vytvorDashFirmaKarta(f) {
       .map((m) => formatCastkaSMenou(castky[m], m))
       .join(' + ');
     upozorneni.push(
-      '<div class="polozka-upozorneni">⚠ ' + f.prijmyKeKontrole + '× příjem čeká na zařazení'
+      '<div class="polozka-upozorneni">' + ikonaStavuHtml('prijem') + f.prijmyKeKontrole + '× příjem čeká na zařazení'
       + (rozpis ? ' (' + escapeHtml(rozpis) + ')' : '')
       + ' – do příjmů se započítá až po zařazení v Bankovních výpisech</div>'
     );
   }
   if (upozorneni.length === 0) {
-    upozorneni.push('<div class="polozka-upozorneni ok">✓ Nic nečeká na vyřízení</div>');
+    upozorneni.push('<div class="polozka-upozorneni ok">' + ikonaStavuHtml('hotovo')
+      + 'Nic nečeká na vyřízení</div>');
   }
   html += '<div class="dash-upozorneni">' + upozorneni.join('') + '</div>';
 
@@ -5980,7 +6217,10 @@ function vytvorDetailBanka(p) {
     const sediKarta = (d) => (kartyVPohybu.length ? shodaKarty(d.Platebni_karta, textPohybuProKartu) : false);
     const volneDoklady = bankaDokladySeznam
       .filter((d) => !jizPouzite.has(d.ID))
-      .filter((d) => String(d.Hrazeno_mimo_ucet || '').trim() !== 'ANO')
+      // (v4.75) Přes stejné pravidlo jako odznak a řazení - doklad placený
+      // hotově nemá v bankovním výpisu co pohledávat, i když u něj příznak
+      // nikdo nezaškrtl.
+      .filter((d) => !jeHrazenoMimoUcet(d))
       .filter((d) => d.Stav !== 'Zpracovává se')
       .slice()
       .sort((a, b) => {

@@ -412,6 +412,47 @@ exports.handler = async (event) => {
       ).length;
       const pohybyNesparovane = pohybyTetoFirmy.filter((p) => p.Stav_parovani === 'Nespárováno').length;
 
+      // (v4.76) ZAÚČTOVÁNÍ - kolik objemu už účetní zaúčtovala a kolik zbývá.
+      //
+      // Jan 2026-08-21: *„do Dashboardu přidej také informace, jaký objem je
+      // zaúčtován a kolik zbývá"*. Do teď byla vidět jen věta „X× schválený
+      // doklad, z toho Y× zaúčtováno" v seznamu dokladů - tedy POČET. Jenže
+      // dvacet paragonů po stokoruně a jedna faktura za půl milionu je
+      // dvacet jedna dokladů a úplně jiná práce; při domluvě s účetní se
+      // člověk ptá na objem, ne na kusy.
+      //
+      // ČTYŘI VĚCI, KTERÉ SE TU NESMÍ ZMĚNIT
+      //
+      // 1) POČÍTAJÍ SE JEN SCHVÁLENÉ DOKLADY. Zaúčtovat se dá jen to, co
+      //    prošlo schválením - nezpracovaný doklad do jmenovatele nepatří,
+      //    jinak by „zbývá" míchalo dvě různé práce dohromady.
+      // 2) MĚNY SE NIKDY NESČÍTAJÍ. Stejné pravidlo jako u příjmů a výdajů
+      //    výš - CZK a EUR jsou dvě čísla, ne jedno.
+      // 3) DOBROPIS SNIŽUJE. Stejné znaménko jako u výdajů, jinak by objem
+      //    k zaúčtování vycházel vyšší, než kolik firma opravdu utratila.
+      // 4) STEJNÉ OKNO JAKO ZBYTEK DASHBOARDU (12 měsíců). Čísla vedle sebe
+      //    musí mluvit o stejném období, jinak se nedají porovnat.
+      const zauctovanoCastky = {};
+      const zbyvaCastky = {};
+      let zauctovanoPocet = 0;
+      let zbyvaPocet = 0;
+      doklady
+        .filter((d) => (d.Firma_potvrzena || d.Firma_AI_odhad) === firma)
+        .filter((d) => d.Stav === 'Schváleno')
+        .filter((d) => String(d.Datum_dokladu || '') >= zacatekOkna)
+        .forEach((d) => {
+          const znamenko = d.Typ_dokladu === 'Dobropis' ? -1 : 1;
+          const mena = normalizujMenu(d.Mena);
+          const castka = parsujCastkuZListu(d.Castka) * znamenko;
+          if (String(d.Zauctovano || '').trim().toUpperCase() === 'ANO') {
+            zauctovanoPocet += 1;
+            pripoctiCelkem(zauctovanoCastky, mena, castka);
+          } else {
+            zbyvaPocet += 1;
+            pripoctiCelkem(zbyvaCastky, mena, castka);
+          }
+        });
+
       // (v4.61) PŘÍJMY ČEKAJÍCÍ NA ZAŘAZENÍ.
       //
       // Jan 2026-08-08 poslal snímek Dashboardu, kde měly Byty Holečkova
@@ -479,6 +520,15 @@ exports.handler = async (event) => {
         strediskaVydaje,
         dokladyKeSchvaleni,
         pohybyNesparovane,
+        // (v4.76) Zaúčtování - viz výpočet výš. Do osekané větve „jen
+        // počítadla" tohle NEPATŘÍ: jsou to částky, a tu větev vidí i běžná
+        // role, která čísla vidět nemá.
+        zauctovani: {
+          zauctovanoPocet,
+          zbyvaPocet,
+          zauctovanoCastky,
+          zbyvaCastky,
+        },
         prijmyKeKontrole,
         prijmyKeKontroleCastky,
         fakturyPoSplatnosti,
