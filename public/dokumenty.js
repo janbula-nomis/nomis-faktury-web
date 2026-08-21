@@ -261,13 +261,53 @@ function dokSpecifikaceHtml(j, vzdyUkazat, dvoj) {
 }
 
 /*
+ * KOMU TA POLOŽKA PATŘÍ (v4.82)
+ *
+ * Klíče i měřidla můžou být buď společné pro celý byt (prázdné
+ * `Najemni_jednotka_ID`), nebo patřit jedné nájemní jednotce. Do dokumentu
+ * pro nájemníka jednotky 1a patří jeho vlastní věci PLUS ty společné -
+ * klíč od vchodu do domu je opravdu obojí.
+ *
+ * Když se dokument tiskne bez vybrané jednotky (byt na jednotky rozdělený
+ * není, nebo se tiskne karta bytu pro Jana), projde všechno. Filtrovat
+ * podle jednotky, kterou nikdo nevybral, by znamenalo tiše zahodit řádky.
+ */
+function patriJednotce(polozka, jednotkaId) {
+  if (!jednotkaId) return true;
+  const vlastnik = String((polozka && polozka.Najemni_jednotka_ID) || '').trim();
+  return !vlastnik || vlastnik === jednotkaId;
+}
+
+/*
+ * WiFi do dokumentu.
+ *
+ * Nejdřív ze samotné nájemní jednotky, teprve pak z bytu. Jan 2026-08-21:
+ * *„klíče i wifi musí být samostatně k nájemní jednotce"* - Holečkova 1a
+ * a 1b mají každá vlastní síť. WiFi na bytu zůstává pro byty, které
+ * rozdělené nejsou, a nikam se nemigruje: appka neví, které jednotce
+ * jedna společná síť patřila.
+ */
+function wifiDokumentu(j, najemniJednotka) {
+  const n = najemniJednotka || {};
+  const sit = String(n.Wifi_sit || '').trim();
+  const heslo = String(n.Wifi_heslo || '').trim();
+  if (sit || heslo) return { sit, heslo };
+  return {
+    sit: String((j && j.Wifi_sit) || '').trim(),
+    heslo: String((j && j.Wifi_heslo) || '').trim(),
+  };
+}
+
+/*
  * MĚŘIDLA
  *
  * `proPredani` rozhoduje o tom, jestli je sloupec se stavem pole k vyplnění
  * (protokol), nebo se do něj vypíše poslední známý odečet (karta bytu).
  * Rozbor v hlavičce souboru.
  */
-function dokMeridlaHtml(meridla, odecty, proPredani) {
+function dokMeridlaHtml(meridla, odecty, proPredani, jednotkaId) {
+  const meridlaProDokument = (meridla || []).filter((m) => patriJednotce(m, jednotkaId));
+  meridla = meridlaProDokument;
   if (!meridla || !meridla.length) {
     if (!proPredani) return '';
     // V protokolu prázdná tabulka smysl má: měřidla se dopíšou rukou.
@@ -326,8 +366,9 @@ function dokMeridlaHtml(meridla, odecty, proPredani) {
  * prázdný sloupec „předáno ks": co se skutečně přendalo přes stůl, ví
  * jenom ti dva lidé u něj.
  */
-function dokKliceHtml(klice, proPredani) {
-  const mam = (klice || []).length > 0;
+function dokKliceHtml(klice, proPredani, jednotkaId) {
+  klice = (klice || []).filter((k) => patriJednotce(k, jednotkaId));
+  const mam = klice.length > 0;
   if (!mam && !proPredani) return '';
 
   const hlavicka = proPredani
@@ -358,15 +399,16 @@ function dokKliceHtml(klice, proPredani) {
  * není informace navíc, je to návod, který nefunguje. Na kartě bytu se
  * ukážou všechny i se stavem - tam je to naopak historie, kterou Jan chce.
  */
-function dokPristupyHtml(j, kody, jenPlatne) {
+function dokPristupyHtml(j, kody, jenPlatne, najemniJednotka) {
   const radky = [];
-  if (String(j.Wifi_sit || '').trim() || String(j.Wifi_heslo || '').trim()) {
+  const wifi = wifiDokumentu(j, najemniJednotka);
+  if (wifi.sit || wifi.heslo) {
     // Síť i heslo patří do JEDNÉ buňky. Kdyby heslo stálo ve třetím
     // sloupci, četlo by se pod hlavičkou „Předáno komu" jako jméno
     // člověka - v protokolu, který někdo podepisuje, je to o jeden
     // překlep od nesmyslu.
-    radky.push('<tr><td>WiFi</td><td>síť ' + dokHodnota(j.Wifi_sit)
-      + '<br>heslo ' + dokHodnota(j.Wifi_heslo) + '</td><td>'
+    radky.push('<tr><td>WiFi</td><td>síť ' + dokHodnota(wifi.sit)
+      + '<br>heslo ' + dokHodnota(wifi.heslo) + '</td><td>'
       + (jenPlatne ? dokVyplnit() : '') + '</td></tr>');
   }
   (kody || []).forEach((k) => {
@@ -458,6 +500,22 @@ function dokumentKartaBytu(ctx) {
 
   html += dokSekce('', 'Klíče', '', dokKliceHtml(ctx.klice, false));
   html += dokSekce('', 'Přístupy a WiFi', '', dokPristupyHtml(j, ctx.kody, false));
+
+  /*
+   * WiFi po nájemních jednotkách (v4.82). Na kartě bytu se vypíšou VŠECHNY -
+   * je to interní přehled a Jan potřebuje vidět obě sítě naráz. Do
+   * protokolu jde naopak jen ta jedna, která patří předávané jednotce.
+   */
+  const wifiJednotek = (ctx.najemniJednotky || [])
+    .filter((n) => String(n.Wifi_sit || '').trim() || String(n.Wifi_heslo || '').trim());
+  if (wifiJednotek.length) {
+    const radky = wifiJednotek.map((n) => '<tr><td>' + dokHodnota(n.Nazev || n.Kod) + '</td>'
+      + '<td>' + dokHodnota(n.Wifi_sit) + '</td>'
+      + '<td>' + dokHodnota(n.Wifi_heslo) + '</td></tr>').join('');
+    html += dokSekce('', 'WiFi po jednotkách', '', '<table class="dok-tabulka">'
+      + dokHlavicka([['Jednotka'], ['Síť'], ['Heslo']])
+      + '<tbody>' + radky + '</tbody></table>');
+  }
   html += dokSekce('', 'Měřidla', '', dokMeridlaHtml(ctx.meridla, ctx.odecty, false));
 
   const revize = ctx.revize || [];
@@ -512,12 +570,19 @@ function dokumentKartaBytu(ctx) {
 function dokumentPredavaciProtokol(ctx) {
   const j = ctx.jednotka;
   const smlouvy = ctx.smlouvy || [];
-  const smlouva = smlouvy.length === 1 ? smlouvy[0] : null;
+  // Protokol se od v4.82 tiskne ke KONKRÉTNÍ smlouvě, když je vybraná -
+  // u bytu se dvěma nájemníky by jinak nájemník jednotky 1a dostal na
+  // podpis klíče i WiFi heslo od 1b.
+  const smlouva = ctx.smlouva || (smlouvy.length === 1 ? smlouvy[0] : null);
+  const jednotkaId = ctx.najemniJednotkaId
+    || String((smlouva && smlouva.Najemni_jednotka_ID) || '').trim();
+  const najemniJednotka = (ctx.najemniJednotky || []).find((n) => n.ID === jednotkaId) || null;
 
   let html = '<header class="dok-hlavicka">'
     + '<h1>Předávací protokol – předání nemovitosti</h1>'
     + '<div class="dok-nadpis-en">Handover protocol – handover of the property</div>'
     + '<div class="dok-podnadpis">' + escapeHtml([String(j.Nazev || '').trim(),
+      najemniJednotka ? 'jednotka ' + (najemniJednotka.Nazev || najemniJednotka.Kod || '') : '',
       String(j.Adresa || '').trim()].filter(Boolean).join(' · ')) + '</div>'
     + '<p class="dok-uvod">Údaje předvyplnila aplikace z evidence. Modrá pole se doplňují při předání.'
     + '<em>The application pre-filled the data from its records. The blue fields are filled in at handover.</em></p>'
@@ -567,17 +632,17 @@ function dokumentPredavaciProtokol(ctx) {
     + 'The parties confirm that they concluded a lease agreement for the Property. The Transferee '
     + 'hereby confirms having taken over the Property from the Transferor today.</em></p>'
     + dokPodnadpis('3.2 Stavy měřidel a energií', 'Meter readings')
-    + dokMeridlaHtml(ctx.meridla, ctx.odecty, true)
+    + dokMeridlaHtml(ctx.meridla, ctx.odecty, true, jednotkaId)
     + dokPodnadpis('3.3 Klíče a čipy', 'Keys and fobs')
-    + dokKliceHtml(ctx.klice, true);
+    + dokKliceHtml(ctx.klice, true, jednotkaId);
 
-  const pristupy = dokPristupyHtml(j, ctx.kody, true);
+  const pristupy = dokPristupyHtml(j, ctx.kody, true, najemniJednotka);
   if (pristupy) {
     predani += dokPodnadpis('3.4 Předané přístupy', 'Access details handed over') + pristupy;
   }
 
   // Vybavení - z nájemních jednotek, pokud ho tam Jan má popsané.
-  const vybaveni = (ctx.najemniJednotky || [])
+  const vybaveni = (najemniJednotka ? [najemniJednotka] : (ctx.najemniJednotky || []))
     .map((n) => String(n.Vybaveni || '').trim()).filter(Boolean);
   predani += dokPodnadpis((pristupy ? '3.5' : '3.4') + ' Soupis vybavení', 'Inventory of furnishings');
   predani += vybaveni.length

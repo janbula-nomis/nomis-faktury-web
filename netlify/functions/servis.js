@@ -38,6 +38,9 @@ const { opakujPriLimitu } = require('../../lib/opakuj');
 const { LISTY } = require('../../lib/listySchema');
 const { readSheetObjects, updateRow } = require('../../lib/sheetsHelpers');
 const { navrhDoplneniFirem } = require('../../lib/rejstrikFirem');
+const { navrhWifi } = require('../../lib/wifiJednotek');
+const { NAJEMNI_JEDNOTKY_HEADERS } = require('../../lib/nemovitostiDetailySchema');
+const { NEMOVITOSTI_JEDNOTKY_HEADERS } = require('../../lib/nemovitostiJednotkySchema');
 const { json } = require('../../lib/http');
 
 const FIRMY_HEADERS = ['Nazev', 'ICO', 'DIC', 'Platce_DPH', 'Bankovni_ucet'];
@@ -165,6 +168,46 @@ async function doplnUdajeFirem(sheets, spreadsheetId, nahled) {
 }
 
 /*
+ * Doplnění WiFi k nájemním jednotkám (od v4.82). Tabulka sítí a hesel
+ * i rozbor, proč se to nezapisuje rovnou, jsou v lib/wifiJednotek.js.
+ *
+ * Stejné pravidlo jako u firem: `nahled = true` jen SPOČÍTÁ, co by se
+ * stalo. Existující hodnotu appka nepřepíše ani na požádání - heslo
+ * k WiFi se mění a appka nemá jak vědět, které z těch dvou je novější.
+ */
+async function doplnWifi(sheets, spreadsheetId, nahled) {
+  const { rows: najemniJednotky } = await readSheetObjects(sheets, spreadsheetId, 'Najemni_jednotky');
+  const { rows: byty } = await readSheetObjects(sheets, spreadsheetId, 'Nemovitosti_Jednotky');
+  const { doplni, rozdily, nenalezene } = navrhWifi(najemniJednotky, byty);
+
+  if (!nahled) {
+    for (let i = 0; i < doplni.length; i += 1) {
+      const zmena = doplni[i];
+      const list = zmena.cil === 'byt' ? 'Nemovitosti_Jednotky' : 'Najemni_jednotky';
+      const hlavicky = zmena.cil === 'byt' ? NEMOVITOSTI_JEDNOTKY_HEADERS : NAJEMNI_JEDNOTKY_HEADERS;
+      await updateRow(sheets, spreadsheetId, list, hlavicky, zmena.zaznam._row,
+        Object.assign({}, zmena.zaznam, zmena.zmeny));
+    }
+  }
+
+  // Do prohlížeče se posílá jen to, co se má vypsat - celé řádky tabulky
+  // by táhly i pole, která s WiFi nesouvisí.
+  const popisCile = (z) => (z.cil === 'byt' ? 'byt ' : '')
+    + (z.zaznam.Nazev || z.zaznam.Kod || z.zaznam.Stredisko || '');
+
+  return {
+    doplni: doplni.map((z) => ({ popis: z.radek.popis, cil: popisCile(z), zmeny: z.zmeny })),
+    rozdily: rozdily.map((z) => ({
+      popis: z.radek.popis, cil: popisCile(z), pole: z.pole,
+      vTabulce: z.vTabulce, nove: z.nove,
+    })),
+    nenalezene: nenalezene.map((r) => r.popis),
+    pocetDoplnenych: doplni.length,
+    zapsano: !nahled,
+  };
+}
+
+/*
  * Soubory v Inboxu, na které v appce nic neodkazuje.
  *
  * Odkazy se sbírají ze VŠECH listů, které soubor na Disku drží - doklady,
@@ -262,16 +305,26 @@ exports.handler = async (event) => {
         return json(200, Object.assign({ ok: true }, vysledek));
       }
 
+      if (akce === 'nahled-wifi') {
+        const vysledek = await doplnWifi(sheets, spreadsheetId, true);
+        return json(200, Object.assign({ ok: true }, vysledek));
+      }
+
       if (akce === 'nahled-udaju-firem') {
         const vysledek = await doplnUdajeFirem(sheets, spreadsheetId, true);
         return json(200, Object.assign({ ok: true }, vysledek));
       }
 
-      return json(400, { error: 'Neznámá akce. Očekává se kontrola-tabulky, osirele-soubory nebo nahled-udaju-firem.' });
+      return json(400, { error: 'Neznámá akce. Očekává se kontrola-tabulky, osirele-soubory, nahled-udaju-firem nebo nahled-wifi.' });
     }
 
     if (event.httpMethod === 'POST') {
       const { akce } = JSON.parse(event.body || '{}');
+
+      if (String(akce || '') === 'doplnit-wifi') {
+        const vysledek = await doplnWifi(sheets, spreadsheetId, false);
+        return json(200, Object.assign({ ok: true }, vysledek));
+      }
 
       if (String(akce || '') === 'doplnit-udaje-firem') {
         const vysledek = await doplnUdajeFirem(sheets, spreadsheetId, false);
@@ -279,7 +332,7 @@ exports.handler = async (event) => {
       }
 
       if (String(akce || '') !== 'doplnit-sloupce') {
-        return json(400, { error: 'Neznámá akce. Očekává se doplnit-sloupce nebo doplnit-udaje-firem.' });
+        return json(400, { error: 'Neznámá akce. Očekává se doplnit-sloupce, doplnit-udaje-firem nebo doplnit-wifi.' });
       }
       const vysledky = await doplnSloupce(sheets, spreadsheetId);
       const doplneno = vysledky.filter((v) => v.akce === 'doplneno');
