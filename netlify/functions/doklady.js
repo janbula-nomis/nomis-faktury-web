@@ -242,7 +242,7 @@ exports.handler = async (event) => {
         }
       }
 
-      await updateRow(
+      const zapis = await updateRow(
         sheets,
         process.env.SPREADSHEET_ID,
         'Doklady',
@@ -250,6 +250,28 @@ exports.handler = async (event) => {
         doklad._row,
         aktualizovany
       );
+
+      // (v4.72) Sloupec, který v listu není, se do něj nezapíše (viz
+      // lib/sheetsHelpers.js - zapsat hodnotu „někam" by bylo horší). Do
+      // teď to ale bylo TICHÉ: appka vrátila „uloženo" a hodnota se
+      // ztratila. Přesně to potkalo zaškrtávátko „Zaúčtováno" u tabulky,
+      // kde po v4.63 neproběhlo `/api/setup` - zaškrtnutí vypadalo, že
+      // prošlo, a po načtení stránky bylo pryč.
+      //
+      // Hlásí se jen pole, o která si vyloženě řekl ČLOVĚK. Kdyby se
+      // hlásilo cokoli vynechaného, spadla by každá úprava staršího
+      // dokladu jen proto, že tabulka nemá poslední sloupce.
+      const chtene = new Set(Object.keys(zmeny || {}));
+      if (meniZauctovano) ['Zauctovano', 'Zauctovano_kdy', 'Zauctoval'].forEach((p) => chtene.add(p));
+      const ztracene = ((zapis && zapis.vynechano) || []).filter((p) => chtene.has(p));
+      if (ztracene.length) {
+        return json(500, {
+          error: 'Tabulka zatím nemá sloupce: ' + ztracene.join(', ')
+            + '. Změna se proto NEULOŽILA. Spusťte /api/setup (doplní chybějící sloupce '
+            + 'na konec listu, nic nepřepisuje) a zkuste to znovu.',
+          chybejiciSloupce: ztracene,
+        });
+      }
 
       return json(200, { ok: true, doklad: aktualizovany });
     } catch (e) {
