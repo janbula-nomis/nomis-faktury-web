@@ -30,6 +30,74 @@ function maPristupKFirme(uzivatel, firma) {
   return uzivatel.role === 'admin' || (uzivatel.firmy || []).includes(firma);
 }
 
+/*
+ * (v4.86) Seznam plateb přiřazených ke smlouvám jednoho střediska.
+ *
+ * Do `platby` jde JEN pohyb, který má vyplněné `Smlouva_ID` ukazující na
+ * smlouvu toho střediska. Platba spárovaná s dokladem sem nepatří: ta je
+ * nákladem bytu a čte se ve vyúčtování, ne v přehledu úhrad.
+ *
+ * `najemniJednotkaId` se bere ZE SMLOUVY, ne z pohybu - na bankovním
+ * pohybu takové pole není a dopisovat ho tam by znamenalo zavést druhou
+ * pravdu vedle smlouvy.
+ */
+async function seznamPlateb(uzivatel, stredisko) {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  try {
+    const { rows: smlouvyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Smlouvy');
+    const smlouvyStrediska = smlouvyVsechny.filter((s) =>
+      String(s.Stredisko || '').trim() === stredisko && maPristupKFirme(uzivatel, s.Firma)
+    );
+    if (!smlouvyStrediska.length) return json(200, { stredisko, platby: [], smlouvy: [] });
+
+    const podleId = new Map(smlouvyStrediska.map((s) => [s.ID, s]));
+    const { rows: pohybyVsechny } = await readSheetObjects(sheets, spreadsheetId, 'Bankovni_pohyby');
+    const jednotky = await readSheetObjects(sheets, spreadsheetId, 'Najemni_jednotky')
+      .then((v) => v.rows || [])
+      .catch(() => []);
+    const nazevJednotky = new Map(jednotky.map((n) =>
+      [n.ID, String(n.Nazev || '').trim() || String(n.Kod || '').trim()]));
+
+    const platby = pohybyVsechny
+      .filter((p) => p.Smlouva_ID && podleId.has(p.Smlouva_ID))
+      .map((p) => {
+        const s = podleId.get(p.Smlouva_ID);
+        const castka = parsujCastkuZListu(p.Castka);
+        return {
+          id: p.ID,
+          datum: p.Datum || '',
+          castka,
+          mena: p.Mena || s.Mena || 'CZK',
+          smer: castka >= 0 ? 'prijem' : 'vydaj',
+          protistrana: p.Protistrana || '',
+          variabilniSymbol: p.Variabilni_symbol || '',
+          stavParovani: p.Stav_parovani || '',
+          smlouvaId: s.ID,
+          cisloSmlouvy: s.Cislo_smlouvy || '',
+          typSmlouvy: s.Typ || '',
+          druhaStrana: s.Druha_strana || '',
+          najemniJednotkaId: String(s.Najemni_jednotka_ID || '').trim(),
+          najemniJednotka: nazevJednotky.get(String(s.Najemni_jednotka_ID || '').trim()) || '',
+        };
+      })
+      // Nejnovější nahoře - platby se čtou odzadu, „co přišlo naposled".
+      .sort((a, b) => String(b.datum).localeCompare(String(a.datum)));
+
+    return json(200, {
+      stredisko,
+      platby,
+      smlouvy: smlouvyStrediska.map((s) => ({
+        id: s.ID, cislo: s.Cislo_smlouvy || '', typ: s.Typ || '',
+        druhaStrana: s.Druha_strana || '',
+        najemniJednotkaId: String(s.Najemni_jednotka_ID || '').trim(),
+      })),
+    });
+  } catch (e) {
+    return json(500, { error: e.message });
+  }
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return json(200, {});
 
@@ -47,6 +115,26 @@ exports.handler = async (event) => {
   const qs = event.queryStringParameters || {};
   const firma = String(qs.firma || '').trim();
   const mesic = String(qs.mesic || '').trim(); // RRRR-MM
+
+  /*
+   * (v4.86) DRUHÝ REŽIM: `?stredisko=X` bez `mesic` vrátí SEZNAM
+   * jednotlivých plateb přiřazených ke smlouvám toho bytu.
+   *
+   * Jan 2026-08-22: *„je potřeba udělat list u financí všech přiřazených
+   * plateb u bytu nebo jednotky"*. Měsíční kontrola výš odpovídá na
+   * otázku „zaplatil letos v srpnu?"; tohle odpovídá na „co všechno na
+   * tomhle bytě proteklo a ke které jednotce to patří?".
+   *
+   * Vrací platby ke VŠEM smlouvám střediska, ne jen nájemním - u bytu
+   * chce Jan vedle příchozího nájmu vidět i odchozí SVJ předpis.
+   *
+   * Appka tu nic nepočítá ani nepřepisuje: je to výpis toho, co už někdo
+   * v Bankovních výpisech spároval.
+   */
+  if (String(qs.stredisko || '').trim() && !mesic) {
+    return seznamPlateb(uzivatel, String(qs.stredisko).trim());
+  }
+
   if (!/^\d{4}-\d{2}$/.test(mesic)) return json(400, { error: 'Chybí nebo neplatný parametr mesic (RRRR-MM).' });
   if (firma && !maPristupKFirme(uzivatel, firma)) return json(403, { error: 'Nemáte přístup k této firmě.' });
 

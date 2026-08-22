@@ -188,12 +188,25 @@ exports.handler = async (event) => {
       });
     }
 
-    // Zálohy se NErozúčtovávají - ty zaplatil konkrétní nájemník celé.
-    // Dělí se jen náklady bytu.
+    /*
+     * Zálohy se NErozúčtovávají - ty zaplatil konkrétní nájemník celé.
+     *
+     * (v4.86) DĚLÍ SE JEN SLUŽBY. Jan 2026-08-22 na přímou otázku vybral
+     * *„SVJ služby rozdělit podle plochy, daně a opravy nechat na bytě"*.
+     * Do v4.85 se podílem násobil i `nakladyVlastni`, takže daň z
+     * nemovitosti a oprava kotle vypadaly jako náklad jedné jednotky.
+     * Nejsou: jsou to náklady vlastníka za celý byt a do vyúčtování
+     * nájemníkovi nejdou tak jako tak (viz `rozdil` níž).
+     *
+     * `nakladyVlastni` je proto od v4.86 ZA CELÝ BYT a všude, kde se
+     * tiskne, to musí být napsané. Kdyby někdo sečetl vyúčtování obou
+     * jednotek jednoho bytu, tahle částka by v součtu byla dvakrát - a je
+     * to tak správně, protože každé z nich popisuje týž byt.
+     */
     const nakladySluzbyCelyByt = nakladySluzby;
     const nakladyVlastniCelyByt = nakladyVlastni;
     nakladySluzby = naHalere(nakladySluzby * podil.podil);
-    nakladyVlastni = naHalere(nakladyVlastni * podil.podil);
+    nakladyVlastni = nakladyVlastniCelyByt;
 
     // 3) Rozdíl appka počítá JEN ze služeb (nakladyVlastni appka záměrně
     //    vynechává - viz komentář nahoře, zákon appce nedovoluje promítnout

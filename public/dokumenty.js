@@ -431,7 +431,17 @@ function dokPristupyHtml(j, kody, jenPlatne, najemniJednotka) {
       + '<br>heslo ' + dokHodnota(wifi.heslo) + '</td><td>'
       + (jenPlatne ? dokVyplnit() : '') + '</td></tr>');
   }
-  (kody || []).forEach((k) => {
+  /*
+   * (v4.86) Kódy se filtrují podle nájemní jednotky stejně jako klíče
+   * a měřidla od v4.82. Prázdné `Najemni_jednotka_ID` = společné pro celý
+   * byt (kód od závory), vyplněné = jen ta jednotka (kód od schránky).
+   *
+   * Do v4.85 tohle pole kódy jako jediné z pěti seznamů neměly, takže se
+   * do protokolu pro jednotku 1a tiskly i kódy patřící 1b - stejná chyba,
+   * jakou měly klíče a WiFi před v4.82.
+   */
+  const jednotkaId = najemniJednotka ? najemniJednotka.ID : null;
+  (kody || []).filter((k) => patriJednotce(k, jednotkaId)).forEach((k) => {
     const platny = String(k.Stav || '').trim() !== 'Neplatný';
     if (jenPlatne && !platny) return;
     const nazev = [String(k.Nazev || '').trim(), String(k.Umisteni || '').trim()].filter(Boolean).join(' – ');

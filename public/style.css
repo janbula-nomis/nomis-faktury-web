@@ -2000,7 +2000,13 @@ input[type="file"] { margin-top: 8px; }
    „jak na tom portfolio je", kterou člověk má dřív, než začne hledat
    konkrétní byt. */
 .portfolio-mrizka {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  display: grid;
+  /* (v4.86) `min(320px, 100%)`, ne holých 320px. Na Janově skutečné šířce
+     320 px (má zvětšené písmo) byl sloupec širší než obsah karty a
+     roztlačoval celou stránku o 23 px doprava. Přesně ta chyba, kterou
+     appka opravovala u mřížky firem na Dashboardu ve v4.47 - a měřítkem
+     je zase 320 px, ne 390. */
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 12px; margin-bottom: 14px;
 }
 .portfolio-karta { margin-bottom: 0; }
@@ -2099,9 +2105,14 @@ input[type="file"] { margin-top: 8px; }
      se v rozích zakřivila nahoru a vypadala jako oválek pod textem. */
   border-radius: 0;
   padding: 9px 12px; margin: 0;
-  font-size: 12.5px; font-weight: 600; color: var(--barva-text-tlumena);
+  font-size: 12.5px; font-weight: 600;
+  /* (v4.86) Nevybraná záložka měla ve světlém motivu 4,47 : 1, tedy těsně
+     pod hranicí 4,5. Ztmaveno o kousek - a jen tady, globální
+     `--barva-text-tlumena` zůstává, jak byla. */
+  color: #616874;
   cursor: pointer; white-space: nowrap;
 }
+:root[data-motiv="tmavy"] .zalozka-jednotky { color: var(--barva-text-tlumena); }
 .zalozka-jednotky:hover { color: var(--barva-text); }
 /* Vybraná záložka se pozná podprsením I barvou textu - samotný odstín by
    při barvosleposti nestačil. */
@@ -2261,6 +2272,21 @@ input[type="file"] { margin-top: 8px; }
    zelená/žlutá z denního motivu by pod světlým textem zmizela. */
 :root[data-motiv="tmavy"] .stat-dlazdice.stat-hotovo { background: #1c3a2e; border-color: #2c5a47; }
 :root[data-motiv="tmavy"] .zalozka-jednotky.aktivni .zalozka-pocet { background: #22314f; color: #9db4ff; }
+/* (v4.86) Vybraná záložka byla v tmavém motivu NEČITELNÁ - naměřeno
+   1,26 : 1 v obou skinech. Příčina je stejná jako u obrysových tlačítek
+   ve v4.51: skiny `gold`/`navy` přepisují `--barva-primarni` na tmavou
+   modrou #16294f a tmavý motiv ji nikdy nerozsvítí zpátky, takže vybraná
+   záložka svítila tmavě modrou na tmavém podkladu.
+
+   Rozsvěcuje se JEN inkoust záložky, ne proměnná `--barva-primarni` -
+   ta drží plná tlačítka, kde by bílý text na #5b86ff vyšel hůř, než je
+   teď (rozbor v hlavičce v4.51). Odstín #7d9dff je tentýž, jaký si na to
+   appka spočítala tehdy. Pravidlo musí zůstat ZA bloky skinů: mají
+   shodnou specificitu a při shodě rozhoduje pořadí v souboru. */
+:root[data-motiv="tmavy"] .zalozka-jednotky.aktivni {
+  color: #7d9dff;
+  border-bottom-color: #7d9dff;
+}
 :root[data-motiv="tmavy"] .stat-dlazdice.stat-ceka { background: #3a3222; border-color: #5a4c2c; }
 :root[data-motiv="tmavy"] .prijem-tipy { background: #22314f; }
 :root[data-motiv="tmavy"] .prijem-varovani { background: #3a2222; }
@@ -3128,3 +3154,107 @@ body.dokument-otevreny { overflow: hidden; }
 }
 
 @page { size: A4; margin: 16mm; }
+
+/* ---------- KARTA NÁJEMNÍ JEDNOTKY (v4.86) ----------
+   Jan 2026-08-22: *„nájemní jednotka má své klíče a wifi a samostatnou
+   kartu, smlouvu, měřidla"* a k tomu snímek, na kterém dvanáctisloupcová
+   tabulka jednotek přetékala z karty ven.
+
+   Tabulka zmizela; jednotka je karta se záložkami. Pole se sázejí do
+   mřížky `auto-fit`, takže se na úzkém displeji přeskládají pod sebe
+   místo aby tlačila stránku do šířky. **Nevracet sem tabulku** - dvanáct
+   editovatelných sloupců se na 320 px nevejde a nevejde se ani na
+   notebook, jak je vidět na tom snímku. */
+.karta-najemni-jednotka {
+  border: 1px solid var(--barva-hranice);
+  border-radius: var(--radius-sm);
+  margin: 10px 0;
+  background: var(--barva-karta);
+  overflow: hidden;
+}
+.karta-najemni-jednotka[open] { border-color: var(--barva-primarni); }
+.najemni-jednotka-hlava {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px;
+  padding: 10px 12px; cursor: pointer; list-style: none;
+}
+.najemni-jednotka-hlava::-webkit-details-marker { display: none; }
+.najemni-jednotka-hlava:hover { background: rgba(0, 0, 0, 0.02); }
+.najemni-jednotka-hlava .nj-nazev { font-weight: 700; font-size: 14px; }
+.najemni-jednotka-hlava .nj-najemnik { font-size: 13px; }
+.najemni-jednotka-hlava .nj-plocha,
+.najemni-jednotka-hlava .nj-podil { font-size: 12px; color: var(--barva-text-tlumena); }
+.najemni-jednotka-hlava .nj-stav {
+  margin-left: auto; font-size: 11px; font-weight: 700;
+  border: 1px solid var(--barva-hranice); border-radius: 999px; padding: 1px 9px;
+  color: var(--barva-text-tlumena); white-space: nowrap;
+}
+.karta-najemni-jednotka .zalozky-najemni-jednotky {
+  border-top: 1px solid var(--barva-hranice);
+  padding: 0 6px;
+}
+.karta-najemni-jednotka .panel-jednotky { padding: 0 12px 12px; }
+
+/* Mřížka polí. `minmax(0, …)` je podstatné: bez nuly jako spodní hranicí
+   se sloupec nesmí smrsknout pod obsah a mřížka roztlačí stránku - přesně
+   ta chyba, kterou appka opravovala u Dashboardu ve v4.47. */
+.nj-mrizka {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
+  gap: 8px 12px;
+  margin: 10px 0;
+}
+.nj-pole { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.nj-pole > span { font-size: 11px; color: var(--barva-text-tlumena); }
+.nj-pole input, .nj-pole select { font-size: 13px; width: 100%; min-width: 0; }
+
+.nj-prehled {
+  display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  gap: 4px 14px; margin: 8px 0; font-size: 13px;
+}
+.nj-prehled dt { color: var(--barva-text-tlumena); }
+.nj-prehled dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+
+.nj-polozka {
+  border-top: 1px solid var(--barva-hranice);
+  padding-top: 8px; margin-top: 8px;
+}
+.nj-polozka-spolecna { background: rgba(36, 84, 255, 0.03); }
+.nj-znacka-spolecne {
+  font-size: 11px; font-weight: 700; color: var(--barva-primarni);
+  border: 1px solid var(--barva-hranice); border-radius: 999px; padding: 1px 8px;
+  margin-right: auto;
+}
+.nj-meridlo-hlava { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.nj-pridat {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  border-top: 1px dashed var(--barva-hranice); margin-top: 10px; padding-top: 10px;
+}
+.nj-pridat input, .nj-pridat select { font-size: 13px; min-width: 0; flex: 1 1 140px; }
+.nj-pridat button { flex: 0 0 auto; }
+
+/* Seznam přiřazených plateb (v4.86). */
+.tabulka-plateb { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+.tabulka-plateb th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em;
+  color: var(--barva-text-tlumena); font-weight: 700;
+  padding: 0 8px 5px 0; border-bottom: 1px solid var(--barva-hranice);
+}
+.tabulka-plateb td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--barva-hranice); }
+.tabulka-plateb th.cislo, .tabulka-plateb td.cislo { text-align: right; }
+.tabulka-plateb .castka { white-space: nowrap; font-weight: 600; }
+.tabulka-plateb .platba-vydaj .castka { color: var(--barva-chyba); }
+.tabulka-plateb .platba-prijem .castka { color: var(--barva-uspech); }
+
+@media (max-width: 640px) {
+  .najemni-jednotka-hlava .nj-stav { margin-left: 0; }
+  /* Tabulka plateb se na telefonu skládá do řádků "Popisek: hodnota" -
+     sedm sloupců se na 320 px nevejde a oříznutá částka je k ničemu. */
+  .tabulka-plateb thead { display: none; }
+  .tabulka-plateb tr { display: block; border-bottom: 1px solid var(--barva-hranice); padding: 6px 0; }
+  .tabulka-plateb td { display: flex; justify-content: space-between; gap: 12px; border: 0; padding: 2px 0; }
+  .tabulka-plateb td::before { content: attr(data-label); color: var(--barva-text-tlumena); font-size: 11px; }
+  .tabulka-plateb td.cislo { text-align: right; }
+}
+
+:root[data-motiv="tmavy"] .najemni-jednotka-hlava:hover { background: rgba(255, 255, 255, 0.04); }
+:root[data-motiv="tmavy"] .nj-polozka-spolecna { background: rgba(91, 134, 255, 0.08); }
