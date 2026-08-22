@@ -21,7 +21,7 @@
  * bez internetu by stejně nešlo nic načíst ani uložit, protože všechna data
  * jsou v Google Sheets.
  */
-const VERZE = 'v4.83';
+const VERZE = 'v4.85';
 
 self.addEventListener('install', (event) => {
   // Nová verze workeru se má aktivovat hned, ne až se zavřou všechny karty.

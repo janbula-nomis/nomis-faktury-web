@@ -245,17 +245,37 @@ function dokStranaHtml(p, dvoj) {
  * stejné popisky. „typ budovy: bytový dům" je předtištěné, viz komentář
  * v lib/nemovitostiJednotkySchema.js.
  */
-function dokSpecifikaceHtml(j, vzdyUkazat, dvoj) {
+function dokSpecifikaceHtml(j, vzdyUkazat, dvoj, najemniJednotka) {
   const en = (t) => (dvoj ? t : '');
+  const n = najemniJednotka || {};
+
+  /*
+   * (v4.84) DISPOZICE, PODLAŽÍ A PLOCHA SE BEROU Z NÁJEMNÍ JEDNOTKY.
+   *
+   * Jan 2026-08-21: *„dokumenty tvoříme vždy jen k nájemní jednotce, ne
+   * k bytu"*. U Holečkovy 1 rozdělené na 1a a 1b je plocha bytu součet
+   * obou - vytisknout ji do smlouvy jednotky 1a znamená pronajmout
+   * nájemníkovi dvakrát tolik metrů, než dostane.
+   *
+   * Katastrální údaje (adresa, LV, parcela, číslo jednotky podle katastru)
+   * zůstávají z BYTU - ty jsou z podstaty za celou jednotku v katastru
+   * a nájemní jednotka je jen její vnitřní rozdělení, které katastr nezná.
+   */
+  const zJednotky = (pole) => (String(n[pole] || '').trim() || j[pole]);
+
   return dokPole('Celá adresa', j.Adresa, vzdyUkazat, en('Full address'))
     + dokPole('Katastrální území', j.Katastralni_uzemi, vzdyUkazat, en('Cadastral area'))
     + dokPole('Číslo listu vlastnictví', j.Cislo_LV, vzdyUkazat, en('Title deed no.'))
     + dokPole('Číslo jednotky', j.Cislo_jednotky, vzdyUkazat, en('Unit no.'))
-    + dokPole('Dispozice', j.Dispozice, vzdyUkazat, en('Layout'))
-    + dokPole('Podlaží', j.Podlazi, vzdyUkazat, en('Floor'))
+    + (najemniJednotka
+      ? dokPole('Nájemní jednotka', n.Nazev || n.Kod, vzdyUkazat, en('Rental unit'))
+      : '')
+    + dokPole('Dispozice', zJednotky('Dispozice'), vzdyUkazat, en('Layout'))
+    + dokPole('Podlaží', zJednotky('Podlazi'), vzdyUkazat, en('Floor'))
     + dokPole('V budově č. p.', j.Budova_cp, vzdyUkazat, en('Building no.'))
     + dokPole('Na pozemku p. č.', j.Pozemek_parc_c, vzdyUkazat, en('Land plot no.'))
-    + dokPole('Užitná plocha', j.Plocha_m2 ? String(j.Plocha_m2).trim() + ' m²' : '',
+    + dokPole('Užitná plocha',
+      String(zJednotky('Plocha_m2') || '').trim() ? String(zJednotky('Plocha_m2')).trim() + ' m²' : '',
       vzdyUkazat, en('Floor area'))
     + dokPole('Příslušenství', j.Prislusenstvi, vzdyUkazat, en('Accessories'));
 }
@@ -457,7 +477,10 @@ function dokumentKartaBytu(ctx) {
       String(j.Adresa || '').trim()].filter(Boolean).join(' · ')) + '</div>'
     + '</header>';
 
-  html += dokSekce('', 'Nemovitost', '', dokSpecifikaceHtml(j, false, false)
+  // Karta bytu je INTERNÍ přehled celého bytu - proto bez nájemní jednotky.
+  // Podepisované dokumenty se od v4.84 tvoří vždy k jednotce, tenhle list
+  // ne: Jan na něm potřebuje vidět byt jako celek.
+  html += dokSekce('', 'Nemovitost', '', dokSpecifikaceHtml(j, false, false, null)
     + dokPole('Druh', j.Druh, false)
     + dokPole('Typ vlastnictví', j.Typ_vlastnictvi, false)
     + dokPole('Spoluvlastnický podíl', j.Spoluvlastnicky_podil, false)
@@ -574,9 +597,13 @@ function dokumentPredavaciProtokol(ctx) {
   // u bytu se dvěma nájemníky by jinak nájemník jednotky 1a dostal na
   // podpis klíče i WiFi heslo od 1b.
   const smlouva = ctx.smlouva || (smlouvy.length === 1 ? smlouvy[0] : null);
-  const jednotkaId = ctx.najemniJednotkaId
-    || String((smlouva && smlouva.Najemni_jednotka_ID) || '').trim();
-  const najemniJednotka = (ctx.najemniJednotky || []).find((n) => n.ID === jednotkaId) || null;
+  // (v4.84) Nájemní jednotka je VSTUP, ne odvozenina ze smlouvy. Protokol
+  // se předává jednotce - i tehdy, když k ní smlouva ještě není podepsaná
+  // (u Jana se protokol dělá i před podpisem).
+  const najemniJednotka = ctx.najemniJednotka
+    || (ctx.najemniJednotky || []).find((n) => n.ID
+      === String((smlouva && smlouva.Najemni_jednotka_ID) || '').trim()) || null;
+  const jednotkaId = najemniJednotka ? najemniJednotka.ID : '';
 
   let html = '<header class="dok-hlavicka">'
     + '<h1>Předávací protokol – předání nemovitosti</h1>'
@@ -604,7 +631,7 @@ function dokumentPredavaciProtokol(ctx) {
 
   // 2. Specifikace nemovitosti
   html += dokSekce(2, 'Specifikace nemovitosti', 'Property details',
-    dokSpecifikaceHtml(j, true, true)
+    dokSpecifikaceHtml(j, true, true, najemniJednotka)
     + dokPole('Typ budovy', 'bytový dům', true, 'Building type')
     + '<p class="dok-text">Nemovitostí se rozumí výše uvedená nemovitost spolu se všemi '
     + 'součástmi a příslušenstvím (dále jen „Nemovitost").'
@@ -822,6 +849,11 @@ function dokumentNajemniSmlouva(ctx) {
   const s = ctx.smlouva || {};
   const mena = s.Mena || 'CZK';
   const T = SMLOUVA_TEXT;
+  // (v4.84) Smlouva se uzavírá na nájemní jednotku, ne na byt.
+  const n = ctx.najemniJednotka
+    || (ctx.najemniJednotky || []).find((x) => x.ID
+      === String(s.Najemni_jednotka_ID || '').trim()) || null;
+  const plochaJednotky = String((n && n.Plocha_m2) || '').trim() || j.Plocha_m2;
 
   const adresaBytu = String(j.Adresa || '').trim();
 
@@ -849,7 +881,8 @@ function dokumentNajemniSmlouva(ctx) {
 
   // I. Předmět nájmu
   const popisJednotky = 'Bytová jednotka č. ' + dokHodnota(j.Cislo_jednotky)
-    + ', nacházející se v podlaží ' + dokHodnota(j.Podlazi)
+    + (n ? ', nájemní jednotka ' + dokHodnota(n.Nazev || n.Kod) : '')
+    + ', nacházející se v podlaží ' + dokHodnota((n && n.Podlazi) || j.Podlazi)
     + ' budovy č. p. ' + dokHodnota(j.Budova_cp) + ' (dále jen „dům“), postavené na pozemku '
     + 'parc. č. ' + dokHodnota(j.Pozemek_parc_c) + ', číslo LV ' + dokHodnota(j.Cislo_LV)
     + ', katastrální území ' + dokHodnota(j.Katastralni_uzemi)
@@ -863,7 +896,8 @@ function dokumentNajemniSmlouva(ctx) {
       + '<div class="dok-drobne">(dále jen „Předmět nájmu“ nebo „Jednotka“ nebo „Bytová '
       + 'jednotka“ nebo „Byt“)</div>'
       + '<div style="margin-top:6px">' + escapeHtml(T.predmetNajmuDodatek) + '</div>',
-    'Užitná plocha Bytové jednotky je ' + dokHodnota(j.Plocha_m2 ? String(j.Plocha_m2).trim() + ' m²' : '')
+    'Užitná plocha Předmětu nájmu je '
+      + dokHodnota(String(plochaJednotky || '').trim() ? String(plochaJednotky).trim() + ' m²' : '')
       + '. Fotografie vybavení Bytu jsou součástí předávacího protokolu, který tvoří přílohu '
       + 'č. 1 této smlouvy a je její nedílnou součástí.',
   ]));
@@ -1041,8 +1075,11 @@ function dokumentDodatek(ctx) {
     + '</div></div>');
 
   // 2. Specifikace nemovitosti
+  const najemniJednotkaDodatku = ctx.najemniJednotka
+    || (ctx.najemniJednotky || []).find((x) => x.ID
+      === String(s.Najemni_jednotka_ID || '').trim()) || null;
   html += dokSekce(2, 'Specifikace nemovitosti', '',
-    dokSpecifikaceHtml(j, true, false)
+    dokSpecifikaceHtml(j, true, false, najemniJednotkaDodatku)
     + dokPole('Typ budovy', 'bytový dům', true));
 
   // 3. Prohlášení smluvních stran
@@ -1152,6 +1189,228 @@ function dokumentyDodatekChybejici(ctx) {
 /* ------------------------------------------------------------------ */
 
 /*
+ * PLATEBNÍ VÝMĚR - příloha nájemní smlouvy (v4.85)
+ *
+ * Jan 2026-08-21: *„příloha smlouvy bude platební výměr po jednotlivých
+ * měsících (…) řádky jsou dny a měsíce, sloupce jsou položky platby"*.
+ *
+ * Rozvrh počítá public/platebniVymer.js, QR kód public/qrPlatba.js. Tady
+ * se to jen sází.
+ *
+ * ČESKY, ne dvojjazyčně: je to příloha nájemní smlouvy a ta je u Jana
+ * česká (dvojjazyčný je předávací protokol).
+ *
+ * VŽDY K NÁJEMNÍ JEDNOTCE (pravidlo z v4.84). Výměr říká, kolik se platí
+ * za konkrétní jednotku - u bytu rozděleného na 1a a 1b by výměr „za byt"
+ * účtoval každému z obou nájemníků celý byt.
+ *
+ * QR KÓD SE NEVYKRESLÍ, KDYŽ CHYBÍ ÚČET NEBO NEJDE PŘEČÍST. Na jeho místě
+ * zůstane poznámka. QR s vymyšleným účtem není neúplný údaj, ale platba
+ * poslaná cizímu člověku.
+ */
+function vymerCastkaBunka(castka, mena) {
+  if (!castka) return '<span class="dok-prazdne">—</span>';
+  return escapeHtml(dokCastkaCislem(castka, mena));
+}
+
+function vymerQrBunka(radek, platba) {
+  const svg = (typeof qrPlatbaSvg === 'function') ? qrPlatbaSvg(platba, { px: 52, okraj: 2 }) : '';
+  if (!svg) return '<span class="dok-prazdne dok-drobne">bez účtu</span>';
+  return '<div class="vymer-qr">' + svg + '</div>';
+}
+
+/**
+ * ctx = { jednotka, najemniJednotka, smlouva, pronajimatel, najemce,
+ *         rozvrh, vs, oznaceniPlatby, ucet }
+ */
+function dokumentPlatebniVymer(ctx) {
+  const j = ctx.jednotka || {};
+  const n = ctx.najemniJednotka || null;
+  const s = ctx.smlouva || {};
+  const rozvrh = ctx.rozvrh || { radky: [], soucty: null, poznamky: [], chyby: [] };
+  const mena = rozvrh.mena || 'CZK';
+  const ucet = String(ctx.ucet || (ctx.pronajimatel || {}).Bankovni_ucet || '').trim();
+  const iban = (typeof ucetNaIban === 'function') ? ucetNaIban(ucet) : '';
+  const vs = String(ctx.vs || '').trim();
+  const oznaceni = String(ctx.oznaceniPlatby || '').trim();
+  const nazevJednotky = [String(j.Nazev || '').trim(), n ? String(n.Nazev || '').trim() : '']
+    .filter(Boolean).join(' / ');
+
+  let html = '<header class="dok-hlavicka">'
+    + '<h1>Platební výměr</h1>'
+    + '<div class="dok-podnadpis">Příloha nájemní smlouvy · '
+    + escapeHtml(nazevJednotky || 'nájemní jednotka') + '</div>'
+    + '</header>';
+
+  /*
+   * 1. Platební údaje.
+   *
+   * POZOR: dokPole() svou hodnotu ESKAPUJE - bere holý text, ne HTML.
+   * Řádky, které potřebují značky (tučný VS, drobná vysvětlivka, „appka
+   * to neví"), se proto skládají tímhle pomocníkem.
+   */
+  const vymerRadek = (popisek, htmlHodnoty) => '<div class="dok-pole">'
+    + '<span class="dok-popisek">' + escapeHtml(popisek) + '</span>'
+    + '<span class="dok-hodnota">' + htmlHodnoty + '</span></div>';
+
+  const platebniUdaje = dokPole('Nájemní jednotka', nazevJednotky, true)
+    + dokPole('Adresa', j.Adresa, true)
+    + dokPole('Nájemce', ctx.najemce
+      ? String(ctx.najemce.Nazev || '').trim()
+      : String(s.Druha_strana || '').trim(), true)
+    + dokPole('Pronajímatel', String((ctx.pronajimatel || {}).Nazev || '').trim(), true)
+    + dokPole('Číslo účtu', ucet, true)
+    + vymerRadek('IBAN', iban
+      ? escapeHtml(iban)
+      : (ucet ? dokPrazdne('z čísla účtu ho nejde sestavit') : dokVyplnit()))
+    + vymerRadek('Variabilní symbol', vs
+      ? '<span class="vymer-vs">' + escapeHtml(vs) + '</span>' : dokVyplnit())
+    + (oznaceni
+      ? vymerRadek('Označení platby', escapeHtml(oznaceni)
+        + ' <span class="dok-drobne">do zprávy pro příjemce; párování drží '
+        + 'variabilní symbol</span>')
+      : '');
+  html += dokSekce(1, 'Platební údaje', '', platebniUdaje);
+
+  // 2. Rozpis plateb
+  if (rozvrh.chyby && rozvrh.chyby.length) {
+    html += dokSekce(2, 'Rozpis plateb', '',
+      '<p class="dok-text">' + escapeHtml(rozvrh.chyby.join(' ')) + '</p>');
+  } else {
+    /*
+     * Sloupce jsou JEN položky, které smlouva opravdu má (viz rozvrhPlateb).
+     * Šířky se proto počítají, ne píšou natvrdo: se čtyřmi položkami má
+     * sloupec místo, s jednou by zbytek tabulky zůstal zbytečně zmáčknutý.
+     */
+    const polozky = rozvrh.polozky || [];
+    const maKauci = !!(rozvrh.soucty && rozvrh.soucty.kauce);
+    const zbytek = 100 - 15 - 13 - 10 - 9 - (maKauci ? 8 : 0);
+    const sirkaPolozky = polozky.length ? (zbytek / polozky.length).toFixed(2) : zbytek;
+
+    const hlavicka = '<thead><tr>'
+      + '<th class="vymer-obdobi">Období</th>'
+      + (maKauci ? '<th class="vymer-c" style="width:8%">Jistota</th>' : '')
+      + polozky.map((p) => '<th class="vymer-c" style="width:' + sirkaPolozky + '%">'
+        + escapeHtml(p.popisek) + '</th>').join('')
+      + '<th class="vymer-c vymer-celkem">Celkem</th>'
+      + '<th class="vymer-c vymer-splatnost">Splatnost</th>'
+      + '<th class="vymer-qr-sl">Platba</th>'
+      + '</tr></thead>';
+
+    /*
+     * Zpráva pro příjemce. Ve výpisu z účtu je na ni pár znaků, tak v ní
+     * je jen to, co pomůže platbu poznat: co se platí, za který měsíc
+     * a čeho se to týká. Období se píše jako „04/2026", ne „16. – 30. 4.
+     * 2026" - pomlčku ani podtržítko doporučená znaková sada SPD nemá,
+     * takže by se v QR změnily na mezeru a vyšlo by z toho nečitelné
+     * „NAJEM 16. 30. 4. 2026".
+     */
+    const obdobiZkratka = (datum) => {
+      const d = String(datum || '').match(/^(\d{4})-(\d{2})/);
+      return d ? d[2] + '/' + d[1] : '';
+    };
+
+    const telo = rozvrh.radky.map((r) => {
+      const zprava = r.druh === 'kauce'
+        ? 'Jistota ' + (oznaceni || nazevJednotky)
+        : 'Najem ' + obdobiZkratka(r.obdobiOd) + ' ' + (oznaceni || nazevJednotky);
+      const qr = vymerQrBunka(r, {
+        ucet: ucet, iban: iban, castka: r.celkem, mena: mena, vs: vs,
+        splatnost: r.splatnost, zprava: zprava,
+        prijemce: (ctx.pronajimatel || {}).Nazev || '',
+      });
+      const dnu = r.celyMesic || r.druh === 'kauce' ? ''
+        : '<span class="dok-drobne">' + r.dnu + ' z ' + r.dnuVMesici + ' dní</span>';
+      return '<tr class="vymer-radek-' + r.druh + '">'
+        + '<td class="vymer-obdobi"><strong>' + escapeHtml(r.popis) + '</strong>'
+        + (dnu ? '<br>' + dnu : '') + '</td>'
+        + (maKauci ? '<td class="vymer-c">' + vymerCastkaBunka(r.kauce, mena) + '</td>' : '')
+        + polozky.map((p) => '<td class="vymer-c">'
+          + vymerCastkaBunka(r.castky[p.klic], mena) + '</td>').join('')
+        + '<td class="vymer-c vymer-celkem">' + escapeHtml(dokCastkaCislem(r.celkem, mena)) + '</td>'
+        + '<td class="vymer-c vymer-splatnost">' + escapeHtml(dokDatum(r.splatnost)) + '</td>'
+        + '<td class="vymer-qr-sl">' + qr + '</td>'
+        + '</tr>';
+    }).join('');
+
+    /*
+     * Součet je POSLEDNÍ ŘÁDEK TĚLA, ne <tfoot>. Prohlížeč tiskne <tfoot>
+     * jako patičku tabulky, tedy na KAŽDÉ stránce - a součet za celou dobu
+     * nájmu vytištěný na obou stranách vypadá, jako by se platil dvakrát.
+     */
+    const c = rozvrh.soucty;
+    const paticka = c ? '<tr class="vymer-soucet">'
+      + '<td class="vymer-obdobi"><strong>Celkem za dobu nájmu</strong></td>'
+      + (maKauci ? '<td class="vymer-c">' + vymerCastkaBunka(c.kauce, mena) + '</td>' : '')
+      + polozky.map((p) => '<td class="vymer-c">'
+        + vymerCastkaBunka(c[p.klic], mena) + '</td>').join('')
+      + '<td class="vymer-c vymer-celkem">' + escapeHtml(dokCastkaCislem(c.celkem, mena)) + '</td>'
+      + '<td class="vymer-c vymer-splatnost"></td><td class="vymer-qr-sl"></td>'
+      + '</tr>' : '';
+
+    html += dokSekce(2, 'Rozpis plateb', '',
+      '<table class="dok-tabulka vymer-tabulka">' + hlavicka
+      + '<tbody>' + telo + paticka + '</tbody></table>');
+  }
+
+  // 3. Poznámky
+  const vety = [];
+  (rozvrh.poznamky || []).forEach((p) => vety.push(escapeHtml(p)));
+  if (vs) {
+    vety.push('Variabilní symbol <strong>' + escapeHtml(vs) + '</strong> uvádějte u každé platby. '
+      + 'Podle něj se platba páruje; bez něj se přiřazuje ručně.');
+  }
+  if (iban) {
+    vety.push('QR kód u každého řádku obsahuje účet, částku, variabilní symbol i datum '
+      + 'splatnosti daného období. Naskenováním v bankovní aplikaci se platba předvyplní.');
+  } else {
+    vety.push('QR kódy se nevytiskly, protože z čísla účtu nejde sestavit IBAN. '
+      + 'Doplňte bankovní spojení pronajímatele.');
+  }
+  vety.push('Výměr popisuje stav ke dni vystavení. Změní-li se nájemné nebo zálohy '
+    + 'dodatkem ke smlouvě, vystaví se výměr nový.');
+  html += dokSekce(3, 'Poznámky', '', dokOdstavce(vety));
+
+  // 4. Podpisy
+  html += '<div class="dok-podpisy">'
+    + '<div class="dok-podpis"><div class="dok-podpis-mesto">V ' + dokVyplnit()
+    + ' dne ' + dokVyplnit() + '</div><div class="dok-podpis-linka"></div>'
+    + '<div class="dok-podpis-popis">Pronajímatel<strong>'
+    + escapeHtml(String((ctx.pronajimatel || {}).Nazev || '').trim()) + '</strong></div></div>'
+    + '<div class="dok-podpis"><div class="dok-podpis-mesto">V ' + dokVyplnit()
+    + ' dne ' + dokVyplnit() + '</div><div class="dok-podpis-linka"></div>'
+    + '<div class="dok-podpis-popis">Nájemce<strong>'
+    + escapeHtml(String((ctx.najemce || {}).Nazev || s.Druha_strana || '').trim())
+    + '</strong></div></div></div>';
+
+  html += '<div class="dok-paticka">Platební výměr je přílohou nájemní smlouvy'
+    + (String(s.Datum_uzavreni || '').trim()
+      ? ' uzavřené dne ' + escapeHtml(dokDatum(s.Datum_uzavreni)) : '')
+    + '. Vystaveno z evidence Nomis Faktury.</div>';
+
+  return html;
+}
+
+/** Co ve výměru zůstane nevyplněné. */
+function dokumentyVymerChybejici(ctx) {
+  const chybi = [];
+  const ucet = String(ctx.ucet || (ctx.pronajimatel || {}).Bankovni_ucet || '').trim();
+  if (!ucet) chybi.push('Číslo účtu pronajímatele – bez něj se nevytisknou QR kódy.');
+  else if (typeof ucetNaIban === 'function' && !ucetNaIban(ucet)) {
+    chybi.push('Číslo účtu „' + ucet + '“ nejde přečíst, takže se z něj nedá sestavit IBAN '
+      + '– QR kódy zůstanou prázdné.');
+  }
+  if (!String(ctx.vs || '').trim()) {
+    chybi.push('Variabilní symbol – bez něj se platba nespáruje.');
+  }
+  (ctx.rozvrh && ctx.rozvrh.chyby ? ctx.rozvrh.chyby : []).forEach((v) => chybi.push(v));
+  if (!ctx.najemce && !String((ctx.smlouva || {}).Druha_strana || '').trim()) {
+    chybi.push('Nájemce.');
+  }
+  return chybi;
+}
+
+/*
  * Než se dokument vytiskne, appka řekne, co v něm zůstane prázdné.
  *
  * Bez tohohle by se chybějící údaje poznaly až na papíře - nebo hůř, až
@@ -1164,6 +1423,7 @@ function dokumentyChybejici(ctx) {
   const zkontroluj = (podminka, veta) => { if (podminka) chybi.push(veta); };
 
   zkontroluj(!ctx.pronajimatel, 'Není vybraný pronajímatel – hlavička zůstane prázdná.');
+  zkontroluj(!ctx.najemniJednotka, 'Není vybraná nájemní jednotka – dokument by byl za celý byt.');
   zkontroluj(!String(j.Adresa || '').trim(), 'Adresa jednotky.');
   zkontroluj(!String(j.Cislo_jednotky || '').trim(), 'Číslo jednotky podle katastru.');
   zkontroluj(!String(j.Cislo_LV || '').trim(), 'Číslo listu vlastnictví.');
@@ -1190,6 +1450,7 @@ function dokumentySmlouvaChybejici(ctx) {
   const zkontroluj = (podminka, veta) => { if (podminka) chybi.push(veta); };
 
   zkontroluj(!ctx.pronajimatel, 'Není vybraný pronajímatel – hlavička zůstane prázdná.');
+  zkontroluj(!ctx.najemniJednotka, 'Není vybraná nájemní jednotka – smlouva by byla na celý byt.');
   zkontroluj(!ctx.najemce, 'Nájemce není v číselníku – ve smlouvě zůstane jen jméno bez IČ a sídla.');
   zkontroluj(!String(s.Platnost_od || '').trim() || !String(s.Platnost_do || '').trim(),
     'Doba nájmu (od–do).');

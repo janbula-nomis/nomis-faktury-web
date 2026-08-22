@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.83 – 2026-08-21';
+const APP_VERZE = 'v4.85 – 2026-08-21';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -11914,6 +11914,11 @@ function otevriDodatek(j, smlouva, dodatek, zmeny) {
   const ctx = {
     jednotka: j,
     smlouva,
+    // (v4.84) Dodatek je taky dokument k jednotce - bere ji ze smlouvy,
+    // ke které patří.
+    najemniJednotky: dokumentyJednotkyBytu[j.ID] || [],
+    najemniJednotka: (dokumentyJednotkyBytu[j.ID] || [])
+      .find((n) => n.ID === String(smlouva.Najemni_jednotka_ID || '').trim()) || null,
     dodatek,
     // Do dokumentu jdou i STARÉ hodnoty - appka je zná ze smlouvy, tak je
     // vypíše vedle nových. Pro toho, kdo dodatek za rok čte, je to ten
@@ -12276,6 +12281,10 @@ async function nactiDetailyJednotky(cil, j) {
     panely.technika.innerHTML = '';
     vykresliSekciMeridla(panely.technika, j, meridla, odecty);
     vykresliSekciRevize(panely.technika, j, revize);
+
+    // (v4.84) Nájemní jednotky bytu si appka drží i mimo záložku Dokumenty -
+    // tisk dodatku je v záložce Finance a potřebuje je taky.
+    dokumentyJednotkyBytu[j.ID] = najemniJednotky;
 
     // (v4.80) Dokumenty se skládají ze všeho, co se právě načetlo.
     panely.dokumenty.innerHTML = '';
@@ -12829,54 +12838,146 @@ function vykresliSekciDokumenty(el, j, nactene) {
   radekTlacitek.appendChild(btnKarta);
 
   /*
-   * (v4.82) JEDNA ROLETKA PRO OBA PODEPISOVANÉ DOKUMENTY.
+   * (v4.84) DOKUMENT SE TVOŘÍ VŽDY K NÁJEMNÍ JEDNOTCE.
    *
-   * Do v4.81 vybíral smlouvu jen tisk smlouvy; protokol se tiskl „k bytu".
-   * U bytu rozděleného na dvě jednotky (Holečkova 1a a 1b) to znamenalo, že
-   * nájemník jednotky 1a dostal na podpis klíče i WiFi heslo od 1b - viz
-   * Jan 2026-08-21: *„klíče i wifi musí být samostatně k nájemní jednotce"*.
+   * Jan 2026-08-21: *„dokumenty tvoříme vždy jen k nájemní jednotce, ne
+   * k bytu"*. Do v4.83 se vybírala SMLOUVA a jednotka se z ní jen
+   * odvozovala - takže byt bez rozdělení tiskl dokumenty „za celý byt"
+   * a smlouva bez vyplněné jednotky taky.
    *
-   * Teď platí: **smlouva a protokol se tisknou pro TU SAMOU stranu.**
-   * Karta bytu je proti tomu interní přehled a bere všechno.
+   * Teď je jednotka vstup. Bez ní se podepisované dokumenty netisknou
+   * vůbec: plocha bytu rozděleného na 1a a 1b je součet obou a vytisknout
+   * ji do smlouvy jednotky 1a znamená pronajmout nájemníkovi dvakrát tolik
+   * metrů, než dostane.
    *
-   * U jediné smlouvy se roletka neukazuje (nabídka o jedné položce nic
-   * neříká) a u žádné se tlačítka vypnou. Vybrat za Jana, komu se
-   * předává, nepřipadá v úvahu.
+   * PROTOKOL SE TISKNE I BEZ SMLOUVY. U Jana se byt často předává dřív,
+   * než je smlouva podepsaná. Smlouva a dodatek ji naopak potřebují.
+   *
+   * KARTA BYTU je výjimka - je to interní přehled celého bytu, ne dokument
+   * pro nájemníka, a jednotku nepotřebuje.
    */
   const smlouvy = nactene.smlouvy || [];
-  const vyberSmlouvy = document.createElement('select');
-  if (smlouvy.length > 1) {
-    const wrapSml = document.createElement('div');
-    wrapSml.className = 'dokumenty-vyber';
-    const labelSml = document.createElement('label');
-    labelSml.textContent = 'Komu se předává (smlouva)';
-    vyberSmlouvy.innerHTML = smlouvy.map((sm, i) => '<option value="' + i + '">'
-      + escapeHtml((sm.Druha_strana || 'bez nájemníka')
-        + (sm.Platnost_od ? ' · od ' + sm.Platnost_od : '')) + '</option>').join('');
-    wrapSml.appendChild(labelSml);
-    wrapSml.appendChild(vyberSmlouvy);
-    wrap.insertBefore(wrapSml, radekTlacitek);
+  const najemniJednotky = nactene.najemniJednotky || [];
+
+  const vyberJednotky = document.createElement('select');
+  const wrapJed = document.createElement('div');
+  wrapJed.className = 'dokumenty-vyber';
+  const labelJed = document.createElement('label');
+  labelJed.textContent = 'Pro kterou nájemní jednotku';
+  vyberJednotky.innerHTML = najemniJednotky.map((n, i) => {
+    const smlouvaJednotky = smlouvy.find((sm) => sm.Najemni_jednotka_ID === n.ID);
+    const popis = (n.Nazev || n.Kod || '(bez názvu)')
+      + (smlouvaJednotky && smlouvaJednotky.Druha_strana ? ' · ' + smlouvaJednotky.Druha_strana : ' · bez smlouvy');
+    return '<option value="' + i + '">' + escapeHtml(popis) + '</option>';
+  }).join('');
+  wrapJed.appendChild(labelJed);
+  wrapJed.appendChild(vyberJednotky);
+  wrap.insertBefore(wrapJed, radekTlacitek);
+
+  const napovedaJed = document.createElement('p');
+  napovedaJed.className = 'popis';
+  napovedaJed.style.margin = '4px 0 0';
+  wrap.insertBefore(napovedaJed, radekTlacitek);
+
+  if (!najemniJednotky.length) {
+    wrapJed.classList.add('skryto');
+    napovedaJed.innerHTML = '<strong>Byt nemá nájemní jednotky.</strong> Smlouva, protokol '
+      + 'ani dodatek se bez ní vystavit nedají – založte ji v záložce „Nájemní jednotky“. '
+      + 'Karta bytu funguje i tak.';
+  } else {
+    napovedaJed.textContent = 'Protokol, smlouva i dodatek se vystavují na tuhle jednotku – '
+      + 'plocha, dispozice, klíče i WiFi se berou z ní.';
   }
 
-  function vybranaSmlouva() {
-    if (!smlouvy.length) return null;
-    return smlouvy[Number(vyberSmlouvy.value) || 0] || smlouvy[0];
+  function vybranaJednotka() {
+    if (!najemniJednotky.length) return null;
+    return najemniJednotky[Number(vyberJednotky.value) || 0] || najemniJednotky[0];
   }
 
   function kontextStrany() {
-    const smlouva = vybranaSmlouva();
+    const najemniJednotka = vybranaJednotka();
+    const smlouva = najemniJednotka
+      ? smlouvy.find((sm) => sm.Najemni_jednotka_ID === najemniJednotka.ID) || null
+      : null;
     return Object.assign(kontext(), {
+      najemniJednotka,
       smlouva,
       najemce: najemceSmlouvy(dokumentyNajemciSeznam, smlouva),
+    });
+  }
+
+  /*
+   * (v4.85) Ze smlouvy udělá rozvrh plateb pro platební výměr.
+   *
+   * ZÁLOHY: když je rozpis (SVJ / energie / internet / ostatní) vyplněný,
+   * jede se podle něj; jinak se vytiskne jedno číslo `Zaloha_na_sluzby`.
+   * Appka rozpis nedopočítává - rozdělit zálohu mezi položky umí jen
+   * člověk, který ví, co v ní je. Když se rozpis od `Zaloha_na_sluzby`
+   * liší, výměr to napíše a nevybere si sám, které číslo platí.
+   *
+   * SPLATNOST: `Den_splatnosti` je den v měsíci. Prázdné = 15., což je
+   * jen výchozí hodnota rozvrhu, ne tvrzení o smlouvě.
+   */
+  function kontextVymeru(zaklad) {
+    const s = zaklad.smlouva || {};
+    const n = zaklad.najemniJednotka || {};
+    const cislo = (pole) => parsujCastkuZListu(s[pole]);
+
+    const rozpis = {
+      sluzbySvj: cislo('Zaloha_svj'),
+      energie: cislo('Zaloha_energie'),
+      internet: cislo('Zaloha_internet'),
+      ostatni: cislo('Zaloha_ostatni'),
+    };
+    const maRozpis = Object.keys(rozpis).some((k) => rozpis[k] > 0);
+    const zalohaCelkem = cislo('Zaloha_na_sluzby');
+    const polozky = maRozpis
+      ? Object.assign({ najem: cislo('Cisty_najem') }, rozpis)
+      : { najem: cislo('Cisty_najem'), sluzby: zalohaCelkem };
+
+    const rozvrh = rozvrhPlateb({
+      zacatek: s.Platnost_od,
+      konec: s.Platnost_do,
+      polozky: polozky,
+      kauce: cislo('Kauce_castka'),
+      splatnostKauce: s.Kauce_splatnost,
+      denSplatnosti: s.Den_splatnosti,
+      mena: s.Mena,
+    });
+
+    if (maRozpis && zalohaCelkem) {
+      const soucetRozpisu = Object.keys(rozpis).reduce((a, k) => a + rozpis[k], 0);
+      if (Math.round(soucetRozpisu) !== Math.round(zalohaCelkem)) {
+        rozvrh.poznamky = (rozvrh.poznamky || []).concat(
+          'Rozpis záloh (' + formatCastkaSMenou(soucetRozpisu, s.Mena) + ') se nerovná '
+          + 'sjednané záloze na služby (' + formatCastkaSMenou(zalohaCelkem, s.Mena) + '). '
+          + 'Výměr počítá podle rozpisu – zkontrolujte, které číslo platí.'
+        );
+      }
+    }
+
+    // Označení platby: co je ve smlouvě, jinak „jednotka_dům" z evidence.
+    const oznaceni = String(s.Oznaceni_platby || '').trim()
+      || oznaceniZJednotky(n, j);
+    const vsZeSmlouvy = String(s.Variabilni_symbol || '').trim();
+    const vs = vsJePlatny(vsZeSmlouvy) ? vsZeSmlouvy : vsZOznaceni(oznaceni);
+
+    return Object.assign({}, zaklad, {
+      rozvrh: rozvrh,
+      vs: vs,
+      oznaceniPlatby: oznaceni,
+      ucet: (zaklad.pronajimatel || {}).Bankovni_ucet || '',
     });
   }
 
   const btnProtokol = document.createElement('button');
   btnProtokol.className = 'maly sekundarni';
   btnProtokol.textContent = 'Předávací protokol';
+  btnProtokol.disabled = !najemniJednotky.length;
+  if (btnProtokol.disabled) btnProtokol.title = 'Byt nemá nájemní jednotku, ke které by se protokol vystavil.';
   btnProtokol.onclick = () => {
     const ctx = kontextStrany();
-    otevriDokument('Předávací protokol – ' + (j.Nazev || j.Stredisko),
+    otevriDokument('Předávací protokol – ' + popisJednotkyDokumentu(j, ctx.najemniJednotka),
       dokumentPredavaciProtokol(ctx), dokumentyChybejici(ctx));
   };
   radekTlacitek.appendChild(btnProtokol);
@@ -12884,16 +12985,44 @@ function vykresliSekciDokumenty(el, j, nactene) {
   const btnSmlouva = document.createElement('button');
   btnSmlouva.className = 'maly sekundarni';
   btnSmlouva.textContent = 'Nájemní smlouva';
-  if (!smlouvy.length) {
-    btnSmlouva.disabled = true;
-    btnSmlouva.title = 'Byt nemá aktivní nájemní smlouvu, ze které by se dala vytisknout.';
-  }
   btnSmlouva.onclick = () => {
     const ctx = kontextStrany();
-    otevriDokument('Nájemní smlouva – ' + (j.Nazev || j.Stredisko),
+    if (!ctx.smlouva) {
+      alert('Tahle nájemní jednotka nemá nájemní smlouvu. Založte ji v Registru smluv '
+        + 'a v záložce Finance ji přiřaďte k jednotce.');
+      return;
+    }
+    otevriDokument('Nájemní smlouva – ' + popisJednotkyDokumentu(j, ctx.najemniJednotka),
       dokumentNajemniSmlouva(ctx), dokumentySmlouvaChybejici(ctx));
   };
+  btnSmlouva.disabled = !najemniJednotky.length;
+  if (btnSmlouva.disabled) btnSmlouva.title = 'Byt nemá nájemní jednotku, na kterou by smlouva zněla.';
   radekTlacitek.appendChild(btnSmlouva);
+
+  /*
+   * (v4.85) PLATEBNÍ VÝMĚR - příloha nájemní smlouvy.
+   *
+   * Chová se jako smlouva, ne jako protokol: bez smlouvy nemá co počítat.
+   * Nájem, zálohy ani doba nájmu odjinud než ze smlouvy nejdou a odhadovat
+   * je do dokumentu, podle kterého někdo posílá peníze, se nesmí.
+   */
+  const btnVymer = document.createElement('button');
+  btnVymer.className = 'maly sekundarni';
+  btnVymer.textContent = 'Platební výměr';
+  btnVymer.onclick = () => {
+    const zaklad = kontextStrany();
+    if (!zaklad.smlouva) {
+      alert('Tahle nájemní jednotka nemá nájemní smlouvu. Platební výměr se počítá z ní – '
+        + 'z nájemného, záloh a doby nájmu.');
+      return;
+    }
+    const ctx = kontextVymeru(zaklad);
+    otevriDokument('Platební výměr – ' + popisJednotkyDokumentu(j, ctx.najemniJednotka),
+      dokumentPlatebniVymer(ctx), dokumentyVymerChybejici(ctx));
+  };
+  btnVymer.disabled = !najemniJednotky.length;
+  if (btnVymer.disabled) btnVymer.title = 'Byt nemá nájemní jednotku, ke které by se výměr vystavil.';
+  radekTlacitek.appendChild(btnVymer);
 
   el.appendChild(wrap);
 
@@ -12923,11 +13052,42 @@ function vykresliSekciDokumenty(el, j, nactene) {
   });
 }
 
+/*
+ * Popis do názvu dokumentu. Od v4.84 se dokument vystavuje na jednotku,
+ * takže v názvu musí být vidět KTERÁ - u bytu se dvěma nájemníky by dva
+ * stejně pojmenované protokoly nešly rozeznat.
+ */
+/*
+ * (v4.85) Označení platby „01a_2236" z evidence, když ho smlouva nemá.
+ *
+ * Skládá se z kódu nájemní jednotky a čísla popisného budovy - přesně
+ * z těch dvou, ze kterých ho skládá Jan. Když jedno z nich chybí, vrátí
+ * se prázdno: vymyslet označení, podle kterého má někdo poznat platbu,
+ * je horší než ho nechat vyplnit ručně.
+ */
+function oznaceniZJednotky(najemniJednotka, byt) {
+  const kod = String((najemniJednotka || {}).Kod || (najemniJednotka || {}).Nazev || '').trim()
+    .replace(/\s+/g, '');
+  const dum = String((byt || {}).Budova_cp || '').trim();
+  if (!kod || !dum) return '';
+  const jenJednotka = kod.match(/(\d{1,3}[a-zA-Z]?)$/);
+  if (!jenJednotka) return '';
+  return jenJednotka[1] + '_' + dum;
+}
+
+function popisJednotkyDokumentu(j, najemniJednotka) {
+  const byt = j.Nazev || j.Stredisko;
+  if (!najemniJednotka) return byt;
+  return byt + ' / ' + (najemniJednotka.Nazev || najemniJednotka.Kod || '');
+}
+
 // Seznamy stran, jak je vrátilo /api/pronajimatele a /api/najemci. Drží je
 // dokumenty.js (nactiPronajimatele/nactiNajemce), tohle jsou jen odkazy
 // pro roletku a pro sestavení smlouvy.
 let dokumentyPronajimateleSeznam = [];
 let dokumentyNajemciSeznam = [];
+// Nájemní jednotky podle ID bytu - viz komentář u nactiDetailyJednotky.
+const dokumentyJednotkyBytu = {};
 
 function vykresliSekciRevize(el, j, revize) {
   const wrap = document.createElement('div');

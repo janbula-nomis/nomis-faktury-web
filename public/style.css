@@ -3020,6 +3020,36 @@ body.dokument-otevreny { overflow: hidden; }
   color: #737373;
 }
 
+/* --- Platební výměr (v4.85) --------------------------------------------
+   Deset sloupců na šířku A4. Písmo je menší než ve zbytku dokumentu -
+   jinak se tabulka nevejde a rozlomí se doprostřed čísla. Šířky jsou
+   v procentech, aby stejná tabulka fungovala i na obrazovce. */
+.vymer-tabulka { font-size: 9.5px; table-layout: fixed; }
+.vymer-tabulka th, .vymer-tabulka td { padding: 3px 4px 3px 0; }
+.vymer-tabulka th.vymer-c, .vymer-tabulka td.vymer-c { text-align: right; }
+.vymer-tabulka .vymer-obdobi { width: 15%; }
+.vymer-tabulka .vymer-c { white-space: nowrap; }
+.vymer-tabulka .vymer-celkem { width: 10%; font-weight: 700; }
+.vymer-tabulka .vymer-splatnost { width: 9%; }
+.vymer-tabulka th.vymer-qr-sl,
+.vymer-tabulka td.vymer-qr-sl { width: 13%; text-align: center; padding-right: 0; }
+.vymer-tabulka .dok-drobne { font-size: 8.5px; }
+/* Jistota je jednorázová platba, ne měsíc - odliší se plochou, ne rámečkem,
+   ať to sedí ke zbytku dokumentů. */
+.vymer-tabulka .vymer-radek-kauce td { background: #f2f5ff; }
+.vymer-tabulka .vymer-soucet td {
+  border-top: 1px solid #191919;
+  border-bottom: none;
+  padding-top: 7px;
+  font-weight: 700;
+}
+/* QR musí zůstat celý na jedné stránce i s řádkem, ke kterému patří -
+   půlka QR kódu na zlomu stránky se nenačte. */
+.vymer-tabulka tr { break-inside: avoid; page-break-inside: avoid; }
+.vymer-qr { display: inline-block; line-height: 0; }
+.vymer-qr svg { width: 52px; height: 52px; display: block; }
+.vymer-vs { font-weight: 700; letter-spacing: 0.06em; }
+
 /* Záložka Dokumenty na kartě bytu. */
 .dokumenty-vyber { margin-top: 10px; max-width: 420px; }
 .dokumenty-vyber label { display: block; font-size: 11px; color: var(--barva-text-tlumena); }
@@ -3082,6 +3112,19 @@ body.dokument-otevreny { overflow: hidden; }
     print-color-adjust: exact;
     background: #f7f8fa !important;
   }
+  /* Platební výměr. Řádek jistoty je odlišený plochou, takže při „tisku
+     bez pozadí" splyne s ostatními - a jistota je jediný řádek, který se
+     platí jednou. QR se tiskne v milimetrech, ne v pixelech: čtečka
+     potřebuje modul, který se dá zaostřit, a 62 px vyjde na tiskárně
+     jinak než na obrazovce. */
+  .vymer-tabulka .vymer-radek-kauce td {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: #f2f5ff !important;
+  }
+  .vymer-tabulka { font-size: 7.6pt; }
+  .vymer-tabulka .dok-drobne { font-size: 6.6pt; }
+  .vymer-qr svg { width: 15mm; height: 15mm; }
 }
 
 @page { size: A4; margin: 16mm; }

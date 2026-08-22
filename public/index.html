@@ -1410,6 +1410,13 @@
 <!-- (v4.81) Pevný text nájemní smlouvy - přepis Janovy vlastní smlouvy.
      Musí být PŘED dokumenty.js, který z něj skládá dokument. -->
 <script src="smlouvaText.js"></script>
+<!-- (v4.85) Rozvrh plateb a QR kód pro platební výměr. Oba musí být PŘED
+     dokumenty.js, který z nich sází přílohu smlouvy. QR se kreslí
+     v prohlížeči, ne přes /api/qr-platba: ten endpoint je vázaný na
+     schválený DOKLAD a rolí na admina/účetní, a čtrnáct volání na jeden
+     tisk by znamenalo, že výměr nejde vytisknout bez připojení. -->
+<script src="platebniVymer.js"></script>
+<script src="qrKod.js"></script>
 <script src="dokumenty.js"></script>
 </body>
 </html>
