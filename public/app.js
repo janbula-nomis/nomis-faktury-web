@@ -7,7 +7,7 @@
 
 // Zvyšte při každé odeslané aktualizaci appky, ať Jan v appce pozná, jestli
 // se mu opravdu nasadila nová verze (zobrazuje se v patičce appky).
-const APP_VERZE = 'v4.86 – 2026-08-22';
+const APP_VERZE = 'v4.87 – 2026-08-22';
 
 const STAV_KLIC = 'nomisFakturyStav';
 
@@ -9647,6 +9647,8 @@ let nemovitostiFirmySeznam = [];
 // endpointu jako sekce „Kontrola úhrady nájmu" nad seznamem - žádný druhý
 // výpočet, jen se to samé číslo zobrazí i u konkrétního bytu.
 let nemovitostiPlatbyMapa = {};
+// (v4.87) Totéž, ale klíčované ID smlouvy - viz komentář v nactiNemovitosti.
+let nemovitostiPlatbyPodleSmlouvy = {};
 let nemovitostiPlatbyMesic = '';
 
 // Duplikace stejných menších číselníků jako na backendu (appka nemá build
@@ -9703,8 +9705,14 @@ async function nactiNemovitosti() {
     ]);
 
     nemovitostiPlatbyMapa = {};
+    // (v4.87) Mapa podle SMLOUVY. `nemovitostiPlatbyMapa` je klíčovaná
+    // střediskem, takže u bytu se dvěma smlouvami si z nich pamatuje jen
+    // poslední - na sbalený řádek to stačilo, na dlaždici se stavem každé
+    // jednotky ne.
+    nemovitostiPlatbyPodleSmlouvy = {};
     (dataPlatby.radky || []).forEach((r) => {
       if (r.stredisko) nemovitostiPlatbyMapa[r.stredisko] = r;
+      if (r.smlouvaId) nemovitostiPlatbyPodleSmlouvy[r.smlouvaId] = r;
     });
     nemovitostiJednotkySeznam = dataJednotky.jednotky || [];
     nemovitostiFirmySeznam = (dataFirmy.firmy || []).map((f) => f.Nazev).filter(Boolean);
@@ -10686,6 +10694,372 @@ function radekPozornosti(p) {
     + '</div></details>';
 }
 
+/*
+ * (v4.87) ZÁLOŽKA NEMOVITOSTI: STUHA, LIŠTA, DLAŽDICE, PŘEKRYV
+ *
+ * Jan 2026-08-22: *„navrhni přehlednější a prostorově úspornější design jen
+ * části Nemovitosti, aby to vypadalo velmi kompaktně a přehledně, barevné
+ * rozlišení apod."*. Appka poslala tři varianty vykreslené na skutečných
+ * 1180 a 320 px; Jan vybral **B – dlaždice**, nástroje jako **překryv přes
+ * obrazovku** a barevné kódování **jen podle stavu**.
+ *
+ * CO USTOUPILO A PROČ
+ *
+ * Nad seznamem bylo 538 px, než začaly nemovitosti: čtyřřádkový odstavec
+ * s popisem modulu, dvě souhrnné karty (z toho jedna z poloviny prázdná)
+ * a čtyři sbalené panely pod sebou, každý zabral 78 px kvůli jednomu
+ * řádku textu. Věc, kvůli které se sem chodí - seznam bytů - začínala až
+ * pod tím vším. Teď je nad seznamem 112 px.
+ *
+ * BAREVNÝ SYSTÉM JE JEN JEDEN: STAV
+ *
+ * Barvu nese výhradně stav úhrady a obsazenosti. Druh nemovitosti barvu
+ * NEDOSTAL, i když ji dřív měl (portfolio tečky) - dvě soupeřící barevné
+ * škály vedle sebe se čtou hůř než jedna, a hlavně: appka si ty staré
+ * barvy změřila a **olivová proti oranžové má pro deuteranopii ΔE 2,3**,
+ * tedy nerozeznatelné. Kdyby se druh měl barvit, musí se odstíny nejdřív
+ * navrhnout znovu a proměřit. **Nevracet staré tečky zpátky.**
+ *
+ * KAŽDÝ STAV MÁ IKONU A SLOVO, ne jen barvu. Zelená proti jantarové má
+ * pro protanopii ΔE 7,8 - to je pásmo, kde barva sama rozhodovat nesmí.
+ * **Nikdy neposílat stav do rozhraní jen jako barevnou tečku.**
+ *
+ * TMAVÝ MOTIV MÁ VLASTNÍ ODSTÍNY (viz style.css). Ztmavené světlé by na
+ * tmavém podkladu daly 2,1-3,3 : 1; vlastní sada dává 6,3-8,3 : 1.
+ */
+
+/** Stav úhrady jedné nájemní jednotky - klíč, slovo a ikona. */
+function stavJednotky(najemniJednotka, smlouva, platba) {
+  const stav = String((najemniJednotka || {}).Stav || '').trim();
+  if (!smlouva) {
+    if (stav === 'Rekonstrukce') return { klic: 'info', popisek: 'Rekonstrukce', ikona: 'rekonstrukce' };
+    if (stav === 'Nedostupná') return { klic: 'volna', popisek: 'Nedostupná', ikona: 'prazdna' };
+    return { klic: 'volna', popisek: stav === 'Rezervovaná' ? 'Rezervovaná' : 'Volná', ikona: 'prazdna' };
+  }
+  // Se smlouvou rozhoduje úhrada. Když ji appka nezná (přehled plateb
+  // spadl), neřekne „zaplaceno" ani „nezaplaceno" - řekne, že neví.
+  if (!platba) return { klic: 'neznamy', popisek: 'Úhrada neznámá', ikona: 'otaznik' };
+  if (platba.stav === 'Zaplaceno') return { klic: 'ok', popisek: 'Zaplaceno', ikona: 'fajfka' };
+  if (platba.stav === 'Částečně') return { klic: 'pozor', popisek: 'Částečně', ikona: 'hodiny' };
+  return { klic: 'spatne', popisek: 'Nezaplaceno', ikona: 'vykricnik' };
+}
+
+const NEM_IKONY = {
+  fajfka: '<path d="M3 8.5l3.5 3.5L13 5"/>',
+  hodiny: '<circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/>',
+  vykricnik: '<circle cx="8" cy="8" r="6"/><path d="M8 5v4M8 11h.01"/>',
+  prazdna: '<rect x="3" y="3" width="10" height="10" rx="2"/>',
+  rekonstrukce: '<path d="M3 13l3-1 7-7-2-2-7 7-1 3z"/>',
+  otaznik: '<circle cx="8" cy="8" r="6"/><path d="M6.4 6.2A1.7 1.7 0 018 5.2c1 0 1.7.6 1.7 1.4 0 1.2-1.7 1.2-1.7 2.4M8 11.3h.01"/>',
+};
+
+function nemIkona(nazev) {
+  return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" '
+    + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + (NEM_IKONY[nazev] || '') + '</svg>';
+}
+
+function nemPilulka(stav, kratce) {
+  return '<span class="nem-pilulka nem-st nem-st-' + stav.klic + '">'
+    + nemIkona(stav.ikona) + escapeHtml(kratce || stav.popisek) + '</span>';
+}
+
+/* ------------------------------------------------------ stuha s čísly */
+
+/*
+ * Pět čísel na jednom řádku místo dvou karet. Měny se drží zvlášť
+ * (pravidlo appky od v4.26): nájem v Kč a v EUR se nesčítá do jednoho
+ * čísla, vypíšou se pod sebou.
+ */
+function vykresliStuhuNemovitosti() {
+  const el = document.getElementById('nemovitosti-stuha');
+  if (!el) return;
+
+  const byty = nemovitostiJednotkySeznam || [];
+  const jednotky = nemovitostiNajemniJednotkyVse || [];
+  const smlouvy = nemovitostiSmlouvySeznam.filter((s) => s.Typ === 'Nájem' && s.Aktivni !== 'NE');
+
+  const obsazene = jednotky.filter((n) => smlouvy.some((s) => s.Najemni_jednotka_ID === n.ID)).length;
+
+  const najemPodleMeny = {};
+  smlouvy.forEach((s) => {
+    const castka = parsujCastkuZListu(s.Cisty_najem) + parsujCastkuZListu(s.Zaloha_na_sluzby)
+      || parsujCastkuZListu(s.Ocekavana_castka);
+    if (!castka) return;
+    const mena = s.Mena || 'CZK';
+    najemPodleMeny[mena] = (najemPodleMeny[mena] || 0) + castka;
+  });
+
+  let hodnota = 0;
+  byty.forEach((j) => { hodnota += parsujCastkuZListu(j.Aktualni_hodnota); });
+
+  const platby = Object.values(nemovitostiPlatbyPodleSmlouvy || {});
+  const nezaplaceno = platby.filter((r) => r.stav === 'Nezaplaceno').length;
+  const castecne = platby.filter((r) => r.stav === 'Částečně').length;
+  const revizeBrzy = (nemovitostiRevizeVse || []).filter((r) => {
+    const doKdy = String(r.Platnost_do || '').trim();
+    if (!doKdy) return false;
+    const za30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    return doKdy <= za30;
+  }).length;
+
+  const bunka = (popisek, hodnotaHtml) => '<div><dt>' + escapeHtml(popisek) + '</dt><dd>' + hodnotaHtml + '</dd></div>';
+  const castky = Object.keys(najemPodleMeny).sort().map((m) =>
+    '<span class="nem-castka-radek">' + escapeHtml(formatCastkaSMenou(najemPodleMeny[m], m)) + '</span>').join('');
+
+  const pozornost = [];
+  if (nezaplaceno) {
+    pozornost.push(nemPilulka({ klic: 'spatne', ikona: 'vykricnik' },
+      nezaplaceno + '× nezaplaceno'));
+  }
+  if (castecne) {
+    pozornost.push(nemPilulka({ klic: 'pozor', ikona: 'hodiny' }, castecne + '× částečně'));
+  }
+  if (revizeBrzy) {
+    pozornost.push(nemPilulka({ klic: 'pozor', ikona: 'hodiny' }, revizeBrzy + '× revize'));
+  }
+
+  el.innerHTML = '<div class="nem-stuha">'
+    + bunka('Nemovitosti', String(byty.length)
+      + ' <span class="nem-pod">/ ' + jednotky.length + ' jednotek</span>')
+    + bunka('Obsazenost', (jednotky.length
+      ? Math.round((obsazene / jednotky.length) * 100) + ' %'
+      : '<span class="jednotka-prehled-prazdno">–</span>')
+      + ' <span class="nem-pod">' + obsazene + ' z ' + jednotky.length + '</span>')
+    + bunka('Nájem měsíčně', castky || '<span class="jednotka-prehled-prazdno">–</span>')
+    + bunka('Hodnota', hodnota
+      ? escapeHtml(formatCastkaSMenou(hodnota, 'CZK'))
+      : '<span class="jednotka-prehled-prazdno">nevyplněna</span>')
+    + bunka('Vyžaduje pozornost', pozornost.length
+      ? pozornost.join(' ')
+      : '<span class="nem-pilulka nem-st nem-st-ok">' + nemIkona('fajfka') + 'nic</span>')
+    + '</div>';
+}
+
+/* ------------------------------------------------------ lišta nástrojů */
+
+const NEM_FILTRY = [
+  { klic: 'vse', popisek: 'Vše' },
+  { klic: 'volne', popisek: 'Volné' },
+  { klic: 'nezaplacene', popisek: 'Nezaplacené' },
+];
+let nemFiltr = 'vse';
+
+const NEM_NASTROJE = [
+  { id: 'panel-pridat-jednotku', popisek: 'Přidat nemovitost', hlavni: true },
+  { id: 'panel-najemne', popisek: 'Rozpis a úhrady' },
+  { id: 'panel-kontrola-prirazeni', popisek: 'Kontrola přiřazení' },
+  { id: 'panel-kontrola-uhrady', popisek: 'Kontrola úhrad' },
+  // (v4.87) Souhrn portfolia z v4.78 se nezrušil - přestěhoval se sem.
+  // Majetek v kostce, ukazatele a „vyžaduje pozornost" jsou pořád užitečné,
+  // jen nemusí zabírat 380 px nad seznamem pokaždé, když se sem člověk
+  // podívá kvůli jednomu bytu.
+  { id: 'nemovitosti-portfolio', popisek: 'Přehled portfolia', portfolio: true },
+];
+
+function vykresliNastrojeNemovitosti() {
+  const el = document.getElementById('nemovitosti-nastroje');
+  if (!el) return;
+  el.innerHTML = '';
+  el.className = 'nem-nastroje';
+
+  NEM_NASTROJE.filter((n) => n.hlavni).forEach((n) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'nem-tlacitko nem-hlavni';
+    b.textContent = '+ ' + n.popisek.replace('Přidat ', '');
+    b.onclick = () => otevriNastroj(n.id, n.popisek);
+    el.appendChild(b);
+  });
+
+  const filtr = document.createElement('div');
+  filtr.className = 'nem-filtr';
+  NEM_FILTRY.forEach((f) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'nem-tlacitko' + (nemFiltr === f.klic ? ' zap' : '');
+    b.setAttribute('aria-pressed', nemFiltr === f.klic ? 'true' : 'false');
+    b.textContent = f.popisek;
+    b.onclick = () => { nemFiltr = f.klic; vykresliNemovitosti(); };
+    filtr.appendChild(b);
+  });
+  el.appendChild(filtr);
+
+  const oddel = document.createElement('span');
+  oddel.className = 'nem-oddel';
+  el.appendChild(oddel);
+
+  NEM_NASTROJE.filter((n) => !n.hlavni).forEach((n) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'nem-tlacitko';
+    b.textContent = n.popisek;
+    b.onclick = () => otevriNastroj(n.id, n.popisek);
+    el.appendChild(b);
+  });
+}
+
+/* ------------------------------------------------------ překryv */
+
+// Kam se má panel po zavření překryvu vrátit. Panely mají obsluhu
+// navěšenou na ID, takže se PŘESOUVAJÍ, ne kopírují - kopie by měla stejné
+// ID a `getElementById` by pak sahal na tu špatnou.
+let nemPrekryvNavrat = null;
+
+function otevriPrekryv(nadpis, uzel) {
+  const prekryv = document.getElementById('nem-prekryv');
+  const telo = document.getElementById('nem-prekryv-telo');
+  if (!prekryv || !telo) return;
+  document.getElementById('nem-prekryv-nadpis').textContent = nadpis;
+  telo.innerHTML = '';
+  telo.appendChild(uzel);
+  prekryv.classList.remove('skryto');
+  document.body.classList.add('nem-prekryv-otevreny');
+  const zavrit = document.getElementById('nem-prekryv-zavrit');
+  if (zavrit) zavrit.focus();
+}
+
+function zavriPrekryv() {
+  const prekryv = document.getElementById('nem-prekryv');
+  const telo = document.getElementById('nem-prekryv-telo');
+  if (!prekryv) return;
+  // Panel nástroje se vrací na svoje místo v DOMu i se svou obsluhou.
+  if (nemPrekryvNavrat) {
+    const { uzel, kotva } = nemPrekryvNavrat;
+    uzel.classList.add('skryto');
+    uzel.open = false;
+    if (kotva.parentNode) kotva.parentNode.insertBefore(uzel, kotva);
+    kotva.remove();
+    nemPrekryvNavrat = null;
+  }
+  if (telo) telo.innerHTML = '';
+  prekryv.classList.add('skryto');
+  document.body.classList.remove('nem-prekryv-otevreny');
+}
+
+function otevriNastroj(id, nadpis) {
+  const panel = document.getElementById(id);
+  if (!panel) return;
+  zavriPrekryv();
+  // Portfolio se počítá až tady - dokud ho nikdo nechce vidět, nemá se co
+  // překreslovat.
+  if (id === 'nemovitosti-portfolio') vykresliPortfolio();
+  const kotva = document.createElement('span');
+  kotva.className = 'skryto';
+  panel.parentNode.insertBefore(kotva, panel);
+  nemPrekryvNavrat = { uzel: panel, kotva: kotva };
+  panel.classList.remove('skryto');
+  if (panel.tagName === 'DETAILS') panel.open = true;
+  panel.classList.add('nem-panel-v-prekryvu');
+  otevriPrekryv(nadpis, panel);
+}
+
+function otevriKartuBytu(j) {
+  zavriPrekryv();
+  const karta = vytvorKartuJednotky(j);
+  karta.open = true;
+  otevriPrekryv(popisBytu(j), karta);
+  // Karta si data načítá po rozbalení; v překryvu je rozbalená hned, takže
+  // se `toggle` nespustí a musí se zavolat ručně.
+  if (karta._nemCil) nactiDetailyJednotky(karta._nemCil, j);
+}
+
+function popisBytu(j) {
+  return String(j.Nazev || '').trim() || String(j.Stredisko || '').trim() || '(bez názvu)';
+}
+
+/* ------------------------------------------------------ dlaždice */
+
+/*
+ * Jedna dlaždice = jeden byt. Nahoře pásek složený ze stavů jeho jednotek
+ * (u Holečkovy 1 tedy půl zelené, půl červené), pod ním řádek na jednotku
+ * a dole měsíční nájem.
+ *
+ * Dlaždice NEOTVÍRÁ formulář - otevírá kartu bytu v překryvu, tedy přesně
+ * to, co byla dřív rozbalená karta v seznamu. Nic se tím neztratilo, jen
+ * se to přestalo vršit pod sebe.
+ */
+function vytvorDlazdiciBytu(j) {
+  const dlazdice = document.createElement('button');
+  dlazdice.type = 'button';
+  dlazdice.className = 'nem-dlazdice';
+  dlazdice.onclick = () => otevriKartuBytu(j);
+
+  const jednotky = (nemovitostiNajemniJednotkyVse || []).filter((n) => n.Stredisko === j.Stredisko);
+  const smlouvy = najdiNajemniSmlouvy(j);
+
+  const stavy = jednotky.map((n) => {
+    const smlouva = smlouvy.find((s) => s.Najemni_jednotka_ID === n.ID) || null;
+    const platba = smlouva ? (nemovitostiPlatbyPodleSmlouvy || {})[smlouva.ID] : null;
+    return { n, smlouva, stav: stavJednotky(n, smlouva, platba) };
+  });
+
+  // Byt bez rozdělení na jednotky: appka vezme smlouvu bytu, ať dlaždice
+  // něco řekne i tam, kde se jednotky nikdy nezaložily.
+  if (!stavy.length) {
+    const smlouva = smlouvy[0] || null;
+    const platba = smlouva ? (nemovitostiPlatbyPodleSmlouvy || {})[smlouva.ID] : null;
+    stavy.push({ n: null, smlouva, stav: stavJednotky(null, smlouva, platba) });
+  }
+
+  const pas = '<div class="nem-pas">' + stavy.map((s) =>
+    '<span class="nem-st nem-st-' + s.stav.klic + '"></span>').join('') + '</div>';
+
+  const radky = stavy.map((s) => {
+    const kdo = s.smlouva
+      ? String(s.smlouva.Druha_strana || '').trim() || '(nájemce nevyplněn)'
+      : s.stav.popisek;
+    const kod = s.n ? (String(s.n.Nazev || '').trim() || String(s.n.Kod || '').trim()) : '';
+    return '<div class="nem-radek">'
+      + '<span class="nem-kdo' + (s.smlouva ? '' : ' jednotka-prehled-prazdno') + '">'
+      + (kod ? '<b>' + escapeHtml(kod) + '</b> · ' : '') + escapeHtml(kdo) + '</span>'
+      + nemPilulka(s.stav) + '</div>';
+  }).join('');
+
+  const najemPodleMeny = {};
+  smlouvy.forEach((s) => {
+    const castka = parsujCastkuZListu(s.Cisty_najem) + parsujCastkuZListu(s.Zaloha_na_sluzby)
+      || parsujCastkuZListu(s.Ocekavana_castka);
+    if (!castka) return;
+    const mena = s.Mena || 'CZK';
+    najemPodleMeny[mena] = (najemPodleMeny[mena] || 0) + castka;
+  });
+  const suma = Object.keys(najemPodleMeny).sort()
+    .map((m) => escapeHtml(formatCastkaSMenou(najemPodleMeny[m], m)))
+    .join('<br>') || '<span class="jednotka-prehled-prazdno">–</span>';
+
+  const podnadpis = [
+    jednotky.length ? jednotky.length + (jednotky.length === 1 ? ' jednotka' : ' jednotky') : 'bez jednotek',
+    String(j.Plocha_m2 || '').trim() ? String(j.Plocha_m2).trim() + ' m²' : '',
+  ].filter(Boolean).join(' · ');
+
+  dlazdice.innerHTML = pas
+    + '<span class="nem-hlava">'
+    + '<span class="nem-nazev">' + escapeHtml(popisBytu(j)) + '</span>'
+    + '<span class="nem-podnadpis">' + escapeHtml(podnadpis) + '</span></span>'
+    + '<span class="nem-telo">' + radky
+    + '<span class="nem-radek nem-suma"><span class="jednotka-prehled-prazdno">Nájem měsíčně</span>'
+    + '<span class="nem-suma-castka">' + suma + '</span></span></span>';
+
+  return dlazdice;
+}
+
+/** Projde dlaždice filtrem z lišty. */
+function projdeFiltrem(j) {
+  if (nemFiltr === 'vse') return true;
+  const jednotky = (nemovitostiNajemniJednotkyVse || []).filter((n) => n.Stredisko === j.Stredisko);
+  const smlouvy = najdiNajemniSmlouvy(j);
+  if (nemFiltr === 'volne') {
+    if (!jednotky.length) return !smlouvy.length;
+    return jednotky.some((n) => !smlouvy.some((s) => s.Najemni_jednotka_ID === n.ID));
+  }
+  // nezaplacene
+  return smlouvy.some((s) => {
+    const p = (nemovitostiPlatbyPodleSmlouvy || {})[s.ID];
+    return p && (p.stav === 'Nezaplaceno' || p.stav === 'Částečně');
+  });
+}
+
 function vykresliPortfolio() {
   const el = document.getElementById('nemovitosti-portfolio');
   if (!el) return;
@@ -10700,19 +11074,28 @@ function vykresliPortfolio() {
 }
 
 function vykresliNemovitosti() {
-  vykresliPortfolio();
+  vykresliStuhuNemovitosti();
+  vykresliNastrojeNemovitosti();
   vykresliKoncsiSmlouvy();
   const kontejner = document.getElementById('nemovitosti-seznam');
   kontejner.innerHTML = '';
 
   if (nemovitostiJednotkySeznam.length === 0) {
-    kontejner.innerHTML = '<p class="popis">Zatím žádné jednotky. Přidejte první výš ("Přidat jednotku").</p>';
+    kontejner.innerHTML = '<p class="popis">Zatím žádné nemovitosti. '
+      + 'Přidejte první tlačítkem <strong>+ nemovitost</strong> nahoře.</p>';
     return;
   }
 
-  nemovitostiJednotkySeznam.forEach((j) => {
-    kontejner.appendChild(vytvorKartuJednotky(j));
-  });
+  const vybrane = nemovitostiJednotkySeznam.filter(projdeFiltrem);
+  if (!vybrane.length) {
+    kontejner.innerHTML = '<p class="popis">Filtru neodpovídá žádná nemovitost.</p>';
+    return;
+  }
+
+  const mrizka = document.createElement('div');
+  mrizka.className = 'nem-mrizka';
+  vybrane.forEach((j) => { mrizka.appendChild(vytvorDlazdiciBytu(j)); });
+  kontejner.appendChild(mrizka);
 }
 
 // Karta bytu (přestavěná ve v4.57).
@@ -15046,6 +15429,22 @@ document.getElementById('tlacitko-pridat-jizdu').addEventListener('click', prida
 document.getElementById('tlacitko-pridat-jednotku').addEventListener('click', pridatJednotku);
 document.getElementById('tlacitko-kontrola-najmu').addEventListener('click', spustKontroluNajmu);
 document.getElementById('tlacitko-nem-platby-nacist').addEventListener('click', nactiKontrolaUhradyNajmu);
+
+/*
+ * (v4.87) Zavírání překryvu. Tři cesty ven, protože překryv přes celou
+ * obrazovku bez zjevného východu je past: tlačítko, klepnutí mimo okno
+ * a Escape.
+ */
+document.getElementById('nem-prekryv-zavrit').addEventListener('click', zavriPrekryv);
+document.getElementById('nem-prekryv').addEventListener('click', (e) => {
+  // Jen klepnutí na tmavé pozadí, ne na okno uvnitř něj.
+  if (e.target && e.target.id === 'nem-prekryv') zavriPrekryv();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const prekryv = document.getElementById('nem-prekryv');
+  if (prekryv && !prekryv.classList.contains('skryto')) zavriPrekryv();
+});
 document.getElementById('tlacitko-najemne-nacist').addEventListener('click', nactiNajemne);
 // Filtr překresluje z už načtených dat - přepnout „jen po splatnosti" nemá
 // znamenat další kolo dotazů do Sheets.

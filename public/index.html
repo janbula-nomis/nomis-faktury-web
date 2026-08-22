@@ -436,11 +436,17 @@
          řádků u ostatních záložek. -->
     <div id="zalozka-nemovitosti" class="karta skryto">
       <h2>Nemovitosti</h2>
-      <p class="popis">Jednotky (byty/nebytové prostory) navázané na středisko typu "Nemovitost" - u každé appka
-        eviduje základní údaje, nájemní smlouvu s rozpadem na čistý nájem/zálohu na služby a kauci, klíče, měřidla
-        s odečty, revize, a umí spočítat roční/koncové vyúčtování. Přístup jen pro roli admin/účetní.</p>
 
-      <details class="panel-skladaci">
+      <!-- (v4.87) Stuha s čísly + lišta nástrojů. Nahradily čtyřřádkový
+           úvodní odstavec a dvě souhrnné karty; nad seznamem tím ubylo
+           426 px (naměřeno: 538 → 112). -->
+      <div id="nemovitosti-stuha"></div>
+      <div id="nemovitosti-nastroje"></div>
+
+      <!-- Panely nástrojů. V DOMu zůstávají kvůli obsluze navěšené na ID,
+           ale nejsou vidět - otevírají se v překryvu (viz otevriNastroj
+           v app.js), který si je sem po zavření vrátí. -->
+      <details class="panel-skladaci skryto" id="panel-pridat-jednotku">
         <summary>Přidat jednotku</summary>
         <label for="nova-nem-firma">Firma</label>
         <select id="nova-nem-firma"></select>
@@ -503,7 +509,7 @@
            si vybral majetek v kostce, vybrané ukazatele a „vyžaduje
            pozornost". Zadlužení (LTV) ne: appka o úvěrech nevede nic a
            musela by si dluh vymyslet. -->
-      <div id="nemovitosti-portfolio"></div>
+      <div id="nemovitosti-portfolio" class="skryto"></div>
 
       <div id="nemovitosti-nacitani" class="nacitani">Načítám…</div>
       <!-- (v4.57) Končící nájemní smlouvy. Appka na to má všechna data od
@@ -521,7 +527,7 @@
            Předpis plateb existoval od v4.59 na backendu, ale frontend ho
            nevolal ani jednou - tohle je ta chybějící obrazovka. „Po
            splatnosti" se počítá z data, do tabulky se nezapisuje. -->
-      <details class="panel-skladaci" id="panel-najemne">
+      <details class="panel-skladaci skryto" id="panel-najemne">
         <summary>Nájemné – rozpis a úhrady (všechny byty)</summary>
         <p class="popis">Předpis plateb říká, <strong>co se mělo zaplatit a kdy</strong> – měsíc po měsíci,
           s rozpadem na čistý nájem a zálohu na služby; kauce má vlastní řádek. Přijatá platba se páruje
@@ -558,7 +564,7 @@
            potvrdíte". Appka tedy jen vypíše nálezy a u jednoznačných
            nabídne tlačítko; sama nic nepřepisuje. Logika je v
            lib/kontrolaNajmu.js, endpoint netlify/functions/kontrola-najmu.js. -->
-      <details class="panel-skladaci">
+      <details class="panel-skladaci skryto" id="panel-kontrola-prirazeni">
         <summary>Kontrola přiřazení nájmů</summary>
         <p class="popis">Appka projde přijaté nájemní platby za zvolený rok a porovná je se smlouvami –
           hledá platby na smlouvě bez nájemní jednotky, částky, které nesedí na předpis, chybějící
@@ -570,7 +576,7 @@
         <div id="kontrola-najmu-vysledek"></div>
       </details>
 
-      <details class="panel-skladaci">
+      <details class="panel-skladaci skryto" id="panel-kontrola-uhrady">
         <summary>Kontrola úhrady nájmu</summary>
         <p class="popis">Appka porovná očekávanou platbu (čistý nájem + záloha na služby) u každé aktivní
           nájemní smlouvy s tím, co k danému měsíci dorazilo. Platby <strong>přiřazuje k měsícům</strong>
@@ -581,6 +587,20 @@
         <button id="tlacitko-nem-platby-nacist">Zobrazit</button>
         <div id="nem-platby-vysledek"></div>
       </details>
+
+      <!-- (v4.87) Překryv. Janova volba: nástroje i karta bytu se otevírají
+           přes obrazovku, seznam pod nimi zůstane na svém místě a nikam se
+           neposouvá. -->
+      <div id="nem-prekryv" class="nem-prekryv skryto" role="dialog" aria-modal="true"
+           aria-labelledby="nem-prekryv-nadpis">
+        <div class="nem-prekryv-okno">
+          <div class="nem-prekryv-lista">
+            <strong id="nem-prekryv-nadpis"></strong>
+            <button type="button" id="nem-prekryv-zavrit" class="maly sekundarni">Zavřít</button>
+          </div>
+          <div class="nem-prekryv-telo" id="nem-prekryv-telo"></div>
+        </div>
+      </div>
     </div>
 
     <!-- VYDANÉ FAKTURY -->
